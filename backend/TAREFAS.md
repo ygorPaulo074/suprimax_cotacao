@@ -9,6 +9,8 @@
 - `docs/frontend-api.md`: **as rotas REST que o frontend já espera**. Se mudar algo, atualize esse documento e `frontend/src/api/`.
 - `docs/12-proxy.md` (como o backend chama o banco).
 
+As tarefas do módulo de cálculo estão em [`services/calculo/TAREFAS.md`](services/calculo/TAREFAS.md).
+
 ## Já existe
 
 `services/calculo/` com `calcularImpostoItem`, erros, constantes de regra (`regras.ts`) e testes. Use-o como modelo para as demais funções.
