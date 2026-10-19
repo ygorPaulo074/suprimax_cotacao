@@ -53,6 +53,8 @@ Comece por [`docs/README.md`](docs/README.md): índice por tema, ordem sugerida 
 
 ## Regras do repositório
 
+Guia completo para quem vai contribuir: [`CONTRIBUINDO.md`](CONTRIBUINDO.md).
+
 - `main` protegida: só entra por Pull Request, com *squash and merge*.
 - Branches: `feature/<serviço>/<tarefa>` (ex.: `feature/backend/uc01-gerar-cotacao`).
 - Toda PR cita o caso de uso (UC) implementado e atualiza o `CHANGELOG.md` do serviço.
