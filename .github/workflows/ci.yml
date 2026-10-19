@@ -1,0 +1,77 @@
+name: CI
+
+# Lint, formatação e testes (Jest) em cada PR e a cada push na main (docs/03, seção 3.3.2).
+# O deploy não está aqui: Vercel (frontend) e Render (backend e proxy) publicam sozinhos a cada merge na main.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  servico:
+    name: ${{ matrix.servico }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        servico: [frontend, backend, proxy]
+    defaults:
+      run:
+        working-directory: ${{ matrix.servico }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Enquanto o serviço não tiver package.json, os passos abaixo são pulados e o job passa.
+      - name: Verificar se o serviço já tem projeto Node
+        id: node
+        run: |
+          if [ -f package.json ]; then echo "existe=true" >> "$GITHUB_OUTPUT"; else echo "Sem package.json em ${{ matrix.servico }}; nada a validar ainda."; fi
+
+      - uses: actions/setup-node@v4
+        if: steps.node.outputs.existe == 'true'
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: ${{ matrix.servico }}/package-lock.json
+
+      - name: Instalar dependências
+        if: steps.node.outputs.existe == 'true'
+        run: npm ci
+
+      - name: Lint (ESLint)
+        if: steps.node.outputs.existe == 'true'
+        run: npm run lint --if-present
+
+      - name: Formatação (Prettier)
+        if: steps.node.outputs.existe == 'true'
+        run: npm run format:check --if-present
+
+      - name: Checagem de tipos
+        if: steps.node.outputs.existe == 'true'
+        run: npm run typecheck --if-present
+
+      - name: Testes (Jest)
+        if: steps.node.outputs.existe == 'true'
+        run: npm test --if-present -- --ci
+
+  # Job único para marcar como "required status check" na ruleset da main.
+  ci:
+    name: ci
+    needs: servico
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verificar resultado dos serviços
+        run: |
+          if [ "${{ needs.servico.result }}" != "success" ]; then
+            echo "Algum serviço falhou ou foi cancelado: ${{ needs.servico.result }}"
+            exit 1
+          fi
