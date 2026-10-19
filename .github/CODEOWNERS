@@ -1,0 +1,9 @@
+# Substituir os placeholders por @usuarios/times do GitHub.
+# O último padrão que casar prevalece, por isso os testes ficam no fim (docs/03, seção 3.3.3).
+/frontend/                    @TIME-FRONTEND
+/backend/                     @TIME-BACKEND
+/backend/database/            @RESP-BANCO-DE-DADOS
+/backend/services/calculo/    @TIME-CALCULO
+/proxy/                       @RESP-INFRA-DEVOPS
+/tests-nfr/                   @QA-NAO-FUNCIONAL
+**/*.test.ts                  @QA-FUNCIONAL

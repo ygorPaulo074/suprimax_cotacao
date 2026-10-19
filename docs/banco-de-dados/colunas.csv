@@ -1,0 +1,213 @@
+﻿tabela,ordem,coluna,tipo,pk,fk,uk,not_null,check,nullable,referencia_fk,descricao
+operador,1,id_operador,INTEGER,True,False,False,False,False,False,,Identificador do operador (auto-incremento).
+operador,2,usuario,VARCHAR(50),False,False,True,True,False,False,,Nome de usuário usado no login.
+operador,3,email,VARCHAR(120),False,False,True,True,False,False,,E-mail do usuário; recebe o link de definição e de recuperação de senha.
+operador,4,senha_hash,VARCHAR(255),False,False,False,True,False,False,,Senha armazenada de forma criptografada (RNF01).
+operador,5,perfil,VARCHAR(20),False,False,False,True,True,False,,"VENDEDOR, OPERADOR, OPERADOR_CHEFE, FISCAL, FINANCEIRO ou GESTOR."
+operador,6,status,VARCHAR(7),False,False,False,True,True,False,,ATIVO ou INATIVO. Padrão: ATIVO.
+operador,7,tentativas_login_invalidas,SMALLINT,False,False,False,True,True,False,,Contador de tentativas de login inválidas consecutivas; 0 a 3. Padrão: 0.
+operador,8,bloqueado_ate,TIMESTAMP,False,False,False,False,False,True,,Momento até o qual o login fica bloqueado; nulo quando não há bloqueio ativo.
+operador,9,token_recuperacao_senha,VARCHAR(255),False,False,True,False,False,True,,Token de redefinição de senha enviado por e-mail; nulo fora do fluxo de recuperação.
+operador,10,validade_token,TIMESTAMP,False,False,False,False,False,True,,Data e hora limite de uso do token de recuperação; nula quando não há token ativo.
+operador,11,data_cadastro,TIMESTAMP,False,False,False,True,False,False,,Data e hora de criação da conta. Padrão: momento atual.
+cliente,1,id_cliente,INTEGER,True,False,False,False,False,False,,Identificador do cliente (auto-incremento).
+cliente,2,cnpj,CHAR(14),False,False,True,True,False,False,,"CNPJ, somente dígitos."
+cliente,3,razao_social,VARCHAR(150),False,False,False,True,False,False,,Razão social.
+cliente,4,nome_fantasia,VARCHAR(150),False,False,False,False,False,True,,"Nome fantasia; opcional, usado na busca por CNPJ, razão social ou nome fantasia (UC14)."
+cliente,5,nome_contato,VARCHAR(100),False,False,False,True,False,False,,Nome do responsável/contato.
+cliente,6,telefone_contato,VARCHAR(20),False,False,False,False,False,True,,Telefone de contato.
+cliente,7,email_contato,VARCHAR(120),False,False,False,False,False,True,,E-mail de contato.
+cliente,8,tipo_unidade,VARCHAR(6),False,False,False,True,True,False,,MATRIZ ou FILIAL.
+cliente,9,status,VARCHAR(9),False,False,False,True,True,False,,"ATIVO, INATIVO ou BLOQUEADO. Padrão: ATIVO."
+cliente,10,id_operador_vendedor,INTEGER,False,True,False,True,False,False,operador (id_operador),Vendedor responsável pela carteira do cliente.
+cliente,11,aceite_lgpd,BOOLEAN,False,False,False,True,True,False,,Aceite da cláusula LGPD; só admite TRUE.
+cliente,12,data_aceite_lgpd,TIMESTAMP,False,False,False,True,False,False,,Data e hora do aceite da cláusula LGPD.
+cliente,13,data_cadastro,TIMESTAMP,False,False,False,True,False,False,,Data e hora do cadastro. Padrão: momento atual.
+endereco_cliente,1,id_endereco,INTEGER,True,False,False,False,False,False,,Identificador do endereço (auto-incremento).
+endereco_cliente,2,id_cliente,INTEGER,False,True,False,True,False,False,cliente (id_cliente),Cliente dono do endereço.
+endereco_cliente,3,tipo,VARCHAR(10),False,False,False,True,True,False,,CADASTRAL ou ENTREGA.
+endereco_cliente,4,logradouro,VARCHAR(150),False,False,False,True,False,False,,"Rua, avenida etc."
+endereco_cliente,5,numero,VARCHAR(10),False,False,False,True,False,False,,Número (aceita 'S/N').
+endereco_cliente,6,complemento,VARCHAR(60),False,False,False,False,False,True,,Complemento.
+endereco_cliente,7,bairro,VARCHAR(80),False,False,False,True,False,False,,Bairro.
+endereco_cliente,8,cidade,VARCHAR(80),False,False,False,True,False,False,,Cidade.
+endereco_cliente,9,uf,CHAR(2),False,False,False,True,False,False,,Unidade da federação.
+endereco_cliente,10,cep,CHAR(8),False,False,False,True,False,False,,"CEP, somente dígitos."
+produto,1,id_produto,INTEGER,True,False,False,False,False,False,,Identificador do produto (auto-incremento).
+produto,2,codigo_interno,VARCHAR(30),False,False,True,True,False,False,,Código interno do produto.
+produto,3,descricao,VARCHAR(200),False,False,False,True,False,False,,Descrição do produto.
+produto,4,ncm,CHAR(8),False,False,False,False,False,True,,Classificação fiscal NCM; nulo quando não aplicável.
+produto,5,ean,VARCHAR(14),False,False,True,False,False,True,,Código de barras (EAN/GTIN); opcional.
+produto,6,categoria,VARCHAR(60),False,False,False,False,False,True,,Categoria/departamento do produto (UC15); opcional.
+produto,7,ativo,BOOLEAN,False,False,False,True,False,False,,FALSE para produto descontinuado. Padrão: TRUE.
+variacao_produto,1,id_variacao,INTEGER,True,False,False,False,False,False,,Identificador da variação (auto-incremento).
+variacao_produto,2,id_produto,INTEGER,False,True,False,True,False,False,produto (id_produto),Produto ao qual a variação pertence.
+variacao_produto,3,marca,VARCHAR(60),False,False,False,True,False,False,,Marca.
+variacao_produto,4,tamanho_embalagem,VARCHAR(40),False,False,False,True,False,False,,"Tamanho ou embalagem (ex.: 1 kg, 5 kg)."
+variacao_produto,5,quantidade_estoque,INTEGER,False,False,False,True,True,False,,Quantidade em estoque físico à pronta entrega; maior ou igual a zero. Padrão: 0.
+faixa_preco,1,id_faixa_preco,INTEGER,True,False,False,False,False,False,,Identificador da faixa (auto-incremento).
+faixa_preco,2,id_variacao,INTEGER,False,True,False,True,False,False,variacao_produto (id_variacao),Variação à qual a faixa pertence.
+faixa_preco,3,quantidade_minima,INTEGER,False,False,False,True,True,False,,Quantidade mínima para a faixa se aplicar; maior que zero.
+faixa_preco,4,preco_unitario,"DECIMAL(12,2)",False,False,False,True,True,False,,Preço unitário nessa faixa; maior ou igual a zero.
+fardo,1,id_fardo,INTEGER,True,False,False,False,False,False,,Identificador do fardo (auto-incremento).
+fardo,2,id_variacao,INTEGER,False,True,False,True,False,False,variacao_produto (id_variacao),Variação à qual o fardo pertence.
+fardo,3,quantidade_unidades,INTEGER,False,False,False,True,True,False,,Quantidade de unidades por fardo; maior que zero.
+fardo,4,preco_fixo,"DECIMAL(12,2)",False,False,False,True,True,False,,Preço fixo do fardo; maior ou igual a zero.
+orcamento,1,id_orcamento,INTEGER,True,False,False,False,False,False,,Identificador interno do orçamento (auto-incremento).
+orcamento,2,numero_orcamento,BIGINT,False,False,True,False,True,True,,"Número sequencial único e crescente (mínimo de 5 dígitos na exibição, sem limite superior), sem vínculo com a data. Vem de uma sequence e é atribuído na emissão; nulo em rascunho."
+orcamento,3,id_cliente,INTEGER,False,True,False,True,False,False,cliente (id_cliente),Cliente do orçamento.
+orcamento,4,id_operador,INTEGER,False,True,False,True,False,False,operador (id_operador),Operador (Sistema 2) responsável pelo orçamento.
+orcamento,5,id_endereco_entrega,INTEGER,False,True,False,False,False,True,endereco_cliente (id_endereco),Local de entrega escolhido; opcional.
+orcamento,6,id_pedido,INTEGER,False,True,False,False,False,True,pedido (id_pedido),Pedido do Sistema 1 que originou o orçamento; opcional.
+orcamento,7,id_orcamento_origem,INTEGER,False,True,False,False,False,True,orcamento (id_orcamento),"Orçamento original, quando este é uma nova versão criada por pedido de alteração; opcional."
+orcamento,8,data_criacao,TIMESTAMP,False,False,False,True,False,False,,Data e hora de criação do rascunho. Padrão: momento atual.
+orcamento,9,data_ultima_edicao,TIMESTAMP,False,False,False,True,False,False,,Data e hora da última edição; base da expiração de 30 dias do rascunho. Padrão: momento atual.
+orcamento,10,data_encerramento,TIMESTAMP,False,False,False,False,False,True,,"Data e hora em que o orçamento saiu de aberto (aceito, recusado, cancelado, substituído ou expirado); base do apagamento do rascunho expirado 30 dias depois."
+orcamento,11,data_emissao,DATE,False,False,False,False,True,True,,"Data de emissão, definida na emissão; nula em rascunho."
+orcamento,12,data_validade,DATE,False,False,False,False,True,True,,Data de validade; igual à emissão + 30 dias; nula em rascunho.
+orcamento,13,status,VARCHAR(20),False,False,False,True,True,False,,"RASCUNHO, PENDENTE_CREDITO, ABERTO, ALTERACAO_SOLICITADA, ACEITO, RECUSADO, CANCELADO, SUBSTITUIDO ou EXPIRADO (ver seção 4.6). Padrão: RASCUNHO."
+orcamento,14,motivo_expiracao,VARCHAR(10),False,False,False,False,True,True,,Preenchido quando status = EXPIRADO: RASCUNHO (30 dias sem edição) ou VALIDADE (30 dias após a emissão).
+orcamento,15,numero_solicitacao_compra,VARCHAR(30),False,False,False,False,False,True,,Número da solicitação de compra do cliente.
+orcamento,16,contato_solicitacao,VARCHAR(100),False,False,False,False,False,True,,Contato específico do cliente vinculado ao orçamento.
+orcamento,17,prazo_entrega_dias,SMALLINT,False,False,False,False,True,True,,"Prazo de entrega em dias, exibido no PDF; maior que zero."
+orcamento,18,primeira_compra,BOOLEAN,False,False,False,True,False,False,,"TRUE quando é a primeira compra do cliente (pagamento 100% adiantado); definido pelo backend na abertura do orçamento, a partir do histórico de compras fechadas. Padrão: FALSE."
+orcamento,19,condicao_pagamento,VARCHAR(16),False,False,False,False,True,True,,"ADIANTADO_100, BOLETO, PARCELADO ou ADIANTADO_50_50 (crédito reprovado); nulo em rascunho."
+orcamento,20,prazo_dias,SMALLINT,False,False,False,False,True,True,,"Prazo do boleto em dias corridos: 10, 15, 20, 28 ou 30; obrigatório quando condicao_pagamento = BOLETO e nulo nos demais casos."
+orcamento,21,numero_parcelas,SMALLINT,False,False,False,False,True,True,,"Número de parcelas, maior que 1; obrigatório quando condicao_pagamento = PARCELADO e nulo nos demais casos."
+orcamento,22,modalidade_frete,VARCHAR(3),False,False,False,False,True,True,,"CIF (a partir de R$ 1.500,00 ou CIF contratual) ou FOB (abaixo de R$ 1.500,00); nulo em rascunho."
+orcamento,23,origem_transportadora,VARCHAR(9),False,False,False,False,True,True,,SUPRIMAX (frete cotado pela SupriMax) ou CLIENTE (transportadora indicada pelo cliente); preenchido só quando modalidade_frete = FOB.
+orcamento,24,transportadora,VARCHAR(100),False,False,False,False,False,True,,"Nome da transportadora, quando o frete FOB é cotado ou indicado; opcional."
+orcamento,25,valor_frete,"DECIMAL(12,2)",False,False,False,False,True,True,,"Valor do frete destacado no orçamento e na nota fiscal; maior ou igual a zero; nulo quando CIF, quando a transportadora é do cliente ou enquanto o frete não foi cotado."
+orcamento,26,frete_provisorio,BOOLEAN,False,False,False,True,False,False,,"TRUE quando o frete FOB ainda não foi cotado com a transportadora; o orçamento sinaliza a provisoriedade (UC18, E3). Padrão: FALSE."
+orcamento,27,valor_total_itens,"DECIMAL(12,2)",False,False,False,False,True,True,,"Soma de valor_total_item das linhas (com imposto, sem frete); base de comparação dos limites comerciais. Gravado na emissão; nulo em rascunho."
+orcamento,28,valor_total_imposto,"DECIMAL(12,2)",False,False,False,False,True,True,,Soma de valor_imposto das linhas. Gravado na emissão; nulo em rascunho.
+orcamento,29,valor_total_proposta,"DECIMAL(12,2)",False,False,False,False,True,True,,Valor total da proposta: valor_total_itens + valor_frete (quando destacado). Gravado na emissão; nulo em rascunho.
+orcamento,30,justificativa,TEXT,False,False,False,False,False,True,,Motivo do cancelamento/recusa; opcional (aceita nulo ou vazio).
+orcamento,31,chave_seguranca,VARCHAR(64),False,False,True,False,False,True,,Hash/código antifraude gerado na emissão; nulo enquanto for rascunho.
+item_orcamento,1,id_item,INTEGER,True,False,False,False,False,False,,Identificador do item (auto-incremento).
+item_orcamento,2,id_orcamento,INTEGER,False,True,False,True,False,False,orcamento (id_orcamento),Orçamento a que o item pertence.
+item_orcamento,3,id_variacao,INTEGER,False,True,False,True,False,False,variacao_produto (id_variacao),Variação de produto cotada.
+item_orcamento,4,granularidade,VARCHAR(6),False,False,False,True,True,False,,FARDO ou AVULSO.
+item_orcamento,5,id_fardo,INTEGER,False,True,False,False,True,True,fardo (id_fardo),"Fardo escolhido; obrigatório quando granularidade = FARDO, nulo quando AVULSO."
+item_orcamento,6,quantidade_fardos,INTEGER,False,False,False,False,True,True,,"Quantidade de fardos, sempre inteira e maior que zero; só quando granularidade = FARDO."
+item_orcamento,7,id_faixa_preco,INTEGER,False,True,False,False,True,True,faixa_preco (id_faixa_preco),"Faixa de preço aplicada; obrigatória quando granularidade = AVULSO, nula quando FARDO."
+item_orcamento,8,quantidade_avulsa,INTEGER,False,False,False,False,True,True,,"Quantidade avulsa, maior que zero; só quando granularidade = AVULSO."
+item_orcamento,9,preco_unitario_aplicado,"DECIMAL(12,2)",False,False,False,True,True,False,,"Preço unitário efetivamente aplicado (do fardo ou da faixa), congelado na inclusão."
+item_orcamento,10,valor_imposto,"DECIMAL(12,2)",False,False,False,True,True,False,,Valor do imposto de 18% sobre o valor do item.
+item_orcamento,11,valor_total_item,"DECIMAL(12,2)",False,False,False,True,True,False,,"Valor do item, já com o imposto incluso."
+item_orcamento,12,aprovacao_herdada,BOOLEAN,False,False,False,True,False,False,,TRUE quando o item foi copiado de uma versão anterior já aprovada e não foi alterado; a aprovação exige nova confirmação do cliente. Padrão: FALSE.
+reserva_estoque,1,id_reserva,INTEGER,True,False,False,False,False,False,,Identificador da reserva (auto-incremento).
+reserva_estoque,2,id_item,INTEGER,False,True,True,True,False,False,item_orcamento (id_item),Item de orçamento ao qual a reserva pertence (1:1).
+reserva_estoque,3,quantidade_reservada,INTEGER,False,False,False,True,True,False,,Quantidade reservada em unidades físicas; maior que zero.
+reserva_estoque,4,status,VARCHAR(10),False,False,False,True,True,False,,"CONFIRMADA (vigente, criada na emissão), BAIXADA (aceite consolidado; estoque físico baixado), LIBERADA (cancelamento, recusa, substituição ou item não aprovado) ou EXPIRADA (validade vencida). Padrão: CONFIRMADA."
+reserva_estoque,5,data_expiracao,DATE,False,False,False,True,False,False,,Data em que a reserva expira; igual à data_validade do orçamento.
+anexo_orcamento,1,id_anexo,INTEGER,True,False,False,False,False,False,,Identificador do anexo (auto-incremento).
+anexo_orcamento,2,id_orcamento,INTEGER,False,True,False,True,False,False,orcamento (id_orcamento),Orçamento a que o anexo pertence.
+anexo_orcamento,3,tipo_anexo,VARCHAR(20),False,False,False,True,True,False,,DESCRITIVO_TECNICO ou MATERIAL_APOIO.
+anexo_orcamento,4,nome_arquivo,VARCHAR(255),False,False,False,True,False,False,,Nome original do arquivo.
+anexo_orcamento,5,caminho_arquivo,VARCHAR(500),False,False,False,True,False,False,,Caminho/URL do arquivo no armazenamento.
+anexo_orcamento,6,tamanho_bytes,BIGINT,False,False,False,False,False,True,,"Tamanho do arquivo, exibido na lista de anexos."
+anexo_orcamento,7,data_anexo,TIMESTAMP,False,False,False,True,False,False,,Data e hora do anexo. Padrão: momento atual.
+analise_credito,1,id_analise,INTEGER,True,False,False,False,False,False,,Identificador da análise (auto-incremento).
+analise_credito,2,id_cliente,INTEGER,False,True,False,True,False,False,cliente (id_cliente),Cliente analisado.
+analise_credito,3,id_orcamento,INTEGER,False,True,False,False,False,True,orcamento (id_orcamento),Orçamento que motivou a análise; opcional.
+analise_credito,4,data_solicitacao,DATE,False,False,False,True,False,False,,Data de abertura da análise. Padrão: data atual.
+analise_credito,5,resultado,VARCHAR(9),False,False,False,False,True,True,,APROVADO ou REPROVADO; nulo enquanto pendente.
+analise_credito,6,data_analise,DATE,False,False,False,False,True,True,,Data da conclusão; nula enquanto pendente.
+analise_credito,7,id_operador_fiscal,INTEGER,False,True,False,False,False,True,operador (id_operador),Usuário (perfil FISCAL) que registrou o resultado; nulo enquanto pendente.
+documento_analise_credito,1,id_documento,INTEGER,True,False,False,False,False,False,,Identificador do documento (auto-incremento).
+documento_analise_credito,2,id_analise,INTEGER,False,True,False,True,False,False,analise_credito (id_analise),Análise de crédito a que o documento pertence.
+documento_analise_credito,3,tipo_documento,VARCHAR(25),False,False,False,True,True,False,,"CONTRATO_SOCIAL, BALANCO_LUCRO, COMPROVANTE_ENDERECO, DOCUMENTO_PROPRIETARIO, NOTA_FISCAL_COMPRA ou REFERENCIA_COMERCIAL."
+documento_analise_credito,4,nome_arquivo,VARCHAR(255),False,False,False,True,False,False,,Nome original do arquivo.
+documento_analise_credito,5,caminho_arquivo,VARCHAR(500),False,False,False,True,False,False,,Caminho/URL do arquivo no armazenamento.
+documento_analise_credito,6,data_recebimento,DATE,False,False,False,True,False,False,,Data de recebimento. Padrão: data atual.
+divida_inadimplencia,1,id_divida,INTEGER,True,False,False,False,False,False,,Identificador da dívida (auto-incremento).
+divida_inadimplencia,2,id_cliente,INTEGER,False,True,False,True,False,False,cliente (id_cliente),Cliente devedor.
+divida_inadimplencia,3,id_operador_registro,INTEGER,False,True,False,True,False,False,operador (id_operador),Usuário (perfil FINANCEIRO) que registrou a dívida.
+divida_inadimplencia,4,valor_divida,"DECIMAL(12,2)",False,False,False,True,True,False,,Valor da dívida; maior que zero.
+divida_inadimplencia,5,status,VARCHAR(12),False,False,False,True,True,False,,"EM_ABERTO, RENEGOCIADA, QUITADA ou PROTESTADA. Padrão: EM_ABERTO."
+divida_inadimplencia,6,data_vencimento_original,DATE,False,False,False,True,False,False,,Data de vencimento original da dívida.
+divida_inadimplencia,7,data_renegociacao,DATE,False,False,False,False,True,True,,Data da renegociação; preenchida junto com valor_pago_renegociacao.
+divida_inadimplencia,8,valor_pago_renegociacao,"DECIMAL(12,2)",False,False,False,False,True,True,,Valor pago na renegociação; mínimo 50% de valor_divida.
+divida_inadimplencia,9,data_protesto,DATE,False,False,False,False,True,True,,"Data do protesto; só preenchida quando status = PROTESTADA, após 60 dias de atraso."
+historico_orcamento,1,id_historico,INTEGER,True,False,False,False,False,False,,Identificador do registro (auto-incremento).
+historico_orcamento,2,id_orcamento,INTEGER,False,True,False,True,False,False,orcamento (id_orcamento),Orçamento acompanhado.
+historico_orcamento,3,id_operador,INTEGER,False,True,False,False,False,True,operador (id_operador),Autor do registro; nulo em ações automáticas do sistema.
+historico_orcamento,4,tipo_evento,VARCHAR(20),False,False,False,True,True,False,,MUDANCA_STATUS ou ATUALIZACAO_FOLLOWUP.
+historico_orcamento,5,status_anterior,VARCHAR(20),False,False,False,False,False,True,,Status antes do evento.
+historico_orcamento,6,status_novo,VARCHAR(20),False,False,False,True,False,False,,Status depois do evento (igual ao anterior quando o status é mantido).
+historico_orcamento,7,observacao,TEXT,False,False,False,False,False,True,,Observação livre do vendedor/operador.
+historico_orcamento,8,data_registro,TIMESTAMP,False,False,False,True,False,False,,Data e hora do registro. Padrão: momento atual.
+entrada_mercadoria,1,id_entrada,INTEGER,True,False,False,False,False,False,,Identificador da entrada (auto-incremento).
+entrada_mercadoria,2,id_variacao,INTEGER,False,True,False,True,False,False,variacao_produto (id_variacao),Variação de produto recebida.
+entrada_mercadoria,3,id_fornecedor,INTEGER,False,True,False,True,False,False,fornecedor (id_fornecedor),Fornecedor que entregou a mercadoria.
+entrada_mercadoria,4,id_operador,INTEGER,False,True,False,True,False,False,operador (id_operador),Operador que registrou a entrada.
+entrada_mercadoria,5,numero_cotacao_compra,VARCHAR(30),False,False,False,False,False,True,,Referência da cotação de compra (fluxo externo ao Sistema 2).
+entrada_mercadoria,6,quantidade_comprada,INTEGER,False,False,False,True,True,False,,Quantidade comprada junto ao fornecedor; maior que zero.
+entrada_mercadoria,7,quantidade_informada,INTEGER,False,False,False,True,True,False,,Quantidade digitada pelo operador; maior que zero.
+entrada_mercadoria,8,data_entrada,TIMESTAMP,False,False,False,True,False,False,,Data e hora da entrada. Padrão: momento atual.
+entrada_mercadoria,9,id_operador_liberacao,INTEGER,False,True,False,False,False,True,operador (id_operador),Operador chefe que liberou a divergência; nulo se não houve divergência.
+entrada_mercadoria,10,data_liberacao,TIMESTAMP,False,False,False,False,True,True,,Data e hora da liberação; obrigatória se houve divergência.
+fornecedor,1,id_fornecedor,INTEGER,True,False,False,False,False,False,,Identificador do fornecedor (auto-incremento).
+fornecedor,2,cnpj,CHAR(14),False,False,True,True,False,False,,"CNPJ, somente dígitos."
+fornecedor,3,razao_social,VARCHAR(150),False,False,False,True,False,False,,Razão social.
+fornecedor,4,nome_contato,VARCHAR(100),False,False,False,False,False,True,,Nome do contato.
+fornecedor,5,telefone_contato,VARCHAR(20),False,False,False,False,False,True,,Telefone de contato.
+fornecedor,6,email_contato,VARCHAR(120),False,False,False,False,False,True,,E-mail de contato.
+fornecedor,7,data_cadastro,TIMESTAMP,False,False,False,True,False,False,,Data e hora do cadastro. Padrão: momento atual.
+pedido,1,id_pedido,INTEGER,True,False,False,False,False,False,,Identificador do pedido (auto-incremento).
+pedido,2,id_cliente,INTEGER,False,True,False,True,False,False,cliente (id_cliente),Cliente do pedido.
+pedido,3,id_operador_vendedor,INTEGER,False,True,False,True,False,False,operador (id_operador),Vendedor que registrou o pedido no Sistema 1.
+pedido,4,id_endereco_entrega,INTEGER,False,True,False,False,False,True,endereco_cliente (id_endereco),Local de entrega desejado; opcional.
+pedido,5,numero_solicitacao_compra,VARCHAR(30),False,False,False,False,False,True,,Número da solicitação de compra do cliente.
+pedido,6,contato_solicitacao,VARCHAR(100),False,False,False,False,False,True,,Contato específico do cliente.
+pedido,7,condicao_pagamento_desejada,VARCHAR(16),False,False,False,False,True,True,,"ADIANTADO_100, BOLETO, PARCELADO ou ADIANTADO_50_50; opcional. A condição efetiva é definida pelo Sistema 2 conforme a seção 4."
+pedido,8,prazo_dias_desejado,SMALLINT,False,False,False,False,True,True,,"Prazo de boleto desejado (10, 15, 20, 28 ou 30 dias); opcional."
+pedido,9,numero_parcelas_desejado,SMALLINT,False,False,False,False,True,True,,Número de parcelas desejado (maior que 1); opcional.
+pedido,10,transportadora_indicada,VARCHAR(100),False,False,False,False,False,True,,"Transportadora indicada pelo cliente (frete FOB), se houver; opcional."
+pedido,11,observacoes,TEXT,False,False,False,False,False,True,,Observações do vendedor para o operador; opcional.
+pedido,12,status,VARCHAR(12),False,False,False,True,True,False,,"SOLICITADO, EM_ANALISE, APROVADO, NEGADO ou CANCELADO. Padrão: SOLICITADO."
+pedido,13,motivo_negativa,TEXT,False,False,False,False,True,True,,Motivo da negativa do pedido; obrigatório quando status = NEGADO.
+pedido,14,id_operador_atendimento,INTEGER,False,True,False,False,False,True,operador (id_operador),Operador do Sistema 2 que assumiu o pedido para análise; nulo até então.
+pedido,15,data_solicitacao,TIMESTAMP,False,False,False,True,False,False,,Data e hora do registro. Padrão: momento atual.
+pedido,16,data_decisao,TIMESTAMP,False,False,False,False,False,True,,Data e hora da aprovação (emissão do orçamento) ou da negativa; nula até a decisão.
+item_pedido,1,id_item_pedido,INTEGER,True,False,False,False,False,False,,Identificador do item do pedido (auto-incremento).
+item_pedido,2,id_pedido,INTEGER,False,True,False,True,False,False,pedido (id_pedido),Pedido a que o item pertence.
+item_pedido,3,id_variacao,INTEGER,False,True,False,True,False,False,variacao_produto (id_variacao),Variação de produto desejada.
+item_pedido,4,granularidade,VARCHAR(6),False,False,False,True,True,False,,FARDO ou AVULSO.
+item_pedido,5,id_fardo,INTEGER,False,True,False,False,True,True,fardo (id_fardo),"Fardo desejado; obrigatório quando granularidade = FARDO, nulo quando AVULSO."
+item_pedido,6,quantidade_solicitada,INTEGER,False,False,False,True,True,False,,Quantidade de fardos ou de unidades avulsas; maior que zero.
+resposta_orcamento,1,id_resposta,INTEGER,True,False,False,False,False,False,,Identificador da resposta (auto-incremento).
+resposta_orcamento,2,id_orcamento,INTEGER,False,True,False,True,False,False,orcamento (id_orcamento),Orçamento respondido.
+resposta_orcamento,3,tipo_resposta,VARCHAR(10),False,False,False,True,True,False,,"ITENS (aprovação por item), RECUSA ou ALTERACAO."
+resposta_orcamento,4,status_resposta,VARCHAR(20),False,False,False,True,True,False,,"PENDENTE (gravada pelo Sistema 1), CONSOLIDADA (processada), AGUARDA_OPERADOR (exige tratamento) ou TRATADA (operador concluiu). Padrão: PENDENTE."
+resposta_orcamento,5,motivo_tratamento,VARCHAR(22),False,False,False,False,True,True,,"Preenchido quando AGUARDA_OPERADOR: RECUSA, ALTERACAO, ITENS_NAO_APROVADOS ou ABAIXO_DO_MINIMO."
+resposta_orcamento,6,justificativa,TEXT,False,False,False,False,False,True,,Motivo da recusa ou do pedido de alteração; opcional (aceita nulo ou vazio).
+resposta_orcamento,7,id_operador_vendedor,INTEGER,False,True,False,True,False,False,operador (id_operador),Vendedor que registrou a resposta no Sistema 1.
+resposta_orcamento,8,data_resposta,TIMESTAMP,False,False,False,True,False,False,,Data e hora do registro. Padrão: momento atual.
+resposta_orcamento,9,data_processamento,TIMESTAMP,False,False,False,False,False,True,,Data e hora do processamento pelo Sistema 2; nula enquanto PENDENTE.
+resposta_orcamento,10,id_operador_tratamento,INTEGER,False,True,False,False,False,True,operador (id_operador),Operador que tratou a resposta; nulo enquanto não tratada.
+resposta_orcamento,11,data_tratamento,TIMESTAMP,False,False,False,False,False,True,,Data e hora do tratamento; nula enquanto não tratada.
+resposta_orcamento,12,valor_total_itens_aprovado,"DECIMAL(12,2)",False,False,False,False,True,True,,"Soma dos totais dos itens aprovados, com imposto e sem frete; preenchida no processamento."
+resposta_orcamento,13,valor_total_imposto_aprovado,"DECIMAL(12,2)",False,False,False,False,True,True,,Soma do imposto dos itens aprovados.
+resposta_orcamento,14,modalidade_frete_aceita,VARCHAR(3),False,False,False,False,True,True,,"CIF ou FOB, calculada sobre o total aceito; preenchida somente quando todos os itens estão aprovados."
+resposta_orcamento,15,valor_frete_aceito,"DECIMAL(12,2)",False,False,False,False,True,True,,Frete destacado sobre o total aceito; nulo quando CIF ou provisório.
+resposta_orcamento,16,valor_total_aceito,"DECIMAL(12,2)",False,False,False,False,True,True,,Valor final do orçamento aceito: itens aprovados + frete; preenchido no ACEITO. Base de “fechados no dia” e do faturamento (RF17).
+item_resposta_orcamento,1,id_item_resposta,INTEGER,True,False,False,False,False,False,,Identificador do item da resposta (auto-incremento).
+item_resposta_orcamento,2,id_resposta,INTEGER,False,True,False,True,False,False,resposta_orcamento (id_resposta),Resposta a que o item pertence.
+item_resposta_orcamento,3,id_item,INTEGER,False,True,False,True,False,False,item_orcamento (id_item),Item do orçamento respondido.
+item_resposta_orcamento,4,quantidade_aprovada,INTEGER,False,False,False,True,True,False,,Quantidade (de fardos ou avulsa) aprovada; de 0 até a quantidade cotada. Zero equivale a item não aprovado.
+item_resposta_orcamento,5,situacao,VARCHAR(12),False,False,False,True,True,False,,APROVADO ou NAO_APROVADO.
+item_resposta_orcamento,6,id_faixa_preco_aceita,INTEGER,False,True,False,False,False,True,faixa_preco (id_faixa_preco),Faixa de preço reaplicada à quantidade aprovada (itens AVULSO); preenchida na consolidação.
+item_resposta_orcamento,7,preco_unitario_aceito,"DECIMAL(12,2)",False,False,False,False,True,True,,Preço unitário aplicado à quantidade aprovada; preenchido na consolidação.
+item_resposta_orcamento,8,valor_imposto_aceito,"DECIMAL(12,2)",False,False,False,False,True,True,,"Imposto de 18% sobre o valor da linha aprovada, arredondado uma única vez por linha."
+item_resposta_orcamento,9,valor_total_item_aceito,"DECIMAL(12,2)",False,False,False,False,True,True,,"Valor do item aprovado, já com o imposto incluso."
+movimentacao_estoque,1,id_movimentacao,INTEGER,True,False,False,False,False,False,,Identificador da movimentação (auto-incremento).
+movimentacao_estoque,2,id_variacao,INTEGER,False,True,False,True,False,False,variacao_produto (id_variacao),Variação de produto movimentada.
+movimentacao_estoque,3,tipo,VARCHAR(7),False,False,False,True,True,False,,"ENTRADA, BAIXA, AJUSTE ou ESTORNO."
+movimentacao_estoque,4,quantidade,INTEGER,False,False,False,True,True,False,,"Quantidade em unidades físicas, diferente de zero: positiva soma ao estoque, negativa subtrai (a BAIXA é sempre negativa)."
+movimentacao_estoque,5,id_operador,INTEGER,False,True,False,False,False,True,operador (id_operador),Usuário que originou a movimentação; nulo nas baixas automáticas do aceite.
+movimentacao_estoque,6,id_orcamento,INTEGER,False,True,False,False,False,True,orcamento (id_orcamento),Orçamento que originou a BAIXA; opcional.
+movimentacao_estoque,7,id_entrada,INTEGER,False,True,False,False,False,True,entrada_mercadoria (id_entrada),Entrada de mercadoria que originou a ENTRADA; opcional.
+movimentacao_estoque,8,motivo,TEXT,False,False,False,False,True,True,,Motivo da movimentação; obrigatório no AJUSTE.
+movimentacao_estoque,9,data_movimentacao,TIMESTAMP,False,False,False,True,False,False,,Data e hora da movimentação. Padrão: momento atual.
