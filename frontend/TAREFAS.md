@@ -8,7 +8,8 @@ Origem: o protótipo do Figma foi trazido para `frontend/` e reconstruído como 
 - [x] Vite + React 19 + Tailwind 4 (tokens de cor e Poppins em `src/index.css`), sem os plugins do Figma Make.
 - [x] ESLint, Prettier, Jest e `typecheck` com os scripts que o CI chama.
 - [x] Removidos `.figma/`, `.mise.toml`, `AGENTS.md`, o `CLAUDE.md` do protótipo e o `.docx` da Rev3.
-- [ ] Confirmar no GitHub que o job `frontend` do CI passa (Node 20.19+ por causa do Vite 8).
+- [x] O job `frontend` do CI passa no GitHub (confirmado no PR #1).
+- [x] `frontend/.env` local criado com `VITE_API_URL=http://localhost:3000`.
 - [ ] Publicar na Vercel (variável `VITE_API_URL`; o `vercel.json` já faz o fallback de SPA).
 - [ ] Hospedar a fonte Poppins localmente (hoje vem do Google Fonts).
 

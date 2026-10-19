@@ -7,7 +7,8 @@
 - `docs/11-backend-e-modulo-de-calculo.md`: regras do backend (11.3), componentes (11.4) e **módulo de cálculo (11.6)**.
 - `docs/04-regras-de-negocio.md` (regras, status e transições) e `docs/05-casos-de-uso.md` (UC01 a UC25).
 - `docs/frontend-api.md`: **as rotas REST que o frontend já espera**. Se mudar algo, atualize esse documento e `frontend/src/api/`.
-- `docs/12-proxy.md` (como o backend chama o banco).
+- [`comunicacao-backend-proxy.md`](comunicacao-backend-proxy.md): **como o backend lê e grava no banco pelo proxy** (cliente, operações, conversão de tipos, erros). Leitura obrigatória antes do item 2.
+- `docs/12-proxy.md` (especificação do proxy).
 
 As tarefas do módulo de cálculo estão em [`services/calculo/TAREFAS.md`](services/calculo/TAREFAS.md).
 
@@ -18,7 +19,7 @@ As tarefas do módulo de cálculo estão em [`services/calculo/TAREFAS.md`](serv
 ## Entregas, em ordem
 
 - [ ] **1. Servidor base:** Express, configuração por variáveis de ambiente, `GET /saude`, tratamento de erros padronizado (`{ codigo, mensagem, detalhes? }`).
-- [ ] **2. Camada de acesso a dados:** cliente do proxy (`POST /executar` com os cabeçalhos do 12.3). Nenhum outro módulo acessa o banco.
+- [ ] **2. Camada de acesso a dados:** cliente do proxy (`POST /executar` com os cabeçalhos do 12.3), seguindo o guia [`comunicacao-backend-proxy.md`](comunicacao-backend-proxy.md): novo `X-Timestamp` a cada chamada, conversão de `DECIMAL` para centavos e de `snake_case` para `camelCase` só nesta camada, e tradução dos erros do proxy. Nenhum outro módulo acessa o banco. Nos testes, use um dublê do cliente.
 - [ ] **3. Autenticação (UC13):** login, token de sessão, expiração por inatividade, bloqueio após 3 tentativas, recuperação de senha por e-mail (Resend), perfis e carteira do vendedor.
 - [ ] **4. Módulo de cálculo completo (11.6.3.1 a 11.6.3.6):** faturamento e crédito, frete, estoque, número e validade do orçamento e fechamento por item. Funções puras, em centavos, **cada uma com tabela de casos no Jest**. Atualize `VERSAO_REGRAS` e o `CHANGELOG.md` a cada mudança de regra.
 - [ ] **5. Cadastros:** clientes (UC02/UC03, LGPD), produtos com variações, faixas e fardos (UC04), fornecedores (UC22) e usuários (UC25).
@@ -38,4 +39,4 @@ Dinheiro em centavos inteiros; imposto de 18% arredondado **uma vez por linha**;
 
 ## Dependências
 
-Precisa do schema (banco) e dos itens 3 a 5 do proxy para a camada de dados. Os itens 1, 3 (sem banco) e 4 podem começar já.
+O proxy já está implementado (ver `proxy/README.md`), mas só executa operações nas tabelas do negócio depois que o responsável pelo banco criar o schema. As variáveis `PROXY_SERVICE_ID` e `PROXY_SERVICE_TOKEN` do `.env` saem de `integrante.criar`, que depende da tabela `integrantes_proxy`; peça-as ao responsável pelo proxy. Os itens 1 e 4, e o item 2 com dublê nos testes, podem começar já.
