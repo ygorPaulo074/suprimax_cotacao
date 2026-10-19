@@ -1,6 +1,6 @@
 # Tarefas do frontend
 
-Origem: o protótipo do Figma foi trazido para `frontend/` e reconstruído como aplicação real. A lista abaixo parte dos 7 pontos de adaptação levantados na análise do protótipo. `[x]` = feito; `[ ]` = pendente. Contrato com o backend: [frontend-api.md](frontend-api.md).
+Origem: o protótipo do Figma foi trazido para `frontend/` e reconstruído como aplicação real. A lista abaixo parte dos 7 pontos de adaptação levantados na análise do protótipo. `[x]` = feito; `[ ]` = pendente. Contrato com o backend: [frontend-api.md](../docs/frontend-api.md).
 
 ## 1. Ferramentas do projeto
 
@@ -17,7 +17,7 @@ Origem: o protótipo do Figma foi trazido para `frontend/` e reconstruído como 
 - [x] Dados escritos no código (pedidos, clientes, itens, cartões) removidos de todas as telas.
 - [x] Camada de API tipada (`src/api/`): cliente HTTP, `ApiError`, tipos e um módulo por recurso.
 - [x] Estados de carregando (skeleton), erro com “Tentar novamente” e vazio com próxima ação (`DataState`).
-- [ ] Backend implementar as rotas de [frontend-api.md](frontend-api.md) e validar o contrato.
+- [ ] Backend implementar as rotas de [frontend-api.md](../docs/frontend-api.md) e validar o contrato.
 - [ ] Teste ponta a ponta de cada fluxo (login → pedido → orçamento → emissão → resposta) com backend real.
 - [ ] Alinhar com o backend a paginação das listas (hoje as rotas devolvem a lista completa).
 
@@ -50,7 +50,7 @@ Origem: o protótipo do Figma foi trazido para `frontend/` e reconstruído como 
 - [x] Sessão encerrada automaticamente em `401`.
 - [ ] **RNF06:** cache local das alterações em andamento, reenvio ao voltar a conexão e atualização da tela só após a leitura confirmada.
 - [ ] Revisar os textos e campos de cada tela contra o capítulo 10 da documentação FINAL (o protótipo partiu de uma revisão anterior).
-- [ ] Resolver os pontos em aberto de [frontend-api.md](frontend-api.md): “Devolver à lista”, protesto de dívida, efeito de “Enviar”, alcance da busca global.
+- [ ] Resolver os pontos em aberto de [frontend-api.md](../docs/frontend-api.md): “Devolver à lista”, protesto de dívida, efeito de “Enviar”, alcance da busca global.
 - [ ] Pop-up de 7 dias para vencimento (RF16) é do vendedor, no Sistema 1; fora deste frontend.
 
 ## 7. Acabamento
