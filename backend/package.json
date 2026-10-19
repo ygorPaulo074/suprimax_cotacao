@@ -1,0 +1,28 @@
+{
+  "name": "suprimax-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Backend do Sistema de Cotação Web (Sistema 2) — SupriMax",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "test": "jest"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@types/jest": "^29.5.14",
+    "@types/node": "^20.19.43",
+    "eslint": "^9.39.5",
+    "jest": "^29.7.0",
+    "prettier": "^3.9.10",
+    "ts-jest": "^29.4.15",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.72.0"
+  }
+}
