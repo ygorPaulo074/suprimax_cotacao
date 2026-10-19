@@ -1,0 +1,25 @@
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap');
+@import 'tailwindcss';
+
+/* Paleta e tipografia: docs/07-identidade-visual.md e docs/08-estilo-visual.md.
+   Sem vermelho: erros e bloqueios usam laranja + ícone + texto. */
+@theme {
+  --color-petroleo: #0b3d5c;
+  --color-verde: #8dc63f;
+  --color-grafite: #333333;
+  --color-off-white: #f7f7f7;
+  --color-laranja: #f2994a;
+  --font-sans: 'Poppins', 'Inter', sans-serif;
+}
+
+body {
+  background-color: var(--color-off-white);
+  color: var(--color-grafite);
+  font-size: 16px;
+}
+
+@keyframes skeleton-pulse {
+  50% {
+    opacity: 0.5;
+  }
+}
