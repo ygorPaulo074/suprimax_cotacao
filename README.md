@@ -31,7 +31,7 @@ O frontend só fala com o backend; os backends só falam com o banco através do
 ## Estrutura
 
 ```
-frontend/                  React (a criar)
+frontend/                  React + Vite + Tailwind (as 18 telas, camada de API)
 backend/                   API do Sistema 2 (a criar)
   services/calculo/        módulo de cálculo — funções puras
   database/                schema Prisma e migrations
