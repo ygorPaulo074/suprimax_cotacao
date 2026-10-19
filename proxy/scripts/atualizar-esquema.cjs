@@ -17,4 +17,6 @@ const enxuto = {
   chaves_estrangeiras: json.chaves_estrangeiras,
 };
 fs.writeFileSync(destino, JSON.stringify(enxuto));
-console.log(`Esquema atualizado: ${enxuto.colunas.length} colunas, ${enxuto.chaves_estrangeiras.length} FKs.`);
+console.log(
+  `Esquema atualizado: ${enxuto.colunas.length} colunas, ${enxuto.chaves_estrangeiras.length} FKs.`,
+);
