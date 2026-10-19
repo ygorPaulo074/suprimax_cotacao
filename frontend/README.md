@@ -30,4 +30,4 @@ src/
 - Sem dados de exemplo nas telas: tudo vem da API, com skeleton, erro e tela vazia.
 - Menu e rotas por perfil são só conveniência; quem autoriza é o backend.
 - Paleta e fonte: tokens em `src/index.css`. Sem vermelho; erros e bloqueios em laranja, com ícone e texto.
-- Contrato com o backend: [docs/frontend-api.md](../docs/frontend-api.md). Pendências: [docs/tarefas-frontend.md](../docs/tarefas-frontend.md).
+- Contrato com o backend: [docs/frontend-api.md](../docs/frontend-api.md). Pendências: [TAREFAS.md](TAREFAS.md).

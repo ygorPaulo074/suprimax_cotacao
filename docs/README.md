@@ -20,7 +20,6 @@ Fonte de verdade: **Documentacao_SupriMax_FINAL.docx** (cópia em [`referencias/
 | [13-banco-de-dados.md](13-banco-de-dados.md) | Modelo, entidades, regras no banco, dicionário completo |
 | [banco-de-dados/](banco-de-dados/) | Dicionário em formato utilizável por código |
 | [frontend-api.md](frontend-api.md) | Contrato REST que o frontend espera do backend |
-| [tarefas-frontend.md](tarefas-frontend.md) | Lista de tarefas do frontend (feitas e pendentes) |
 
 ## Material para uso direto
 
