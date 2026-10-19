@@ -1,6 +1,6 @@
 # Proxy de comunicação
 
-Serviço próprio (Node.js + TypeScript + Express), hospedado no Render, que é o **único** com acesso ao banco compartilhado (Supabase/Postgres). Os backends dos Sistemas 1 e 2 falam com ele; os frontends nunca. Especificação completa: [docs/12-proxy.md](../docs/12-proxy.md). Guia de uso para o backend: [docs/comunicacao-backend-proxy.md](../docs/comunicacao-backend-proxy.md).
+Serviço próprio (Node.js + TypeScript + Express), hospedado no Render, que é o **único** com acesso ao banco compartilhado (Supabase/Postgres). Os backends dos Sistemas 1 e 2 falam com ele; os frontends nunca. Especificação completa: [docs/12-proxy.md](../docs/12-proxy.md). Guia de uso para o backend: [backend/comunicacao-backend-proxy.md](../backend/comunicacao-backend-proxy.md).
 
 ```
 Backend S1 ─┐

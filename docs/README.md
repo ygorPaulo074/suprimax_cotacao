@@ -19,7 +19,6 @@ Fonte de verdade: **Documentacao_SupriMax_FINAL.docx** (cópia em [`referencias/
 | [12-proxy.md](12-proxy.md) | Contrato `POST /executar`, auth/JWT, escopos, fila de escrita, catálogo de operações |
 | [13-banco-de-dados.md](13-banco-de-dados.md) | Modelo, entidades, regras no banco, dicionário completo |
 | [banco-de-dados/](banco-de-dados/) | Dicionário em formato utilizável por código |
-| [comunicacao-backend-proxy.md](comunicacao-backend-proxy.md) | Como o backend usa o proxy para ler e gravar no banco (cliente, operações, tipos, erros) |
 | [frontend-api.md](frontend-api.md) | Contrato REST que o frontend espera do backend |
 
 ## Material para uso direto
