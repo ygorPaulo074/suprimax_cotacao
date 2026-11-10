@@ -22,10 +22,20 @@ export const ORIGENS_CORS_PADRAO_DEV: readonly string[] = ['http://localhost:517
 
 const SEPARADOR_DE_LISTA = ',';
 const PADRAO_INTEIRO_POSITIVO = /^\d+$/;
+const PADRAO_TEXTO_SEM_ESPACOS = /^\S+$/;
+const PADRAO_BARRAS_FINAIS = /\/+$/;
 const PROTOCOLOS_DE_ORIGEM: readonly string[] = ['http:', 'https:'];
 
 /** Variáveis de ambiente que o backend conhece. Cada entrega acrescenta as suas aqui. */
-export const NOMES_DAS_VARIAVEIS = ['ENV', 'PORT', 'LOG_LEVEL', 'CORS_ORIGENS'] as const;
+export const NOMES_DAS_VARIAVEIS = [
+  'ENV',
+  'PORT',
+  'LOG_LEVEL',
+  'CORS_ORIGENS',
+  'PROXY_URL',
+  'PROXY_SERVICE_ID',
+  'PROXY_SERVICE_TOKEN',
+] as const;
 export type NomeDaVariavel = (typeof NOMES_DAS_VARIAVEIS)[number];
 
 /**
@@ -50,10 +60,13 @@ export const TRECHOS_DE_VALOR_DE_EXEMPLO: readonly string[] = [
 
 /**
  * Variáveis que, em produção, não podem ficar com valor de exemplo.
- * As próximas entregas acrescentam aqui PROXY_URL, PROXY_SERVICE_TOKEN, RESEND_API_KEY etc.
+ * As próximas entregas acrescentam aqui RESEND_API_KEY etc.
  */
 export const VARIAVEIS_SEM_VALOR_DE_EXEMPLO_EM_PRODUCAO: readonly NomeDaVariavel[] = [
   'CORS_ORIGENS',
+  'PROXY_URL',
+  'PROXY_SERVICE_ID',
+  'PROXY_SERVICE_TOKEN',
 ];
 
 /** O que cada variável aceita. Vai para a mensagem de erro no lugar do valor recebido. */
@@ -63,6 +76,9 @@ const FORMATO_ESPERADO: Readonly<Record<NomeDaVariavel, string>> = {
   LOG_LEVEL: `deve ser ${NIVEIS_LOG.join(', ')}`,
   CORS_ORIGENS:
     'deve ser uma lista de origens http(s) separadas por vírgula, sem caminho nem barra final',
+  PROXY_URL: 'deve ser uma URL http(s)',
+  PROXY_SERVICE_ID: 'deve ser um texto sem espaços',
+  PROXY_SERVICE_TOKEN: 'deve ser um texto sem espaços',
 };
 const MOTIVO_OBRIGATORIA_FORA_DE_DEV = 'é obrigatória fora do ambiente dev';
 const MOTIVO_VALOR_DE_EXEMPLO = 'não pode ficar com valor de exemplo em produção';
@@ -74,6 +90,14 @@ export interface Config {
   readonly nivelLog: NivelLog;
   /** Origens autorizadas a chamar a API pelo navegador (CORS). */
   readonly corsOrigens: readonly string[];
+  /**
+   * Acesso ao proxy (docs/12, seção 12.3). As três são opcionais na configuração: quem exige
+   * todas é o ClienteProxy, no momento em que é criado.
+   */
+  readonly proxyUrl?: string;
+  readonly proxyServiceId?: string;
+  /** Segredo: nunca registre em log nem devolva em resposta. */
+  readonly proxyServiceToken?: string;
 }
 
 /** Uma variável de ambiente recusada e o motivo, sem o valor recebido. */
@@ -116,6 +140,9 @@ const esquemaDasVariaveis = z.object({
     .transform(separarLista)
     .pipe(z.array(z.string().refine(ehOrigemValida)).min(1))
     .optional(),
+  PROXY_URL: z.string().refine(ehUrlHttp).transform(removerBarrasFinais).optional(),
+  PROXY_SERVICE_ID: z.string().regex(PADRAO_TEXTO_SEM_ESPACOS).optional(),
+  PROXY_SERVICE_TOKEN: z.string().regex(PADRAO_TEXTO_SEM_ESPACOS).optional(),
 });
 
 function separarLista(texto: string): string[] {
@@ -133,6 +160,18 @@ function ehOrigemValida(texto: string): boolean {
   } catch {
     return false;
   }
+}
+
+function ehUrlHttp(texto: string): boolean {
+  try {
+    return PROTOCOLOS_DE_ORIGEM.includes(new URL(texto).protocol);
+  } catch {
+    return false;
+  }
+}
+
+function removerBarrasFinais(url: string): string {
+  return url.replace(PADRAO_BARRAS_FINAIS, '');
 }
 
 /** Indica se o valor parece ter sido copiado de um exemplo. */
@@ -212,11 +251,16 @@ export function carregarConfig(env: NodeJS.ProcessEnv = process.env): Config {
     );
   }
 
-  const { ENV, PORT, LOG_LEVEL, CORS_ORIGENS } = resultado.data;
+  const dados = resultado.data;
   return Object.freeze({
-    ambiente: ENV ?? AMBIENTE_PADRAO,
-    porta: PORT ?? PORTA_PADRAO,
-    nivelLog: LOG_LEVEL ?? NIVEL_LOG_PADRAO,
-    corsOrigens: Object.freeze(CORS_ORIGENS ?? [...ORIGENS_CORS_PADRAO_DEV]),
+    ambiente: dados.ENV ?? AMBIENTE_PADRAO,
+    porta: dados.PORT ?? PORTA_PADRAO,
+    nivelLog: dados.LOG_LEVEL ?? NIVEL_LOG_PADRAO,
+    corsOrigens: Object.freeze(dados.CORS_ORIGENS ?? [...ORIGENS_CORS_PADRAO_DEV]),
+    ...(dados.PROXY_URL !== undefined && { proxyUrl: dados.PROXY_URL }),
+    ...(dados.PROXY_SERVICE_ID !== undefined && { proxyServiceId: dados.PROXY_SERVICE_ID }),
+    ...(dados.PROXY_SERVICE_TOKEN !== undefined && {
+      proxyServiceToken: dados.PROXY_SERVICE_TOKEN,
+    }),
   });
 }
