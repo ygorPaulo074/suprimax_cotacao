@@ -67,6 +67,10 @@ describe('carregarConfig', () => {
     ['CORS_ORIGENS', `${ORIGEM_REAL}/app`],
     ['CORS_ORIGENS', 'ftp://suprimax.com.br'],
     ['CORS_ORIGENS', ','],
+    ['PROXY_URL', 'proxy.suprimax.com.br'],
+    ['PROXY_URL', 'ftp://proxy.suprimax.com.br'],
+    ['PROXY_SERVICE_ID', 'sistema 2'],
+    ['PROXY_SERVICE_TOKEN', 'token com espaco'],
   ])('recusa %s=%s', (variavel, valor) => {
     expect(capturarErro({ [variavel]: valor }).variaveis).toEqual([variavel]);
   });
@@ -88,6 +92,46 @@ describe('carregarConfig', () => {
     const config = carregarConfig({ ENV: 'homologacao', CORS_ORIGENS: 'http://localhost:5173' });
 
     expect(config.corsOrigens).toEqual(['http://localhost:5173']);
+  });
+
+  describe('acesso ao proxy', () => {
+    const PROXY = {
+      PROXY_URL: 'https://proxy.suprimax.com.br/',
+      PROXY_SERVICE_ID: 'sistema2-backend',
+      PROXY_SERVICE_TOKEN: 'eyJhbGciOi.abc.def',
+    };
+
+    it('é opcional: sem as variáveis, a configuração não traz os campos', () => {
+      const config = carregarConfig({});
+
+      expect(config).not.toHaveProperty('proxyUrl');
+      expect(config).not.toHaveProperty('proxyServiceId');
+      expect(config).not.toHaveProperty('proxyServiceToken');
+    });
+
+    it('lê as três variáveis e tira a barra final da URL', () => {
+      expect(carregarConfig(PROXY)).toMatchObject({
+        proxyUrl: 'https://proxy.suprimax.com.br',
+        proxyServiceId: 'sistema2-backend',
+        proxyServiceToken: 'eyJhbGciOi.abc.def',
+      });
+    });
+
+    it.each([
+      ['PROXY_URL', 'http://localhost:3001'],
+      ['PROXY_SERVICE_ID', 'exemplo-de-id'],
+      ['PROXY_SERVICE_TOKEN', 'changeme'],
+    ])('recusa valor de exemplo em produção: %s', (variavel, valor) => {
+      const erro = capturarErro({
+        ENV: 'producao',
+        CORS_ORIGENS: ORIGEM_REAL,
+        ...PROXY,
+        [variavel]: valor,
+      });
+
+      expect(erro.variaveis).toEqual([variavel]);
+      expect(erro.message).not.toContain(valor);
+    });
   });
 
   it('lista todas as variáveis inválidas de uma vez, sem os valores recebidos', () => {
