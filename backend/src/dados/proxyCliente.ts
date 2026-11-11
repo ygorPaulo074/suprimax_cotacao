@@ -1,7 +1,8 @@
 // Item 2 do backend/TAREFAS.md — cliente do proxy: o único ponto do backend que lê e grava no
 // banco (RNF05). Segue backend/comunicacao-backend-proxy.md e docs/12, seções 12.2, 12.3 e 12.8.
-import type { Config } from '../config';
+import { VARIAVEIS_DO_PROXY, type Config } from '../config';
 import type { Logger } from '../log';
+import { ErroDeServicoIndisponivel } from '../erros';
 import { converterChavesParaCamelCase } from './conversao';
 import { CODIGOS_DO_PROXY, traduzirErroDeProxy } from './traducaoDeErros';
 
@@ -82,6 +83,14 @@ export class ProxyNaoConfiguradoError extends Error {
     super(`Acesso ao proxy não configurado. Defina: ${variaveis.join(', ')}.`);
     this.name = 'ProxyNaoConfiguradoError';
   }
+}
+
+type ConfigDeAcessoAoProxy = Pick<Config, 'proxyUrl' | 'proxyServiceId' | 'proxyServiceToken'>;
+
+/** Nomes das variáveis de acesso ao proxy que não foram informadas. */
+export function variaveisDoProxyAusentes(config: ConfigDeAcessoAoProxy): string[] {
+  const informadas = [config.proxyUrl, config.proxyServiceId, config.proxyServiceToken];
+  return VARIAVEIS_DO_PROXY.filter((_nome, indice) => informadas[indice] === undefined);
 }
 
 /** Corpo de sucesso do proxy, com as chaves já em camelCase. Cada operação define seus campos. */
@@ -192,19 +201,13 @@ export class ClienteProxy implements ClienteDeProxy {
    * @throws {ProxyNaoConfiguradoError} Se faltar PROXY_URL, PROXY_SERVICE_ID ou PROXY_SERVICE_TOKEN.
    */
   static aPartirDaConfig(
-    config: Pick<Config, 'proxyUrl' | 'proxyServiceId' | 'proxyServiceToken'>,
+    config: ConfigDeAcessoAoProxy,
     logger: Logger,
     opcoes?: OpcoesDoClienteProxy,
   ): ClienteProxy {
     const { proxyUrl, proxyServiceId, proxyServiceToken } = config;
     if (proxyUrl === undefined || proxyServiceId === undefined || proxyServiceToken === undefined) {
-      throw new ProxyNaoConfiguradoError(
-        [
-          proxyUrl === undefined && 'PROXY_URL',
-          proxyServiceId === undefined && 'PROXY_SERVICE_ID',
-          proxyServiceToken === undefined && 'PROXY_SERVICE_TOKEN',
-        ].filter((nome) => nome !== false),
-      );
+      throw new ProxyNaoConfiguradoError(variaveisDoProxyAusentes(config));
     }
     return new ClienteProxy(
       { url: proxyUrl, serviceId: proxyServiceId, token: proxyServiceToken },
@@ -368,6 +371,18 @@ export class ClienteProxy implements ClienteDeProxy {
         detalhes: erro.detalhes,
       },
       'falha na chamada ao proxy',
+    );
+  }
+}
+
+/**
+ * Substituto do cliente quando o acesso ao proxy não foi configurado (só acontece em dev): toda
+ * operação responde 503 SERVICO_INDISPONIVEL, e o restante do servidor continua de pé.
+ */
+export class ClienteDeProxyIndisponivel implements ClienteDeProxy {
+  executar<T = RespostaDoProxy>(): Promise<T> {
+    return Promise.reject(
+      new ErroDeServicoIndisponivel({ causa: new ProxyNaoConfiguradoError(VARIAVEIS_DO_PROXY) }),
     );
   }
 }
