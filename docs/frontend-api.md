@@ -14,12 +14,13 @@ Fonte do contrato (código): `frontend/src/api/types.ts` (tipos) e um arquivo po
 - **Orçamento:** toda mutação devolve o `OrcamentoDetalhe` **já recalculado** pelo módulo de cálculo (docs/11, seção 11.6). Os bloqueios de emissão vêm em `condicoes.bloqueios[]` com a mensagem pronta (ex.: “Abaixo do faturamento mínimo de R$ 500,00 – faltam R$ 107,65”), e as formas de pagamento permitidas em `condicoes.condicoesPagamentoPermitidas`.
 - **Erros:** status HTTP adequado e corpo `{ "codigo": "…", "mensagem": "…", "detalhes": { … } }`. A `mensagem` é exibida ao operador, então deve estar em português e não expor detalhes internos.
 - **Autorização:** o menu por perfil é só conveniência; cada rota deve validar o perfil (docs/10, seção 10.2).
+- **Sessão (UC13):** o token é opaco e expira após 30 minutos sem uso (cada requisição autenticada renova o prazo). Sessão inexistente ou expirada responde `401 NAO_AUTENTICADO`; perfil sem permissão, `403 ACESSO_NEGADO`. As sessões ficam na memória do backend: quando o serviço reinicia, os usuários entram de novo. Em `Sessao`, `nome` repete `usuario`, porque a tabela `operador` não tem coluna de nome.
 
 ## Rotas
 
 | Tela / UC | Método e rota | Corpo / retorno | Perfis |
 |---|---|---|---|
-| 1 · UC13 Login | `POST /auth/login` | `{usuario, senha}` → `{token, usuario: Sessao}`; `401 CREDENCIAIS_INVALIDAS`; `423 CONTA_BLOQUEADA` (`detalhes.bloqueadoAte`, após 3 tentativas) | todos |
+| 1 · UC13 Login | `POST /auth/login` | `{usuario, senha}` → `{token, usuario: Sessao}`; `401 CREDENCIAIS_INVALIDAS`; `403 USUARIO_INATIVO`; `423 CONTA_BLOQUEADA` (`detalhes.bloqueadoAte`, após 3 tentativas); `429 LIMITE_EXCEDIDO` (muitas falhas do mesmo IP) | todos |
 | | `GET /auth/me` · `POST /auth/logout` | `Sessao` · 204 | todos |
 | | `POST /auth/recuperar-senha` | `{email}` → 204 (sempre) | — |
 | 2 · UC10 Pedidos | `GET /pedidos?status=` | `{itens: PedidoResumo[], indicadores}` | Operador, Chefe |
