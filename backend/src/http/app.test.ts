@@ -1,23 +1,10 @@
 import request from 'supertest';
-import type { Config } from '../config';
-import { criarLogger } from '../log';
-import { createApp } from './app';
+import { montarAppDeTeste, ORIGEM_DE_TESTE } from '../testing/appDeTeste';
 
-const ORIGEM_PERMITIDA = 'https://cotacao.suprimax.com.br';
-const CONFIG: Config = {
-  ambiente: 'dev',
-  porta: 0,
-  nivelLog: 'info',
-  corsOrigens: [ORIGEM_PERMITIDA],
-};
+const ORIGEM_PERMITIDA = ORIGEM_DE_TESTE;
 const PADRAO_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
-function montar() {
-  const linhas: Record<string, unknown>[] = [];
-  const destino = { write: (linha: string) => void linhas.push(JSON.parse(linha)) };
-  const app = createApp({ config: CONFIG, logger: criarLogger({ nivel: 'info', destino }) });
-  return { app, linhas };
-}
+const montar = montarAppDeTeste;
 
 describe('GET /saude', () => {
   it('responde 200 { status: "ok" } e nada além disso', async () => {
