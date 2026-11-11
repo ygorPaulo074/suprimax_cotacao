@@ -26,8 +26,10 @@ export const CONFIG_DE_TESTE: Config = {
 export interface OpcoesDoAppDeTeste {
   readonly config?: Partial<Config>;
   readonly auth?: DependenciasDoApp['auth'];
-  /** Relógio das sessões e do login. */
+  /** Relógio das sessões, do login e dos cadastros. */
   readonly agora?: () => Date;
+  /** Dublê do envio de e-mails. */
+  readonly notificador?: DependenciasDoApp['notificador'];
 }
 
 export interface AppDeTeste {
@@ -58,6 +60,7 @@ export function montarAppDeTeste(opcoes: OpcoesDoAppDeTeste = {}): AppDeTeste {
     proxy,
     sessoes,
     auth: { senhas, agora: opcoes.agora, ...opcoes.auth },
+    notificador: opcoes.notificador,
   };
   return { app: createApp(dependencias), proxy, sessoes, senhas, linhas, dependencias };
 }
