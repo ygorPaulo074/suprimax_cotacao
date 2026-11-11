@@ -14,6 +14,7 @@ export * from './rotas';
 export * from './senha';
 export * from './servico';
 export * from './sessoes';
+export * from './tokenDeSenha';
 
 export interface DependenciasDoModuloDeAuth {
   readonly proxy: ClienteDeProxy;

@@ -6,12 +6,15 @@
 /** Status HTTP usados pelo backend. */
 export const STATUS_HTTP = {
   OK: 200,
+  CRIADO: 201,
   SEM_CONTEUDO: 204,
   REQUISICAO_INVALIDA: 400,
   NAO_AUTENTICADO: 401,
   ACESSO_NEGADO: 403,
   NAO_ENCONTRADO: 404,
+  CONFLITO: 409,
   CORPO_GRANDE_DEMAIS: 413,
+  NAO_PROCESSAVEL: 422,
   BLOQUEADO: 423,
   REQUISICOES_DEMAIS: 429,
   ERRO_INTERNO: 500,
@@ -70,6 +73,47 @@ export const CATALOGO_DE_ERROS = {
   SERVICO_INDISPONIVEL: {
     status: STATUS_HTTP.SERVICO_INDISPONIVEL,
     mensagem: 'Serviço temporariamente indisponível. Tente novamente em instantes.',
+  },
+  CLIENTE_NAO_ENCONTRADO: {
+    status: STATUS_HTTP.NAO_ENCONTRADO,
+    mensagem: 'Nenhum cliente cadastrado com este CNPJ.',
+  },
+  CLIENTE_JA_CADASTRADO: {
+    status: STATUS_HTTP.CONFLITO,
+    mensagem: 'Já existe um cliente cadastrado com este CNPJ.',
+  },
+  PRODUTO_NAO_ENCONTRADO: {
+    status: STATUS_HTTP.NAO_ENCONTRADO,
+    mensagem: 'Produto não encontrado.',
+  },
+  PRODUTO_JA_CADASTRADO: {
+    status: STATUS_HTTP.CONFLITO,
+    mensagem: 'Já existe um produto com este código interno ou EAN.',
+  },
+  REGISTRO_EM_USO: {
+    status: STATUS_HTTP.CONFLITO,
+    mensagem: 'O registro já foi usado em outro lançamento e não pode ser removido.',
+  },
+  USUARIO_NAO_ENCONTRADO: {
+    status: STATUS_HTTP.NAO_ENCONTRADO,
+    mensagem: 'Usuário não encontrado.',
+  },
+  USUARIO_JA_CADASTRADO: {
+    status: STATUS_HTTP.CONFLITO,
+    mensagem: 'Já existe um usuário com este nome de usuário ou e-mail.',
+  },
+  NOVO_VENDEDOR_OBRIGATORIO: {
+    status: STATUS_HTTP.NAO_PROCESSAVEL,
+    mensagem: 'Este vendedor tem clientes na carteira. Indique o novo vendedor responsável.',
+  },
+  VENDEDOR_COM_CARTEIRA: {
+    status: STATUS_HTTP.NAO_PROCESSAVEL,
+    mensagem:
+      'Este vendedor tem clientes na carteira. Transfira a carteira antes de mudar o perfil.',
+  },
+  ALTERACAO_DO_PROPRIO_USUARIO: {
+    status: STATUS_HTTP.NAO_PROCESSAVEL,
+    mensagem: 'Você não pode inativar nem mudar o perfil do seu próprio usuário.',
   },
   PAYLOAD_TOO_LARGE: {
     status: STATUS_HTTP.CORPO_GRANDE_DEMAIS,
@@ -192,8 +236,9 @@ export class ErroDeUsuarioInativo extends AppError {
 
 /** Perfil sem permissão para a operação (403). */
 export class ErroDeAcessoNegado extends AppError {
-  constructor() {
-    super('ACESSO_NEGADO');
+  /** @param mensagem Explica a restrição, quando ela vale só para parte da operação. */
+  constructor(mensagem?: string) {
+    super('ACESSO_NEGADO', { mensagem });
   }
 }
 
@@ -209,6 +254,80 @@ export class ErroDeContaBloqueada extends AppError {
 export class ErroDeLimiteExcedido extends AppError {
   constructor() {
     super('LIMITE_EXCEDIDO');
+  }
+}
+
+/** CNPJ sem cliente cadastrado (404, UC03-E1). A tela oferece o cadastro. */
+export class ErroDeClienteNaoEncontrado extends AppError {
+  constructor() {
+    super('CLIENTE_NAO_ENCONTRADO');
+  }
+}
+
+/** CNPJ que já pertence a outro cliente (409, UC02). */
+export class ErroDeClienteJaCadastrado extends AppError {
+  constructor() {
+    super('CLIENTE_JA_CADASTRADO');
+  }
+}
+
+/** Produto inexistente (404, UC04). */
+export class ErroDeProdutoNaoEncontrado extends AppError {
+  constructor() {
+    super('PRODUTO_NAO_ENCONTRADO');
+  }
+}
+
+/** Código interno ou EAN que já pertence a outro produto (409, UC04). */
+export class ErroDeProdutoJaCadastrado extends AppError {
+  /** @param campos Campos em conflito (`codigoInterno`, `ean`); vão em `detalhes.campos`. */
+  constructor(campos: readonly string[]) {
+    super('PRODUTO_JA_CADASTRADO', { detalhes: { campos } });
+  }
+}
+
+/** Remoção de um registro que outro lançamento referencia ou que ainda tem saldo (409). */
+export class ErroDeRegistroEmUso extends AppError {
+  /** @param mensagem Diz ao operador qual registro não pôde ser removido e por quê. */
+  constructor(mensagem: string) {
+    super('REGISTRO_EM_USO', { mensagem });
+  }
+}
+
+/** Usuário inexistente (404, UC25). */
+export class ErroDeUsuarioNaoEncontrado extends AppError {
+  constructor() {
+    super('USUARIO_NAO_ENCONTRADO');
+  }
+}
+
+/** Nome de usuário ou e-mail que já pertence a outro usuário (409, UC25-E2). */
+export class ErroDeUsuarioJaCadastrado extends AppError {
+  constructor() {
+    super('USUARIO_JA_CADASTRADO');
+  }
+}
+
+/** Inativação de vendedor com clientes na carteira sem o novo responsável (422, UC25-E1). */
+export class ErroDeNovoVendedorObrigatorio extends AppError {
+  /** @param clientesNaCarteira Quantos clientes aguardam um novo vendedor. */
+  constructor(clientesNaCarteira: number) {
+    super('NOVO_VENDEDOR_OBRIGATORIO', { detalhes: { clientesNaCarteira } });
+  }
+}
+
+/** Mudança de perfil de vendedor que ainda tem clientes na carteira (422). */
+export class ErroDeVendedorComCarteira extends AppError {
+  /** @param clientesNaCarteira Quantos clientes continuam com o vendedor. */
+  constructor(clientesNaCarteira: number) {
+    super('VENDEDOR_COM_CARTEIRA', { detalhes: { clientesNaCarteira } });
+  }
+}
+
+/** O operador chefe tentou inativar ou rebaixar a si mesmo (422). */
+export class ErroDeAlteracaoDoProprioUsuario extends AppError {
+  constructor() {
+    super('ALTERACAO_DO_PROPRIO_USUARIO');
   }
 }
 
