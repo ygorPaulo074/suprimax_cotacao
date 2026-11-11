@@ -7,6 +7,18 @@ import {
 } from './config';
 
 const ORIGEM_REAL = 'https://cotacao.suprimax.com.br';
+const PROXY = {
+  PROXY_URL: 'https://proxy.suprimax.com.br/',
+  PROXY_SERVICE_ID: 'sistema2-backend',
+  PROXY_SERVICE_TOKEN: 'eyJhbGciOi.abc.def',
+};
+const PRODUCAO = { ENV: 'producao', CORS_ORIGENS: ORIGEM_REAL, ...PROXY };
+const VARIAVEIS_OBRIGATORIAS_FORA_DE_DEV = [
+  'CORS_ORIGENS',
+  'PROXY_URL',
+  'PROXY_SERVICE_ID',
+  'PROXY_SERVICE_TOKEN',
+];
 
 function capturarErro(env: NodeJS.ProcessEnv): ConfigInvalidaError {
   try {
@@ -27,6 +39,8 @@ describe('carregarConfig', () => {
       porta: PORTA_PADRAO,
       nivelLog: NIVEL_LOG_PADRAO,
       corsOrigens: ORIGENS_CORS_PADRAO_DEV,
+      sessaoInatividadeMs: 30 * 60 * 1000,
+      trustProxy: 0,
     });
   });
 
@@ -36,10 +50,12 @@ describe('carregarConfig', () => {
 
   it('lê uma configuração completa de produção', () => {
     const config = carregarConfig({
-      ENV: 'producao',
+      ...PRODUCAO,
       PORT: '8080',
       LOG_LEVEL: 'warn',
       CORS_ORIGENS: `${ORIGEM_REAL}, https://suprimax.vercel.app`,
+      SESSAO_INATIVIDADE_MINUTOS: '15',
+      TRUST_PROXY: '1',
     });
 
     expect(config).toEqual({
@@ -47,6 +63,11 @@ describe('carregarConfig', () => {
       porta: 8080,
       nivelLog: 'warn',
       corsOrigens: [ORIGEM_REAL, 'https://suprimax.vercel.app'],
+      sessaoInatividadeMs: 15 * 60 * 1000,
+      trustProxy: 1,
+      proxyUrl: 'https://proxy.suprimax.com.br',
+      proxyServiceId: 'sistema2-backend',
+      proxyServiceToken: 'eyJhbGciOi.abc.def',
     });
   });
 
@@ -71,37 +92,40 @@ describe('carregarConfig', () => {
     ['PROXY_URL', 'ftp://proxy.suprimax.com.br'],
     ['PROXY_SERVICE_ID', 'sistema 2'],
     ['PROXY_SERVICE_TOKEN', 'token com espaco'],
+    ['SESSAO_INATIVIDADE_MINUTOS', '0'],
+    ['SESSAO_INATIVIDADE_MINUTOS', '1441'],
+    ['SESSAO_INATIVIDADE_MINUTOS', 'meia hora'],
+    ['TRUST_PROXY', '11'],
+    ['TRUST_PROXY', 'true'],
   ])('recusa %s=%s', (variavel, valor) => {
     expect(capturarErro({ [variavel]: valor }).variaveis).toEqual([variavel]);
   });
 
-  it.each(['homologacao', 'producao'])('exige CORS_ORIGENS em %s', (ambiente) => {
-    expect(capturarErro({ ENV: ambiente }).variaveis).toEqual(['CORS_ORIGENS']);
+  it.each(['homologacao', 'producao'])('exige CORS e acesso ao proxy em %s', (ambiente) => {
+    expect(capturarErro({ ENV: ambiente }).variaveis).toEqual(VARIAVEIS_OBRIGATORIAS_FORA_DE_DEV);
   });
 
   it.each(['http://localhost:5173', 'https://exemplo.com', 'https://CHANGEME.suprimax.com'])(
     'recusa valor de exemplo em produção: %s',
     (origem) => {
-      expect(capturarErro({ ENV: 'producao', CORS_ORIGENS: origem }).variaveis).toEqual([
+      expect(capturarErro({ ...PRODUCAO, CORS_ORIGENS: origem }).variaveis).toEqual([
         'CORS_ORIGENS',
       ]);
     },
   );
 
   it('aceita valor de exemplo fora de produção', () => {
-    const config = carregarConfig({ ENV: 'homologacao', CORS_ORIGENS: 'http://localhost:5173' });
+    const config = carregarConfig({
+      ...PRODUCAO,
+      ENV: 'homologacao',
+      CORS_ORIGENS: 'http://localhost:5173',
+    });
 
     expect(config.corsOrigens).toEqual(['http://localhost:5173']);
   });
 
   describe('acesso ao proxy', () => {
-    const PROXY = {
-      PROXY_URL: 'https://proxy.suprimax.com.br/',
-      PROXY_SERVICE_ID: 'sistema2-backend',
-      PROXY_SERVICE_TOKEN: 'eyJhbGciOi.abc.def',
-    };
-
-    it('é opcional: sem as variáveis, a configuração não traz os campos', () => {
+    it('é opcional em dev: sem as variáveis, a configuração não traz os campos', () => {
       const config = carregarConfig({});
 
       expect(config).not.toHaveProperty('proxyUrl');
@@ -122,12 +146,7 @@ describe('carregarConfig', () => {
       ['PROXY_SERVICE_ID', 'exemplo-de-id'],
       ['PROXY_SERVICE_TOKEN', 'changeme'],
     ])('recusa valor de exemplo em produção: %s', (variavel, valor) => {
-      const erro = capturarErro({
-        ENV: 'producao',
-        CORS_ORIGENS: ORIGEM_REAL,
-        ...PROXY,
-        [variavel]: valor,
-      });
+      const erro = capturarErro({ ...PRODUCAO, [variavel]: valor });
 
       expect(erro.variaveis).toEqual([variavel]);
       expect(erro.message).not.toContain(valor);
@@ -141,7 +160,7 @@ describe('carregarConfig', () => {
       LOG_LEVEL: 'nivel-secreto-456',
     });
 
-    expect(erro.variaveis).toEqual(['PORT', 'LOG_LEVEL', 'CORS_ORIGENS']);
+    expect(erro.variaveis).toEqual(['PORT', 'LOG_LEVEL', ...VARIAVEIS_OBRIGATORIAS_FORA_DE_DEV]);
     expect(erro.message).not.toContain('porta-secreta-123');
     expect(erro.message).not.toContain('nivel-secreto-456');
   });

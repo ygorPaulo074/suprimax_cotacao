@@ -6,10 +6,16 @@
 /** Status HTTP usados pelo backend. */
 export const STATUS_HTTP = {
   OK: 200,
+  SEM_CONTEUDO: 204,
   REQUISICAO_INVALIDA: 400,
+  NAO_AUTENTICADO: 401,
+  ACESSO_NEGADO: 403,
   NAO_ENCONTRADO: 404,
   CORPO_GRANDE_DEMAIS: 413,
+  BLOQUEADO: 423,
+  REQUISICOES_DEMAIS: 429,
   ERRO_INTERNO: 500,
+  SERVICO_INDISPONIVEL: 503,
 } as const;
 
 /** Código usado quando o erro é inesperado ou quando o código informado não está no catálogo. */
@@ -36,6 +42,34 @@ export const CATALOGO_DE_ERROS = {
   NOT_FOUND: {
     status: STATUS_HTTP.NAO_ENCONTRADO,
     mensagem: 'Recurso não encontrado.',
+  },
+  CREDENCIAIS_INVALIDAS: {
+    status: STATUS_HTTP.NAO_AUTENTICADO,
+    mensagem: 'Usuário ou senha inválidos.',
+  },
+  NAO_AUTENTICADO: {
+    status: STATUS_HTTP.NAO_AUTENTICADO,
+    mensagem: 'Sessão inexistente ou expirada. Entre novamente.',
+  },
+  USUARIO_INATIVO: {
+    status: STATUS_HTTP.ACESSO_NEGADO,
+    mensagem: 'Acesso negado: usuário inativo.',
+  },
+  ACESSO_NEGADO: {
+    status: STATUS_HTTP.ACESSO_NEGADO,
+    mensagem: 'Seu perfil não tem permissão para esta operação.',
+  },
+  CONTA_BLOQUEADA: {
+    status: STATUS_HTTP.BLOQUEADO,
+    mensagem: 'Conta bloqueada temporariamente após tentativas inválidas. Tente mais tarde.',
+  },
+  LIMITE_EXCEDIDO: {
+    status: STATUS_HTTP.REQUISICOES_DEMAIS,
+    mensagem: 'Muitas tentativas em pouco tempo. Aguarde alguns minutos e tente novamente.',
+  },
+  SERVICO_INDISPONIVEL: {
+    status: STATUS_HTTP.SERVICO_INDISPONIVEL,
+    mensagem: 'Serviço temporariamente indisponível. Tente novamente em instantes.',
   },
   PAYLOAD_TOO_LARGE: {
     status: STATUS_HTTP.CORPO_GRANDE_DEMAIS,
@@ -132,6 +166,56 @@ export class ErroDeValidacao extends AppError {
 export class ErroNaoEncontrado extends AppError {
   constructor(opcoes: OpcoesDoAppError = {}) {
     super('NOT_FOUND', opcoes);
+  }
+}
+
+/** Usuário inexistente ou senha errada (401). A mensagem é a mesma nos dois casos (UC13-E1). */
+export class ErroDeCredenciaisInvalidas extends AppError {
+  constructor() {
+    super('CREDENCIAIS_INVALIDAS');
+  }
+}
+
+/** Requisição sem sessão válida (401). O frontend encerra a sessão ao receber. */
+export class ErroNaoAutenticado extends AppError {
+  constructor() {
+    super('NAO_AUTENTICADO');
+  }
+}
+
+/** Usuário com status INATIVO (403, UC13-E3). */
+export class ErroDeUsuarioInativo extends AppError {
+  constructor() {
+    super('USUARIO_INATIVO');
+  }
+}
+
+/** Perfil sem permissão para a operação (403). */
+export class ErroDeAcessoNegado extends AppError {
+  constructor() {
+    super('ACESSO_NEGADO');
+  }
+}
+
+/** Conta bloqueada após três tentativas inválidas (423, UC13-E2). */
+export class ErroDeContaBloqueada extends AppError {
+  /** @param bloqueadoAte Instante em que o bloqueio termina; vai em `detalhes.bloqueadoAte`. */
+  constructor(bloqueadoAte: Date) {
+    super('CONTA_BLOQUEADA', { detalhes: { bloqueadoAte: bloqueadoAte.toISOString() } });
+  }
+}
+
+/** Excesso de requisições do mesmo endereço (429). */
+export class ErroDeLimiteExcedido extends AppError {
+  constructor() {
+    super('LIMITE_EXCEDIDO');
+  }
+}
+
+/** Dependência fora do ar ou não configurada (503). */
+export class ErroDeServicoIndisponivel extends AppError {
+  constructor(opcoes: Pick<OpcoesDoAppError, 'causa'> = {}) {
+    super('SERVICO_INDISPONIVEL', opcoes);
   }
 }
 
