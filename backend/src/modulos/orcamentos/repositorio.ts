@@ -14,6 +14,7 @@ import {
 import { ErroProxy } from '../../dados/proxyCliente';
 import { CODIGOS_DO_PROXY } from '../../dados/traducaoDeErros';
 import { ErroDeEstoqueInsuficiente, ErroDeOrcamentoNaoEncontrado } from '../../erros';
+import { liberarReservasDosItens } from '../comum/estoque';
 import type { Granularidade } from '../pedidos/repositorio';
 
 export const STATUS_DO_ORCAMENTO = [
@@ -75,6 +76,9 @@ export const OPERACOES_DE_ORCAMENTOS = {
   REGISTRAR_HISTORICO: 'UC01-registrar-historico',
   LISTAR_ANEXOS: 'UC19-listar-anexos',
   LISTAR_VERSOES: 'UC01-listar-versoes',
+  MARCAR_SUBSTITUIDO: 'UC21-marcar-substituido',
+  LIBERAR_RESERVAS: 'UC06-liberar-reservas-do-orcamento',
+  BUSCAR_RASCUNHO_DE_VERSAO: 'UC21-buscar-rascunho-de-versao',
 } as const;
 
 const TABELA_DE_ORCAMENTOS = 'orcamento';
@@ -171,12 +175,14 @@ export type AnexoDoOrcamento = z.infer<typeof esquemaDoAnexo>;
 
 const esquemaDoIdDoOrcamento = z.object({ idOrcamento: z.number().int() });
 
-/** Cabeçalho ainda não gravado de um orçamento novo (UC14). */
+/** Cabeçalho ainda não gravado de um orçamento novo (UC14) ou de uma nova versão (UC21). */
 export interface OrcamentoAInserir {
   readonly idCliente: number;
   readonly idOperador: number;
   readonly idEnderecoEntrega: number | null;
   readonly idPedido: number | null;
+  /** Orçamento que esta versão substitui, se for uma nova versão (UC21, RF21); senão `null`. */
+  readonly idOrcamentoOrigem: number | null;
   readonly numeroSolicitacaoCompra: string | null;
   readonly contatoSolicitacao: string | null;
   readonly prazoEntregaDias: number | null;
@@ -244,6 +250,7 @@ export class RepositorioDeOrcamentos {
           id_operador: dados.idOperador,
           id_endereco_entrega: dados.idEnderecoEntrega,
           id_pedido: dados.idPedido,
+          id_orcamento_origem: dados.idOrcamentoOrigem,
           numero_solicitacao_compra: dados.numeroSolicitacaoCompra,
           contato_solicitacao: dados.contatoSolicitacao,
           prazo_entrega_dias: dados.prazoEntregaDias,
@@ -556,6 +563,56 @@ export class RepositorioDeOrcamentos {
       OPERACOES_DE_ORCAMENTOS.LISTAR_ANEXOS,
     );
     return linhas.map((linha) => validarLinha(esquemaDoAnexo, linha, TABELA_DE_ANEXOS));
+  }
+
+  /** Marca o orçamento como substituído por uma nova versão (UC21, RF21). */
+  async marcarSubstituido(idOrcamento: number, agora: Date): Promise<void> {
+    await this.proxy.executar(
+      'dados.atualizar',
+      {
+        tabela: TABELA_DE_ORCAMENTOS,
+        filtros: { e: [['id_orcamento', '=', idOrcamento]] },
+        valores: { status: 'SUBSTITUIDO', data_encerramento: agora.toISOString() },
+      },
+      OPERACOES_DE_ORCAMENTOS.MARCAR_SUBSTITUIDO,
+    );
+  }
+
+  /**
+   * Libera as reservas vigentes de todos os itens do orçamento (UC06, cancelamento de um
+   * orçamento emitido; UC21, substituição por nova versão).
+   */
+  async liberarReservas(idOrcamento: number): Promise<void> {
+    const itens = await this.listarItens(idOrcamento);
+    await liberarReservasDosItens(
+      this.proxy,
+      itens.map((item) => item.idItem),
+      OPERACOES_DE_ORCAMENTOS.LIBERAR_RESERVAS,
+    );
+  }
+
+  /**
+   * Rascunho de nova versão já aberto para este orçamento origem, se houver (UC21): permite
+   * reabrir o mesmo rascunho em vez de criar outro a cada vez que o operador reabre a tela.
+   */
+  async buscarRascunhoDeVersao(idOrcamentoOrigem: number): Promise<Orcamento | null> {
+    const [linha] = await consultar(
+      this.proxy,
+      {
+        tabela: TABELA_DE_ORCAMENTOS,
+        filtros: {
+          e: [
+            ['id_orcamento_origem', '=', idOrcamentoOrigem],
+            ['status', '=', 'RASCUNHO'],
+          ],
+        },
+        limite: 1,
+      },
+      OPERACOES_DE_ORCAMENTOS.BUSCAR_RASCUNHO_DE_VERSAO,
+    );
+    return linha === undefined
+      ? null
+      : validarLinha(esquemaDoOrcamento, linha, TABELA_DE_ORCAMENTOS);
   }
 
   /** Cadeia de versões do orçamento: a origem e cada substituição, da mais antiga à atual. */

@@ -16,9 +16,14 @@ const TABELA_DE_RESERVAS = 'reserva_estoque';
 
 /** Único status de reserva que retira saldo do estoque disponível (RN14). */
 export const STATUS_DE_RESERVA_VIGENTE = 'CONFIRMADA';
+/** Reserva convertida em baixa de estoque no aceite do orçamento (UC20, seção 4.6). */
+export const STATUS_DE_RESERVA_BAIXADA = 'BAIXADA';
+/** Reserva devolvida ao estoque: cancelamento, recusa, substituição ou item não aprovado. */
+export const STATUS_DE_RESERVA_LIBERADA = 'LIBERADA';
 
 export const OPERACOES_DE_ESTOQUE = {
   SOMAR_RESERVAS: 'UC17-somar-reservas',
+  LIBERAR_RESERVAS: 'UC06-liberar-reservas',
 } as const;
 
 const esquemaDoItem = z.object({ idItem: z.number().int(), idVariacao: z.number().int() });
@@ -91,4 +96,37 @@ export async function somarReservasPorVariacao(
 /** Saldo disponível = físico − reservado (RN14). Nunca aparece negativo. */
 export function calcularSaldoDisponivel(quantidadeEstoque: number, reservado: number): number {
   return Math.max(0, quantidadeEstoque - reservado);
+}
+
+/**
+ * Libera (CONFIRMADA → LIBERADA) as reservas vigentes dos itens informados. Usado no
+ * cancelamento de um orçamento emitido (UC06), na recusa pelo cliente e na substituição por
+ * nova versão (UC20/UC21) — a reserva nunca é excluída, só muda de status (docs/13, seção 4.6).
+ *
+ * Itens sem reserva vigente são ignorados silenciosamente (idempotente).
+ */
+export async function liberarReservasDosItens(
+  proxy: ClienteDeProxy,
+  idsDosItens: readonly number[],
+  operationId: string = OPERACOES_DE_ESTOQUE.LIBERAR_RESERVAS,
+): Promise<void> {
+  for (const bloco of emBlocos(idsDosItens, MAXIMO_DE_VALORES_NO_FILTRO_EM)) {
+    if (bloco.length === 0) {
+      continue;
+    }
+    await proxy.executar(
+      'dados.atualizar',
+      {
+        tabela: TABELA_DE_RESERVAS,
+        filtros: {
+          e: [
+            ['id_item', 'em', bloco],
+            ['status', '=', STATUS_DE_RESERVA_VIGENTE],
+          ],
+        },
+        valores: { status: STATUS_DE_RESERVA_LIBERADA },
+      },
+      operationId,
+    );
+  }
 }

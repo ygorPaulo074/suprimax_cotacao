@@ -12,6 +12,7 @@ import { criarModuloDeFornecedores } from '../modulos/fornecedores';
 import { criarModuloDeOrcamentos } from '../modulos/orcamentos';
 import { criarModuloDePedidos } from '../modulos/pedidos';
 import { criarModuloDeProdutos } from '../modulos/produtos';
+import { criarModuloDeRespostas } from '../modulos/respostas';
 import { criarModuloDeUsuarios, type NotificadorDeEmail } from '../modulos/usuarios';
 import { logRequisicao } from './middlewares/logRequisicao';
 import { CABECALHO_REQUEST_ID, requestId } from './middlewares/requestId';
@@ -91,6 +92,9 @@ export function createApp({
   app.use(criarModuloDeUsuarios({ ...comuns, senhas, agora, notificador }).rotas);
   app.use(orcamentos.rotas);
   app.use(criarModuloDePedidos({ ...comuns, agora, orcamentos: orcamentos.servico }).rotas);
+  // Respostas (UC20, UC21) delega a criação/emissão de nova versão ao serviço de orçamentos
+  // (`GestorDeVersoesDeOrcamento`), pelo mesmo padrão de injeção usado acima.
+  app.use(criarModuloDeRespostas({ ...comuns, agora, gestorDeVersoes: orcamentos.servico }).rotas);
 
   app.use(rotaNaoEncontrada());
   app.use(tratamentoDeErros(logger));

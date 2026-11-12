@@ -167,6 +167,22 @@ export const CATALOGO_DE_ERROS = {
     status: STATUS_HTTP.NAO_PROCESSAVEL,
     mensagem: 'O orçamento tem pendências que impedem a emissão.',
   },
+  RESPOSTA_NAO_ENCONTRADA: {
+    status: STATUS_HTTP.NAO_ENCONTRADO,
+    mensagem: 'Resposta do cliente não encontrada.',
+  },
+  RESPOSTA_JA_TRATADA: {
+    status: STATUS_HTTP.CONFLITO,
+    mensagem: 'Esta resposta já foi tratada pelo operador.',
+  },
+  RESPOSTA_JA_PROCESSADA: {
+    status: STATUS_HTTP.CONFLITO,
+    mensagem: 'Esta resposta já foi processada.',
+  },
+  NOVA_VERSAO_NAO_PERMITIDA: {
+    status: STATUS_HTTP.NAO_PROCESSAVEL,
+    mensagem: 'Não é possível criar uma nova versão para este orçamento.',
+  },
   PAYLOAD_TOO_LARGE: {
     status: STATUS_HTTP.CORPO_GRANDE_DEMAIS,
     mensagem: 'Os dados enviados excedem o tamanho permitido.',
@@ -474,6 +490,34 @@ export class ErroDeEmissaoBloqueada extends AppError {
   /** @param bloqueios Lista de `{ codigo, mensagem }`, igual ao `condicoes.bloqueios` do GET. */
   constructor(bloqueios: readonly { codigo: string; mensagem: string }[]) {
     super('EMISSAO_BLOQUEADA', { detalhes: { bloqueios } });
+  }
+}
+
+/** Resposta do cliente inexistente (404, UC20/UC21). */
+export class ErroDeRespostaNaoEncontrada extends AppError {
+  constructor() {
+    super('RESPOSTA_NAO_ENCONTRADA');
+  }
+}
+
+/** Resposta fora de AGUARDA_OPERADOR quando a tela de tratamento a exige (409, UC21). */
+export class ErroDeRespostaJaTratada extends AppError {
+  constructor() {
+    super('RESPOSTA_JA_TRATADA');
+  }
+}
+
+/** Resposta que não estava mais PENDENTE quando `resposta.processar` foi chamada (409, UC20). */
+export class ErroDeRespostaJaProcessada extends AppError {
+  constructor() {
+    super('RESPOSTA_JA_PROCESSADA');
+  }
+}
+
+/** Orçamento original fora de um status que permita nova versão (422, UC21-E1/RF21). */
+export class ErroDeNovaVersaoNaoPermitida extends AppError {
+  constructor() {
+    super('NOVA_VERSAO_NAO_PERMITIDA');
   }
 }
 

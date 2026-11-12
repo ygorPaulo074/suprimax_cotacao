@@ -6,6 +6,7 @@ import {
   ErroDeEmissaoBloqueada,
   ErroDeEstoqueIndisponivel,
   ErroDeItemNaoEncontrado,
+  ErroDeNovaVersaoNaoPermitida,
   ErroDeOrcamentoNaoEditavel,
   ErroDeOrcamentoNaoEncontrado,
   ErroDeValidacao,
@@ -32,6 +33,7 @@ import {
 import type { ItemDePedido, Pedido } from '../pedidos/repositorio';
 import type { MontadorDeOrcamentos } from '../pedidos/servico';
 import type { RepositorioDeProdutos, VariacaoDeProduto } from '../produtos/repositorio';
+import type { GestorDeVersoesDeOrcamento, ItemParaNovaVersao } from '../respostas/servico';
 import type { RepositorioDeUsuarios } from '../usuarios/repositorio';
 import {
   RepositorioDeOrcamentos,
@@ -58,6 +60,19 @@ const BYTES_DA_CHAVE_DE_SEGURANCA = 24;
 const STATUS_PENDENTE_CREDITO: StatusDoOrcamento = 'PENDENTE_CREDITO';
 /** Compra fechada (RF04, RF17): orçamento com todos os itens aprovados pelo cliente. */
 const STATUS_ACEITO: StatusDoOrcamento = 'ACEITO';
+/** Emitido, com reservas CONFIRMADA vigentes (docs/04, seção 4.6). */
+const STATUS_ABERTO: StatusDoOrcamento = 'ABERTO';
+/** Status que o operador pode cancelar diretamente (UC06; docs/04, seção 4.6). */
+const STATUS_DO_ORCAMENTO_CANCELAVEIS: ReadonlySet<StatusDoOrcamento> = new Set([
+  'RASCUNHO',
+  'PENDENTE_CREDITO',
+  STATUS_ABERTO,
+]);
+/** Status da origem que permitem criar uma nova versão (UC21-E1, RF21). */
+const STATUS_DO_ORCAMENTO_PERMITEM_NOVA_VERSAO: ReadonlySet<StatusDoOrcamento> = new Set([
+  STATUS_ABERTO,
+  'ALTERACAO_SOLICITADA',
+]);
 
 export interface BloqueioDeEmissao {
   readonly codigo:
@@ -173,7 +188,9 @@ export interface DependenciasDoServicoDeOrcamentos {
 }
 
 /** Regras do orçamento (UC01, UC05, UC14-19). */
-export class ServicoDeOrcamentos implements MontadorDeOrcamentos, LeitorDeOrcamentosDoCliente {
+export class ServicoDeOrcamentos
+  implements MontadorDeOrcamentos, LeitorDeOrcamentosDoCliente, GestorDeVersoesDeOrcamento
+{
   private readonly orcamentos: RepositorioDeOrcamentos;
   private readonly clientes: RepositorioDeClientes;
   private readonly produtos: RepositorioDeProdutos;
@@ -201,6 +218,7 @@ export class ServicoDeOrcamentos implements MontadorDeOrcamentos, LeitorDeOrcame
         idOperador: autor.idOperador,
         idEnderecoEntrega: dados.idEnderecoEntrega ?? null,
         idPedido: null,
+        idOrcamentoOrigem: null,
         numeroSolicitacaoCompra: dados.numeroSolicitacaoCompra ?? null,
         contatoSolicitacao: dados.contatoSolicitacao ?? null,
         prazoEntregaDias: dados.prazoEntregaDias ?? null,
@@ -232,6 +250,7 @@ export class ServicoDeOrcamentos implements MontadorDeOrcamentos, LeitorDeOrcame
         idOperador: autor.idOperador,
         idEnderecoEntrega: pedido.idEnderecoEntrega,
         idPedido: pedido.idPedido,
+        idOrcamentoOrigem: null,
         numeroSolicitacaoCompra: pedido.numeroSolicitacaoCompra,
         contatoSolicitacao: pedido.contatoSolicitacao,
         prazoEntregaDias: null,
@@ -562,9 +581,21 @@ export class ServicoDeOrcamentos implements MontadorDeOrcamentos, LeitorDeOrcame
     return this.obter(idOrcamento);
   }
 
-  /** Cancela o orçamento, com a justificativa opcional (UC19). */
+  /**
+   * Cancela o orçamento, com a justificativa opcional (UC06): se estava emitido (ABERTO), as
+   * reservas de estoque são liberadas (UC06, passo 4).
+   *
+   * @throws {ErroDeOrcamentoNaoEditavel} Se o status não permitir cancelamento (RASCUNHO,
+   * PENDENTE_CREDITO ou ABERTO; docs/04, seção 4.6).
+   */
   async cancelar(idOrcamento: number, justificativa: string | null, autor: Sessao): Promise<void> {
     const orcamento = await this.buscarOuFalhar(idOrcamento);
+    if (!STATUS_DO_ORCAMENTO_CANCELAVEIS.has(orcamento.status)) {
+      throw new ErroDeOrcamentoNaoEditavel();
+    }
+    if (orcamento.status === STATUS_ABERTO) {
+      await this.orcamentos.liberarReservas(idOrcamento);
+    }
     await this.orcamentos.cancelar(idOrcamento, this.agora());
     await this.orcamentos.registrarHistorico({
       idOrcamento,
@@ -575,6 +606,114 @@ export class ServicoDeOrcamentos implements MontadorDeOrcamentos, LeitorDeOrcame
       observacao: justificativa,
     });
     this.logger.info({ evento: 'orcamento_cancelado', idOrcamento, idAutor: autor.idOperador });
+  }
+
+  /**
+   * Cria (ou reabre, se já existir) o rascunho de uma nova versão a partir de um orçamento
+   * recusado, com alteração solicitada ou com itens não aprovados (UC21, RF21): copia o
+   * cabeçalho, os itens — com a aprovação herdada que o chamador já apurou — e as condições
+   * comerciais, com vínculo a `idOrcamentoOrigem`. Implementa {@link GestorDeVersoesDeOrcamento}
+   * para o módulo de respostas.
+   *
+   * @throws {ErroDeNovaVersaoNaoPermitida} Se a origem não estiver ABERTO ou
+   * ALTERACAO_SOLICITADA (UC21-E1).
+   */
+  async criarNovaVersao(
+    idOrcamentoOrigem: number,
+    itens: readonly ItemParaNovaVersao[],
+    autor: Sessao,
+  ): Promise<number> {
+    const origem = await this.buscarOuFalhar(idOrcamentoOrigem);
+    if (!STATUS_DO_ORCAMENTO_PERMITEM_NOVA_VERSAO.has(origem.status)) {
+      throw new ErroDeNovaVersaoNaoPermitida();
+    }
+    const rascunhoExistente = await this.orcamentos.buscarRascunhoDeVersao(idOrcamentoOrigem);
+    if (rascunhoExistente) {
+      return rascunhoExistente.idOrcamento;
+    }
+    const idOrcamento = await this.orcamentos.criar(
+      {
+        idCliente: origem.idCliente,
+        idOperador: autor.idOperador,
+        idEnderecoEntrega: origem.idEnderecoEntrega,
+        idPedido: origem.idPedido,
+        idOrcamentoOrigem: origem.idOrcamento,
+        numeroSolicitacaoCompra: origem.numeroSolicitacaoCompra,
+        contatoSolicitacao: origem.contatoSolicitacao,
+        prazoEntregaDias: origem.prazoEntregaDias,
+        primeiraCompra: origem.primeiraCompra,
+      },
+      this.agora(),
+    );
+    for (const item of itens) {
+      await this.orcamentos.inserirItem(idOrcamento, item);
+    }
+    await this.orcamentos.atualizarCondicoes(
+      idOrcamento,
+      {
+        condicaoPagamento: origem.condicaoPagamento,
+        prazoDias: origem.prazoDias,
+        numeroParcelas: origem.numeroParcelas,
+        modalidadeFrete: origem.modalidadeFrete,
+        origemTransportadora: origem.origemTransportadora,
+        transportadora: origem.transportadora,
+        valorFrete: origem.valorFrete,
+        freteProvisorio: origem.freteProvisorio,
+        valorTotalProposta: origem.valorTotalProposta,
+      },
+      this.agora(),
+    );
+    await this.recalcularTotais(idOrcamento);
+    await this.orcamentos.registrarHistorico({
+      idOrcamento,
+      idOperador: autor.idOperador,
+      tipoEvento: 'MUDANCA_STATUS',
+      statusAnterior: null,
+      statusNovo: 'RASCUNHO',
+      observacao: `Nova versão do orçamento ${origem.numeroOrcamento ?? origem.idOrcamento}.`,
+    });
+    this.logger.info({
+      evento: 'orcamento_nova_versao_criada',
+      idOrcamentoOrigem,
+      idOrcamento,
+      idAutor: autor.idOperador,
+    });
+    return idOrcamento;
+  }
+
+  /**
+   * Emite a nova versão (UC19) e, tendo sucesso, substitui o orçamento original: muda-o para
+   * SUBSTITUIDO e libera as suas reservas (UC21, RF21). Implementa
+   * {@link GestorDeVersoesDeOrcamento} para o módulo de respostas.
+   *
+   * @throws {ErroDeValidacao} Se o orçamento não for uma nova versão (sem `idOrcamentoOrigem`).
+   */
+  async emitirNovaVersao(idOrcamentoNovo: number, autor: Sessao): Promise<OrcamentoDetalhado> {
+    const novaVersao = await this.buscarOuFalhar(idOrcamentoNovo);
+    if (novaVersao.idOrcamentoOrigem === null) {
+      throw new ErroDeValidacao({ detalhes: { campos: ['idOrcamento'] } });
+    }
+    const emitida = await this.emitir(idOrcamentoNovo, autor);
+    const origem = await this.buscarOuFalhar(novaVersao.idOrcamentoOrigem);
+    if (origem.status === STATUS_ABERTO || origem.status === 'ALTERACAO_SOLICITADA') {
+      await this.orcamentos.liberarReservas(origem.idOrcamento);
+    }
+    await this.orcamentos.marcarSubstituido(origem.idOrcamento, this.agora());
+    await this.orcamentos.registrarHistorico({
+      idOrcamento: origem.idOrcamento,
+      idOperador: autor.idOperador,
+      tipoEvento: 'MUDANCA_STATUS',
+      statusAnterior: origem.status,
+      statusNovo: 'SUBSTITUIDO',
+      observacao: `Substituído pela versão ${emitida.numeroOrcamento ?? emitida.idOrcamento}.`,
+    });
+    this.logger.info({
+      evento: 'orcamento_substituido_por_nova_versao',
+      idOrcamentoOrigem: origem.idOrcamento,
+      idOrcamentoNovo,
+      idAutor: autor.idOperador,
+    });
+    return emitida;
   }
 
   // ----------------------------------------------------------------------------------------

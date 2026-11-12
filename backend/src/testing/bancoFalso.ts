@@ -67,6 +67,7 @@ const VALORES_PADRAO: Readonly<Record<string, Readonly<Record<string, Padrao>>>>
   historico_orcamento: { data_registro: momentoAtual },
   anexo_orcamento: { data_anexo: momentoAtual },
   reserva_estoque: { status: 'CONFIRMADA' },
+  movimentacao_estoque: { data_movimentacao: momentoAtual },
 };
 
 const OPERACOES = {
@@ -77,6 +78,7 @@ const OPERACOES = {
   LOTE: 'dados.lote',
   ASSUMIR_PEDIDO: 'pedido.assumir',
   EMITIR_ORCAMENTO: 'orcamento.emitir',
+  PROCESSAR_RESPOSTA: 'resposta.processar',
 } as const;
 
 /** Status do pedido que `pedido.assumir` exige para passar a EM_ANALISE (UC10). */
@@ -91,9 +93,14 @@ const STATUS_ORCAMENTO_EDITAVEIS_PARA_EMISSAO: ReadonlySet<string> = new Set([
   'ALTERACAO_SOLICITADA',
 ]);
 const STATUS_ORCAMENTO_ABERTO = 'ABERTO';
+const STATUS_ORCAMENTO_ACEITO = 'ACEITO';
 const STATUS_ORCAMENTO_SUBSTITUIDO = 'SUBSTITUIDO';
 const STATUS_RESERVA_VIGENTE = 'CONFIRMADA';
+const STATUS_RESERVA_BAIXADA = 'BAIXADA';
 const STATUS_RESERVA_LIBERADA = 'LIBERADA';
+const STATUS_RESPOSTA_PENDENTE = 'PENDENTE';
+const SITUACAO_ITEM_APROVADO = 'APROVADO';
+const TIPO_MOVIMENTACAO_BAIXA = 'BAIXA';
 const DIAS_DE_VALIDADE_DO_ORCAMENTO = 30;
 const MILISSEGUNDOS_POR_DIA = 24 * 60 * 60 * 1000;
 
@@ -215,6 +222,8 @@ export class BancoFalso {
         return this.assumirPedido(payload);
       case OPERACOES.EMITIR_ORCAMENTO:
         return this.emitirOrcamento(payload);
+      case OPERACOES.PROCESSAR_RESPOSTA:
+        return this.processarResposta(payload);
       default:
         throw new ErroProxy(404, 'OPERACAO_DESCONHECIDA', `operação desconhecida: ${operacao}`);
     }
@@ -822,6 +831,141 @@ export class BancoFalso {
       0,
     );
     return maior + 1;
+  }
+
+  // ------------------------------------------------------------------------------------------
+  // resposta.processar (docs/12, seção 12.8.3; UC20)
+
+  /**
+   * Processa a resposta do cliente: grava os valores calculados nos itens e na própria resposta,
+   * muda o orçamento para ACEITO, RECUSADO, ALTERACAO_SOLICITADA ou mantém ABERTO e, somente no
+   * ACEITO, baixa as reservas dos itens aprovados (BAIXADA, com a movimentação BAIXA) e libera as
+   * demais — tudo atomicamente. Fora do ACEITO (recusa, alteração), quem libera as reservas do
+   * orçamento inteiro é o backend, por uma chamada separada de `dados.atualizar`
+   * (`ServicoDeRespostas.processarUma`), do mesmo jeito que o cancelamento manual (UC06).
+   *
+   * @throws {ErroProxy} `NOT_FOUND` se a resposta ou o orçamento não existirem;
+   * `RESPOSTA_JA_PROCESSADA` se a resposta não estiver mais PENDENTE.
+   */
+  private processarResposta(p: Readonly<Record<string, unknown>>): {
+    dados: { status_orcamento: string; status_resposta: string };
+  } {
+    const idResposta = p.id_resposta;
+    const resultado = p.resultado;
+    if (typeof idResposta !== 'number' || !ehObjeto(resultado)) {
+      throw payloadInvalido('resposta.processar exige id_resposta e resultado');
+    }
+    const resposta = this.linhasDa('resposta_orcamento').find(
+      (linha) => linha.id_resposta === idResposta,
+    );
+    if (!resposta) {
+      throw new ErroProxy(404, 'NOT_FOUND', `resposta inexistente: ${idResposta}`);
+    }
+    if (resposta.status_resposta !== STATUS_RESPOSTA_PENDENTE) {
+      throw new ErroProxy(
+        409,
+        'RESPOSTA_JA_PROCESSADA',
+        `resposta ${idResposta} não está mais PENDENTE`,
+      );
+    }
+    const statusResposta = resultado.status_resposta;
+    const statusOrcamento = resultado.status_orcamento;
+    if (typeof statusResposta !== 'string' || typeof statusOrcamento !== 'string') {
+      throw payloadInvalido('resultado.status_resposta e status_orcamento são obrigatórios');
+    }
+    const orcamento = this.linhasDa('orcamento').find(
+      (linha) => linha.id_orcamento === resposta.id_orcamento,
+    );
+    if (!orcamento) {
+      throw new ErroProxy(
+        404,
+        'NOT_FOUND',
+        `orçamento inexistente: ${String(resposta.id_orcamento)}`,
+      );
+    }
+
+    const itens = (resultado.itens as Linha[] | undefined) ?? [];
+    for (const item of itens) {
+      const itemResposta = this.linhasDa('item_resposta_orcamento').find(
+        (linha) => linha.id_item_resposta === item.id_item_resposta,
+      );
+      if (!itemResposta) {
+        throw payloadInvalido(`item de resposta inexistente: ${String(item.id_item_resposta)}`);
+      }
+      itemResposta.situacao = item.situacao;
+      itemResposta.id_faixa_preco_aceita = item.id_faixa_preco_aceita ?? null;
+      itemResposta.preco_unitario_aceito = item.preco_unitario_aceito ?? null;
+      itemResposta.valor_imposto_aceito = item.valor_imposto_aceito ?? null;
+      itemResposta.valor_total_item_aceito = item.valor_total_item_aceito ?? null;
+    }
+
+    const totais = ehObjeto(resultado.totais) ? resultado.totais : null;
+    const agora = this.agora();
+    resposta.status_resposta = statusResposta;
+    resposta.motivo_tratamento = resultado.motivo_tratamento ?? null;
+    resposta.data_processamento = agora.toISOString();
+    resposta.valor_total_itens_aprovado = totais?.valor_total_itens_aprovado ?? null;
+    resposta.valor_total_imposto_aprovado = totais?.valor_total_imposto_aprovado ?? null;
+    resposta.modalidade_frete_aceita = totais?.modalidade_frete_aceita ?? null;
+    resposta.valor_frete_aceito = totais?.valor_frete_aceito ?? null;
+    resposta.valor_total_aceito = totais?.valor_total_aceito ?? null;
+
+    orcamento.status = statusOrcamento;
+    orcamento.data_ultima_edicao = agora.toISOString();
+
+    if (statusOrcamento === STATUS_ORCAMENTO_ACEITO) {
+      this.baixarOuLiberarReservasDoAceite(orcamento, idResposta);
+    }
+
+    return {
+      dados: { status_orcamento: String(statusOrcamento), status_resposta: String(statusResposta) },
+    };
+  }
+
+  /** No ACEITO: baixa a reserva dos itens aprovados (RF; docs/13, seção 4.6) e libera as demais. */
+  private baixarOuLiberarReservasDoAceite(orcamento: Linha, idResposta: number): void {
+    const itensRespostaPorIdItem = new Map(
+      this.linhasDa('item_resposta_orcamento')
+        .filter((linha) => linha.id_resposta === idResposta)
+        .map((linha) => [linha.id_item, linha]),
+    );
+    const itensDoOrcamento = this.linhasDa('item_orcamento').filter(
+      (linha) => linha.id_orcamento === orcamento.id_orcamento,
+    );
+    for (const itemOrcamento of itensDoOrcamento) {
+      const idItem = itemOrcamento.id_item as number;
+      const reserva = this.linhasDa('reserva_estoque').find(
+        (linha) => linha.id_item === idItem && linha.status === STATUS_RESERVA_VIGENTE,
+      );
+      if (!reserva) {
+        continue;
+      }
+      const aprovado = itensRespostaPorIdItem.get(idItem)?.situacao === SITUACAO_ITEM_APROVADO;
+      if (!aprovado) {
+        reserva.status = STATUS_RESERVA_LIBERADA;
+        continue;
+      }
+      reserva.status = STATUS_RESERVA_BAIXADA;
+      const quantidade = Number(reserva.quantidade_reservada);
+      this.inserir({
+        tabela: 'movimentacao_estoque',
+        valores: {
+          id_variacao: itemOrcamento.id_variacao,
+          tipo: TIPO_MOVIMENTACAO_BAIXA,
+          quantidade: -quantidade,
+          id_operador: null,
+          id_orcamento: orcamento.id_orcamento,
+          id_entrada: null,
+          motivo: null,
+        },
+      });
+      const variacao = this.linhasDa('variacao_produto').find(
+        (v) => v.id_variacao === itemOrcamento.id_variacao,
+      );
+      if (variacao) {
+        variacao.quantidade_estoque = Number(variacao.quantidade_estoque) - quantidade;
+      }
+    }
   }
 
   // ------------------------------------------------------------------------------------------
