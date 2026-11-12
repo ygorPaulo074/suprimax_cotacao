@@ -4,7 +4,8 @@ import { STATUS_HTTP } from '../../erros';
 import { exigirSessao, obterSessao, obterTokenDaSessao } from '../../http/middlewares/autenticacao';
 import { obterRequestId } from '../../http/middlewares/requestId';
 import { rotaAssincrona } from '../../http/rotaAssincrona';
-import { esquemaDeLogin, validarCorpo } from './esquemas';
+import { validarEntrada } from '../../http/validacao';
+import { esquemaDeLogin } from './esquemas';
 import type { ServicoDeAutenticacao } from './servico';
 import type { RepositorioDeSessoes } from './sessoes';
 
@@ -13,9 +14,6 @@ export const ROTAS_DE_AUTH = {
   SESSAO_ATUAL: '/auth/me',
   LOGOUT: '/auth/logout',
 } as const;
-
-const CABECALHO_DE_CACHE = 'Cache-Control';
-const SEM_CACHE = 'no-store';
 
 export interface DependenciasDasRotasDeAuth {
   readonly servico: ServicoDeAutenticacao;
@@ -42,14 +40,14 @@ export function criarRotasDeAuth({
     ROTAS_DE_AUTH.LOGIN,
     limiteDeLogin,
     rotaAssincrona(async (req, res) => {
-      const credenciais = validarCorpo(esquemaDeLogin, req.body);
+      const credenciais = validarEntrada(esquemaDeLogin, req.body);
       const resultado = await servico.entrar(credenciais, obterRequestId(res));
-      res.setHeader(CABECALHO_DE_CACHE, SEM_CACHE).status(STATUS_HTTP.OK).json(resultado);
+      res.status(STATUS_HTTP.OK).json(resultado);
     }),
   );
 
   rotas.get(ROTAS_DE_AUTH.SESSAO_ATUAL, autenticado, (_req, res) => {
-    res.setHeader(CABECALHO_DE_CACHE, SEM_CACHE).status(STATUS_HTTP.OK).json(obterSessao(res));
+    res.status(STATUS_HTTP.OK).json(obterSessao(res));
   });
 
   rotas.post(

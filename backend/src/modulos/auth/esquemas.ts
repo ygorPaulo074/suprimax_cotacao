@@ -1,6 +1,5 @@
 // UC13 — formato do corpo das rotas de autenticação.
 import { z } from 'zod';
-import { ErroDeValidacao } from '../../erros';
 
 /** Tamanho da coluna `operador.usuario`. */
 export const TAMANHO_MAXIMO_DO_USUARIO = 50;
@@ -15,17 +14,3 @@ export const esquemaDeLogin = z.object({
   usuario: z.string().trim().min(1).max(TAMANHO_MAXIMO_DO_USUARIO),
   senha: z.string().min(1).max(TAMANHO_MAXIMO_DO_CAMPO_SENHA),
 });
-
-/**
- * Valida o corpo da requisição contra o esquema.
- *
- * @throws {ErroDeValidacao} Com `detalhes.campos` listando os campos recusados, sem os valores.
- */
-export function validarCorpo<T>(esquema: z.ZodType<T>, corpo: unknown): T {
-  const resultado = esquema.safeParse(corpo);
-  if (!resultado.success) {
-    const campos = [...new Set(resultado.error.issues.map(({ path }) => path.join('.')))];
-    throw new ErroDeValidacao({ detalhes: { campos: campos.filter((campo) => campo !== '') } });
-  }
-  return resultado.data;
-}
