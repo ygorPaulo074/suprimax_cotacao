@@ -282,6 +282,75 @@ describe('ServicoDeOrcamentos', () => {
       expect(reserva?.status).toBe('CONFIRMADA');
     });
 
+    it('devolve de orcamento.emitir só id, número e validade, como no contrato (docs/12, 12.8.3)', async () => {
+      const cenario = montarCenarioDeCadastros();
+      const idOperador = cenario.semearUsuario('OPERADOR', 'quem-emite');
+      const idCliente = semearCliente(cenario);
+      const { idVariacao } = semearVariacao(cenario, { precoUnitario: 600, quantidadeEstoque: 10 });
+      const servico = montarServico(cenario);
+      const sessao = sessaoDoOperador(idOperador, 'quem-emite');
+      const { idOrcamento } = await servico.criar(
+        { idCliente, numeroSolicitacaoCompra: null, contatoSolicitacao: null },
+        sessao,
+      );
+      await servico.adicionarItem(
+        idOrcamento,
+        { idVariacao, granularidade: 'AVULSO', quantidade: 3 },
+        sessao,
+      );
+
+      const resposta = cenario.banco.executar('orcamento.emitir', {
+        id_orcamento: idOrcamento,
+        id_operador: idOperador,
+        chave_seguranca: 'chave-de-teste',
+      });
+
+      expect(resposta.ok).toBe(true);
+      expect(Object.keys(resposta.dados as object).sort()).toEqual([
+        'data_validade',
+        'id_orcamento',
+        'numero_orcamento',
+      ]);
+    });
+
+    it('ao emitir uma nova versão, o original vira SUBSTITUIDO e suas reservas são liberadas', async () => {
+      const cenario = montarCenarioDeCadastros();
+      const idOperador = cenario.semearUsuario('OPERADOR', 'quem-emite');
+      const idCliente = semearCliente(cenario);
+      const { idVariacao } = semearVariacao(cenario, { precoUnitario: 600, quantidadeEstoque: 10 });
+      const servico = montarServico(cenario);
+      const sessao = sessaoDoOperador(idOperador, 'quem-emite');
+      const criar = async (): Promise<number> => {
+        const { idOrcamento } = await servico.criar(
+          { idCliente, numeroSolicitacaoCompra: null, contatoSolicitacao: null },
+          sessao,
+        );
+        await servico.adicionarItem(
+          idOrcamento,
+          { idVariacao, granularidade: 'AVULSO', quantidade: 3 },
+          sessao,
+        );
+        return idOrcamento;
+      };
+      const original = await criar();
+      await servico.emitir(original, sessao);
+      const novaVersao = await criar();
+      cenario.banco.executar('dados.atualizar', {
+        tabela: 'orcamento',
+        filtros: { e: [['id_orcamento', '=', novaVersao]] },
+        valores: { id_orcamento_origem: original },
+      });
+
+      await servico.emitir(novaVersao, sessao);
+
+      const status = (id: number) =>
+        cenario.banco.linhas('orcamento').find((linha) => linha.id_orcamento === id)?.status;
+      expect(status(original)).toBe('SUBSTITUIDO');
+      expect(status(novaVersao)).toBe('ABERTO');
+      const reservas = cenario.banco.linhas('reserva_estoque').map((linha) => linha.status);
+      expect(reservas.sort()).toEqual(['CONFIRMADA', 'LIBERADA']);
+    });
+
     it('rejeita a emissão de um orçamento inexistente', async () => {
       const cenario = montarCenarioDeCadastros();
       const servico = montarServico(cenario);

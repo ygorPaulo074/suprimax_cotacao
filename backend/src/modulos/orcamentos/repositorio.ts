@@ -122,6 +122,14 @@ const esquemaDoOrcamento = z.object({
 });
 export type Orcamento = z.infer<typeof esquemaDoOrcamento>;
 
+/** Retorno de `orcamento.emitir` (docs/12, seção 12.8.3): só estes três campos. */
+const esquemaDaEmissao = z.object({
+  idOrcamento: z.number().int(),
+  numeroOrcamento: z.number().int(),
+  dataValidade: z.string(),
+});
+export type EmissaoDoOrcamento = z.infer<typeof esquemaDaEmissao>;
+
 const esquemaDoItem = z.object({
   idItem: z.number().int(),
   idOrcamento: z.number().int(),
@@ -442,13 +450,13 @@ export class RepositorioDeOrcamentos {
    * @param gerarChave Gera uma chave de segurança nova a cada tentativa, para a rara colisão.
    * @throws {ErroDeOrcamentoNaoEncontrado} Se o orçamento não existir (404).
    * @throws {ErroDeOrcamentoNaoEditavel} Se o status não permitir emissão (422).
-   * @throws {ErroDeEstoqueInsuficiente} Se algum item não tiver saldo suficiente (422, UC19-E5).
+   * @throws {ErroDeEstoqueInsuficiente} Se algum item não tiver saldo suficiente (409, UC19-E5).
    */
   async emitir(
     idOrcamento: number,
     idOperador: number,
     gerarChave: () => string,
-  ): Promise<Orcamento> {
+  ): Promise<EmissaoDoOrcamento> {
     const TENTATIVAS_MAXIMAS = 3;
     for (let tentativa = 1; tentativa <= TENTATIVAS_MAXIMAS; tentativa += 1) {
       try {
@@ -457,7 +465,7 @@ export class RepositorioDeOrcamentos {
           { id_orcamento: idOrcamento, id_operador: idOperador, chave_seguranca: gerarChave() },
           OPERACOES_DE_ORCAMENTOS.EMITIR,
         );
-        return validarLinha(esquemaDoOrcamento, resposta.dados, TABELA_DE_ORCAMENTOS);
+        return validarLinha(esquemaDaEmissao, resposta.dados, 'orcamento.emitir');
       } catch (erro) {
         if (erro instanceof ErroProxy && erro.codigo === CODIGOS_DO_PROXY.CHAVE_DUPLICADA) {
           continue;

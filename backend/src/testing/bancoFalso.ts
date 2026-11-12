@@ -91,7 +91,9 @@ const STATUS_ORCAMENTO_EDITAVEIS_PARA_EMISSAO: ReadonlySet<string> = new Set([
   'ALTERACAO_SOLICITADA',
 ]);
 const STATUS_ORCAMENTO_ABERTO = 'ABERTO';
+const STATUS_ORCAMENTO_SUBSTITUIDO = 'SUBSTITUIDO';
 const STATUS_RESERVA_VIGENTE = 'CONFIRMADA';
+const STATUS_RESERVA_LIBERADA = 'LIBERADA';
 const DIAS_DE_VALIDADE_DO_ORCAMENTO = 30;
 const MILISSEGUNDOS_POR_DIA = 24 * 60 * 60 * 1000;
 
@@ -670,7 +672,7 @@ export class BancoFalso {
    * estiver em um status que permita emissão; `CHAVE_DUPLICADA` se a chave já estiver em uso;
    * `ESTOQUE_INSUFICIENTE` se algum item não tiver saldo suficiente.
    */
-  private emitirOrcamento(p: Readonly<Record<string, unknown>>): { dados: Linha } {
+  private emitirOrcamento(p: Readonly<Record<string, unknown>>): { ok: true; dados: Linha } {
     const idOrcamento = p.id_orcamento;
     const idOperador = p.id_operador;
     const chaveSeguranca = p.chave_seguranca;
@@ -718,9 +720,10 @@ export class BancoFalso {
       const solicitado = quantidadesEmUnidades.get(idItem) ?? 0;
       if (solicitado > disponivel) {
         throw new ErroProxy(
-          422,
+          409,
           'ESTOQUE_INSUFICIENTE',
-          `variação ${idVariacao}: solicitado ${solicitado}, disponível ${disponivel}`,
+          `produto ${String(variacao?.id_produto)} (variação ${idVariacao}): ` +
+            `solicitado ${solicitado}, disponível ${disponivel}`,
         );
       }
     }
@@ -764,11 +767,39 @@ export class BancoFalso {
       }
     }
 
+    // Nova versão: o original passa a SUBSTITUIDO e suas reservas vigentes são liberadas.
+    if (typeof orcamento.id_orcamento_origem === 'number') {
+      const original = this.linhasDa('orcamento').find(
+        (linha) => linha.id_orcamento === orcamento.id_orcamento_origem,
+      );
+      if (original) {
+        original.status = STATUS_ORCAMENTO_SUBSTITUIDO;
+        const idsDosItensOriginais = this.linhasDa('item_orcamento')
+          .filter((item) => item.id_orcamento === original.id_orcamento)
+          .map((item) => item.id_item);
+        for (const reserva of this.linhasDa('reserva_estoque')) {
+          if (
+            idsDosItensOriginais.includes(reserva.id_item) &&
+            reserva.status === STATUS_RESERVA_VIGENTE
+          ) {
+            reserva.status = STATUS_RESERVA_LIBERADA;
+          }
+        }
+      }
+    }
+
     // Sem historico_orcamento aqui: o contrato real de `orcamento.emitir` (docs/12-proxy.md,
     // seção 12.8.3) não grava histórico — isso é responsabilidade do backend, que já registra o
     // evento por uma chamada separada (`historico_orcamento:inserir`) depois de chamar esta
     // operação (ver `ServicoDeOrcamentos.emitir`).
-    return { dados: { ...orcamento } };
+    return {
+      ok: true,
+      dados: {
+        id_orcamento: orcamento.id_orcamento,
+        numero_orcamento: numeroOrcamento,
+        data_validade: dataValidade,
+      },
+    };
   }
 
   /** Soma as reservas CONFIRMADA de uma variação, pelo mesmo caminho de `somarReservasPorVariacao`. */
