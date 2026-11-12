@@ -2,7 +2,14 @@
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { carregarConfig, ConfigInvalidaError, NIVEL_LOG_PADRAO, type Config } from './config';
-import { createApp } from './http/app';
+import {
+  ClienteDeProxyIndisponivel,
+  ClienteProxy,
+  variaveisDoProxyAusentes,
+  type ClienteDeProxy,
+} from './dados';
+import { createApp, type DependenciasDoApp } from './http/app';
+import { RepositorioDeSessoesEmMemoria } from './modulos/auth/sessoes';
 import { criarLogger, type Logger, type OpcoesDoLogger } from './log';
 
 /** Tempo para as requisições em andamento terminarem antes de as conexões serem derrubadas. */
@@ -33,16 +40,20 @@ export class ServidorHttp {
   private servidor?: Server;
   private encerramento?: Promise<void>;
 
+  private readonly config: Config;
+  private readonly logger: Logger;
+
   /**
-   * @param config Configuração validada.
-   * @param logger Logger do backend.
+   * @param dependencias O que a aplicação precisa: configuração, logger, acesso a dados e sessões.
    * @param prazoDeEncerramentoMs Espera máxima pelas requisições em andamento ao encerrar.
    */
   constructor(
-    private readonly config: Config,
-    private readonly logger: Logger,
+    private readonly dependencias: DependenciasDoApp,
     private readonly prazoDeEncerramentoMs: number = PRAZO_DE_ENCERRAMENTO_MS,
-  ) {}
+  ) {
+    this.config = dependencias.config;
+    this.logger = dependencias.logger;
+  }
 
   /**
    * Porta em que o servidor de fato escuta.
@@ -66,7 +77,7 @@ export class ServidorHttp {
     if (this.servidor) {
       throw new ServidorHttpError('O servidor já foi iniciado.');
     }
-    const app = createApp({ config: this.config, logger: this.logger });
+    const app = createApp(this.dependencias);
     this.servidor = await new Promise<Server>((resolve, reject) => {
       const servidor = app.listen(this.config.porta);
       servidor.once('error', reject);
@@ -123,6 +134,19 @@ export class ServidorHttp {
 }
 
 /**
+ * Cria o acesso a dados. Sem as variáveis do proxy (só é possível em dev), o servidor sobe mesmo
+ * assim, e as rotas que dependem de dados respondem 503.
+ */
+export function criarClienteDeProxy(config: Config, logger: Logger): ClienteDeProxy {
+  const ausentes = variaveisDoProxyAusentes(config);
+  if (ausentes.length > 0) {
+    logger.warn({ variaveis: ausentes }, 'proxy não configurado: rotas de dados responderão 503');
+    return new ClienteDeProxyIndisponivel();
+  }
+  return ClienteProxy.aPartirDaConfig(config, logger);
+}
+
+/**
  * Carrega a configuração, sobe o servidor e registra o encerramento.
  * Se a configuração for inválida ou a porta não abrir, registra o motivo e sai com código 1.
  *
@@ -139,7 +163,12 @@ export async function principal(
   try {
     const config = carregarConfig(env);
     logger = criarLogger({ nivel: config.nivelLog, destino: destinoDoLog });
-    const servidor = new ServidorHttp(config, logger);
+    const sessoes = new RepositorioDeSessoesEmMemoria({
+      inatividadeMs: config.sessaoInatividadeMs,
+    });
+    sessoes.iniciarLimpeza();
+    const proxy = criarClienteDeProxy(config, logger);
+    const servidor = new ServidorHttp({ config, logger, proxy, sessoes });
     await servidor.iniciar();
     servidor.registrarEncerramento(processo);
   } catch (erro) {

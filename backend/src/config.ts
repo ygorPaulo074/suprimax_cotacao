@@ -17,6 +17,17 @@ export const PORTA_PADRAO = 3000;
 export const PORTA_MINIMA = 1;
 export const PORTA_MAXIMA = 65535;
 
+/** Tempo sem uso até a sessão expirar (UC13, RN02), quando SESSAO_INATIVIDADE_MINUTOS não é informada. */
+export const SESSAO_INATIVIDADE_PADRAO_MINUTOS = 30;
+export const SESSAO_INATIVIDADE_MAXIMA_MINUTOS = 1440;
+/** Proxies reversos à frente do backend, quando TRUST_PROXY não é informada (no Render, use 1). */
+export const TRUST_PROXY_PADRAO = 0;
+export const TRUST_PROXY_MAXIMO = 10;
+const MS_POR_MINUTO = 60_000;
+
+/** Variáveis de acesso ao proxy: opcionais em dev, obrigatórias nos demais ambientes. */
+export const VARIAVEIS_DO_PROXY = ['PROXY_URL', 'PROXY_SERVICE_ID', 'PROXY_SERVICE_TOKEN'] as const;
+
 /** Origem liberada por padrão em desenvolvimento: o servidor local do Vite (frontend). */
 export const ORIGENS_CORS_PADRAO_DEV: readonly string[] = ['http://localhost:5173'];
 
@@ -35,6 +46,8 @@ export const NOMES_DAS_VARIAVEIS = [
   'PROXY_URL',
   'PROXY_SERVICE_ID',
   'PROXY_SERVICE_TOKEN',
+  'SESSAO_INATIVIDADE_MINUTOS',
+  'TRUST_PROXY',
 ] as const;
 export type NomeDaVariavel = (typeof NOMES_DAS_VARIAVEIS)[number];
 
@@ -79,6 +92,8 @@ const FORMATO_ESPERADO: Readonly<Record<NomeDaVariavel, string>> = {
   PROXY_URL: 'deve ser uma URL http(s)',
   PROXY_SERVICE_ID: 'deve ser um texto sem espaços',
   PROXY_SERVICE_TOKEN: 'deve ser um texto sem espaços',
+  SESSAO_INATIVIDADE_MINUTOS: `deve ser um inteiro entre 1 e ${SESSAO_INATIVIDADE_MAXIMA_MINUTOS}`,
+  TRUST_PROXY: `deve ser um inteiro entre 0 e ${TRUST_PROXY_MAXIMO}`,
 };
 const MOTIVO_OBRIGATORIA_FORA_DE_DEV = 'é obrigatória fora do ambiente dev';
 const MOTIVO_VALOR_DE_EXEMPLO = 'não pode ficar com valor de exemplo em produção';
@@ -90,9 +105,13 @@ export interface Config {
   readonly nivelLog: NivelLog;
   /** Origens autorizadas a chamar a API pelo navegador (CORS). */
   readonly corsOrigens: readonly string[];
+  /** Tempo sem uso até a sessão expirar, em milissegundos. */
+  readonly sessaoInatividadeMs: number;
+  /** Quantos proxies reversos há à frente do backend (define o IP do cliente). */
+  readonly trustProxy: number;
   /**
-   * Acesso ao proxy (docs/12, seção 12.3). As três são opcionais na configuração: quem exige
-   * todas é o ClienteProxy, no momento em que é criado.
+   * Acesso ao proxy (docs/12, seção 12.3). Fora de dev, as três são obrigatórias. Em dev podem
+   * faltar: o servidor sobe e as rotas que dependem de dados respondem 503.
    */
   readonly proxyUrl?: string;
   readonly proxyServiceId?: string;
@@ -126,14 +145,17 @@ export class ConfigInvalidaError extends Error {
 
 type VariaveisBrutas = Partial<Record<NomeDaVariavel, string>>;
 
-const esquemaDasVariaveis = z.object({
-  ENV: z.enum(AMBIENTES).optional(),
-  PORT: z
+function inteiroEntre(minimo: number, maximo: number) {
+  return z
     .string()
     .regex(PADRAO_INTEIRO_POSITIVO)
     .transform(Number)
-    .pipe(z.number().int().min(PORTA_MINIMA).max(PORTA_MAXIMA))
-    .optional(),
+    .pipe(z.number().int().min(minimo).max(maximo));
+}
+
+const esquemaDasVariaveis = z.object({
+  ENV: z.enum(AMBIENTES).optional(),
+  PORT: inteiroEntre(PORTA_MINIMA, PORTA_MAXIMA).optional(),
   LOG_LEVEL: z.enum(NIVEIS_LOG).optional(),
   CORS_ORIGENS: z
     .string()
@@ -143,6 +165,8 @@ const esquemaDasVariaveis = z.object({
   PROXY_URL: z.string().refine(ehUrlHttp).transform(removerBarrasFinais).optional(),
   PROXY_SERVICE_ID: z.string().regex(PADRAO_TEXTO_SEM_ESPACOS).optional(),
   PROXY_SERVICE_TOKEN: z.string().regex(PADRAO_TEXTO_SEM_ESPACOS).optional(),
+  SESSAO_INATIVIDADE_MINUTOS: inteiroEntre(1, SESSAO_INATIVIDADE_MAXIMA_MINUTOS).optional(),
+  TRUST_PROXY: inteiroEntre(0, TRUST_PROXY_MAXIMO).optional(),
 });
 
 function separarLista(texto: string): string[] {
@@ -205,8 +229,12 @@ function validarRegrasDoAmbiente(
   if (!ambiente.success) {
     return;
   }
-  if (ambiente.data !== 'dev' && brutas.CORS_ORIGENS === undefined) {
-    problemas.set('CORS_ORIGENS', MOTIVO_OBRIGATORIA_FORA_DE_DEV);
+  if (ambiente.data !== 'dev') {
+    for (const nome of ['CORS_ORIGENS', ...VARIAVEIS_DO_PROXY] as const) {
+      if (brutas[nome] === undefined) {
+        problemas.set(nome, MOTIVO_OBRIGATORIA_FORA_DE_DEV);
+      }
+    }
   }
   if (ambiente.data !== 'producao') {
     return;
@@ -257,6 +285,9 @@ export function carregarConfig(env: NodeJS.ProcessEnv = process.env): Config {
     porta: dados.PORT ?? PORTA_PADRAO,
     nivelLog: dados.LOG_LEVEL ?? NIVEL_LOG_PADRAO,
     corsOrigens: Object.freeze(dados.CORS_ORIGENS ?? [...ORIGENS_CORS_PADRAO_DEV]),
+    sessaoInatividadeMs:
+      (dados.SESSAO_INATIVIDADE_MINUTOS ?? SESSAO_INATIVIDADE_PADRAO_MINUTOS) * MS_POR_MINUTO,
+    trustProxy: dados.TRUST_PROXY ?? TRUST_PROXY_PADRAO,
     ...(dados.PROXY_URL !== undefined && { proxyUrl: dados.PROXY_URL }),
     ...(dados.PROXY_SERVICE_ID !== undefined && { proxyServiceId: dados.PROXY_SERVICE_ID }),
     ...(dados.PROXY_SERVICE_TOKEN !== undefined && {

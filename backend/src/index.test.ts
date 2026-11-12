@@ -1,11 +1,17 @@
 import { EventEmitter } from 'node:events';
-import type { Config } from './config';
-import { principal, ServidorHttp, ServidorHttpError, type ProcessoEncerravel } from './index';
+import { ErroDeServicoIndisponivel } from './erros';
+import {
+  criarClienteDeProxy,
+  principal,
+  ServidorHttp,
+  ServidorHttpError,
+  type ProcessoEncerravel,
+} from './index';
 import { criarLogger } from './log';
+import { CONFIG_DE_TESTE, montarAppDeTeste } from './testing/appDeTeste';
 
 // Porta 0: o sistema operacional escolhe uma porta livre, então o teste não depende de porta fixa.
-const CONFIG: Config = { ambiente: 'dev', porta: 0, nivelLog: 'silent', corsOrigens: [] };
-const LOGGER = criarLogger({ nivel: 'silent' });
+const { dependencias: DEPENDENCIAS } = montarAppDeTeste({ config: { nivelLog: 'silent' } });
 
 /** Substituto de `process`: recebe sinais e avisa quando `exit` é chamado. */
 function criarProcessoFalso() {
@@ -21,7 +27,7 @@ function criarProcessoFalso() {
 
 describe('ServidorHttp', () => {
   it('sobe em uma porta livre, atende /saude e encerra', async () => {
-    const servidor = new ServidorHttp(CONFIG, LOGGER);
+    const servidor = new ServidorHttp(DEPENDENCIAS);
     await servidor.iniciar();
     const url = `http://127.0.0.1:${servidor.porta}/saude`;
 
@@ -34,7 +40,7 @@ describe('ServidorHttp', () => {
   });
 
   it('recusa uso fora de ordem', async () => {
-    const servidor = new ServidorHttp(CONFIG, LOGGER);
+    const servidor = new ServidorHttp(DEPENDENCIAS);
 
     expect(() => servidor.porta).toThrow(ServidorHttpError);
     await servidor.iniciar();
@@ -43,9 +49,12 @@ describe('ServidorHttp', () => {
   });
 
   it('falha ao iniciar em porta já ocupada', async () => {
-    const primeiro = new ServidorHttp(CONFIG, LOGGER);
+    const primeiro = new ServidorHttp(DEPENDENCIAS);
     await primeiro.iniciar();
-    const segundo = new ServidorHttp({ ...CONFIG, porta: primeiro.porta }, LOGGER);
+    const segundo = new ServidorHttp({
+      ...DEPENDENCIAS,
+      config: { ...DEPENDENCIAS.config, porta: primeiro.porta },
+    });
 
     await expect(segundo.iniciar()).rejects.toMatchObject({ code: 'EADDRINUSE' });
     await primeiro.encerrar();
@@ -53,7 +62,7 @@ describe('ServidorHttp', () => {
 
   it.each(['SIGTERM', 'SIGINT'])('encerra e sai com código 0 ao receber %s', async (sinal) => {
     const { processo, saida, enviar } = criarProcessoFalso();
-    const servidor = new ServidorHttp(CONFIG, LOGGER);
+    const servidor = new ServidorHttp(DEPENDENCIAS);
     await servidor.iniciar();
     servidor.registrarEncerramento(processo);
 
@@ -75,5 +84,28 @@ describe('principal', () => {
     expect(linhas).toHaveLength(1);
     expect(JSON.parse(linhas[0] ?? '')).toMatchObject({ level: 'fatal', variaveis: ['PORT'] });
     expect(linhas[0]).not.toContain('valor-secreto');
+  });
+});
+
+describe('criarClienteDeProxy', () => {
+  const logger = criarLogger({ nivel: 'silent' });
+
+  it('sem as variáveis do proxy, devolve um cliente que responde 503', async () => {
+    const cliente = criarClienteDeProxy(CONFIG_DE_TESTE, logger);
+
+    await expect(cliente.executar('dados.consultar', {}, 'UC')).rejects.toBeInstanceOf(
+      ErroDeServicoIndisponivel,
+    );
+  });
+
+  it('com as três variáveis, devolve o cliente real', () => {
+    const config = {
+      ...CONFIG_DE_TESTE,
+      proxyUrl: 'https://proxy.teste',
+      proxyServiceId: 'sistema2-backend',
+      proxyServiceToken: 'tok-123',
+    };
+
+    expect(criarClienteDeProxy(config, logger).constructor.name).toBe('ClienteProxy');
   });
 });
