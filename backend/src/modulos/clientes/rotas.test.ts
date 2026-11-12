@@ -345,9 +345,10 @@ describe('GET /clientes/busca (UC03)', () => {
 
 describe('GET /clientes/:id/orcamentos-em-aberto e /historico-compras', () => {
   it.each(['orcamentos-em-aberto', 'historico-compras'])(
-    '%s responde 200 com lista vazia até a entrega de orçamentos',
+    '%s responde 200 com lista vazia quando o cliente não tem orçamentos',
     async (rota) => {
-      const { app, operador } = await montar();
+      const { app, operador, cadastrar, clienteNovo } = await montar();
+      await cadastrar(clienteNovo());
 
       const resposta = await request(app)
         .get(`/clientes/1/${rota}`)
@@ -357,6 +358,53 @@ describe('GET /clientes/:id/orcamentos-em-aberto e /historico-compras', () => {
       expect(resposta.body).toEqual([]);
     },
   );
+
+  it('orcamentos-em-aberto só traz RASCUNHO, PENDENTE_CREDITO, ABERTO e ALTERACAO_SOLICITADA (RF04)', async () => {
+    const { app, operador, cadastrar, clienteNovo, banco } = await montar();
+    await cadastrar(clienteNovo());
+    const idOperador = operador.idOperador;
+    const abertos = ['RASCUNHO', 'PENDENTE_CREDITO', 'ABERTO', 'ALTERACAO_SOLICITADA'];
+    const encerrados = ['ACEITO', 'RECUSADO', 'CANCELADO', 'SUBSTITUIDO', 'EXPIRADO'];
+    for (const status of [...abertos, ...encerrados]) {
+      banco.semear('orcamento', { id_cliente: 1, id_operador: idOperador, status });
+    }
+
+    const resposta = await request(app)
+      .get('/clientes/1/orcamentos-em-aberto')
+      .set('Authorization', operador.autorizacao);
+
+    expect(resposta.status).toBe(200);
+    expect((resposta.body as { status: string }[]).map((o) => o.status).sort()).toEqual(
+      [...abertos].sort(),
+    );
+  });
+
+  it('historico-compras só traz orçamentos ACEITO, com o número e o valor total como aceito (RF04/RF07)', async () => {
+    const { app, operador, cadastrar, clienteNovo, banco } = await montar();
+    await cadastrar(clienteNovo());
+    banco.semear('orcamento', {
+      id_cliente: 1,
+      id_operador: operador.idOperador,
+      status: 'ACEITO',
+      numero_orcamento: 42,
+      data_emissao: '2026-10-01',
+      valor_total_proposta: '350.00',
+    });
+    banco.semear('orcamento', {
+      id_cliente: 1,
+      id_operador: operador.idOperador,
+      status: 'ABERTO',
+    });
+
+    const resposta = await request(app)
+      .get('/clientes/1/historico-compras')
+      .set('Authorization', operador.autorizacao);
+
+    expect(resposta.status).toBe(200);
+    expect(resposta.body).toEqual([
+      { idOrcamento: 1, numeroOrcamento: 42, dataEmissao: '2026-10-01', valorTotalAceito: 35000 },
+    ]);
+  });
 
   it.each(['abc', '0', '-1', '1.5', '99999999999'])(
     'responde 400 com o identificador "%s"',

@@ -8,7 +8,8 @@ import {
 } from '../../erros';
 import type { Logger } from '../../log';
 import type { Perfil, Sessao } from '../auth/sessoes';
-import type { DadosDoProduto } from './esquemas';
+import { calcularSaldoDisponivel } from '../comum/estoque';
+import type { DadosDoProduto, FiltroDeBuscaDeProdutos } from './esquemas';
 import {
   paraVariacaoAInserir,
   planejarAtualizacao,
@@ -59,6 +60,44 @@ export class ServicoDeProdutos {
   /** Lista os produtos; com `termo`, só os que o têm na descrição, no código interno ou no EAN. */
   listar(termo?: string): Promise<Produto[]> {
     return this.produtos.listar(termo);
+  }
+
+  /**
+   * Catálogo para compor um orçamento (UC15): só produtos ativos, com os filtros de marca,
+   * tamanho/embalagem e categoria aplicados de forma cumulativa (RN09), e só variações que têm
+   * ao menos um preço definido — faixa ou fardo (RN08). O preço é único por produto/variação, sem
+   * tabela diferenciada por cliente (RN04), então `idCliente` não entra no filtro.
+   */
+  async buscar(filtro: FiltroDeBuscaDeProdutos): Promise<Produto[]> {
+    const produtos = await this.produtos.listar(filtro.q);
+    const filtrados = produtos
+      .filter((produto) => produto.ativo)
+      .filter((produto) => filtro.categoria === undefined || produto.categoria === filtro.categoria)
+      .map((produto) => ({
+        ...produto,
+        variacoes: produto.variacoes.filter(
+          (variacao) =>
+            (variacao.faixasPreco.length > 0 || variacao.fardos.length > 0) &&
+            (filtro.marca === undefined || variacao.marca === filtro.marca) &&
+            (filtro.tamanhoEmbalagem === undefined ||
+              variacao.tamanhoEmbalagem === filtro.tamanhoEmbalagem),
+        ),
+      }))
+      .filter((produto) => produto.variacoes.length > 0);
+    const idsDasVariacoes = filtrados.flatMap((produto) =>
+      produto.variacoes.map((variacao) => variacao.idVariacao),
+    );
+    const reservado = await this.produtos.buscarReservadoPorVariacao(idsDasVariacoes);
+    return filtrados.map((produto) => ({
+      ...produto,
+      variacoes: produto.variacoes.map((variacao) => ({
+        ...variacao,
+        saldoDisponivel: calcularSaldoDisponivel(
+          variacao.quantidadeEstoque,
+          reservado.get(variacao.idVariacao) ?? 0,
+        ),
+      })),
+    }));
   }
 
   /**

@@ -5,6 +5,7 @@ import {
   digitosOpcionais,
   esquemaDeCentavos,
   esquemaDeId,
+  esquemaDeIdNaRota,
   esquemaDeQuantidade,
   MAIOR_INTEIRO_DO_BANCO,
   textoObrigatorio,
@@ -130,3 +131,25 @@ export const esquemaDeListaDeProdutos = z.object({
     .optional()
     .transform((termo) => (termo ? termo : undefined)),
 });
+
+const campoDeFiltroOpcional = (tamanho: number) =>
+  z
+    .string()
+    .trim()
+    .max(tamanho)
+    .optional()
+    .transform((valor) => (valor ? valor : undefined));
+
+/**
+ * Consulta de `GET /produtos/busca` (UC15): catálogo para compor um orçamento. `idCliente` é
+ * exigido pelo contrato do frontend, mas não afeta o preço retornado (RN04: preço é único por
+ * produto/variação, sem tabela diferenciada por cliente).
+ */
+export const esquemaDeBuscaDeProdutos = z.object({
+  q: campoDeFiltroOpcional(TAMANHO_MAXIMO_DA_BUSCA),
+  marca: campoDeFiltroOpcional(TAMANHO_MAXIMO_DA_MARCA),
+  tamanhoEmbalagem: campoDeFiltroOpcional(TAMANHO_MAXIMO_DO_TAMANHO_DA_EMBALAGEM),
+  categoria: campoDeFiltroOpcional(TAMANHO_MAXIMO_DA_CATEGORIA),
+  idCliente: esquemaDeIdNaRota,
+});
+export type FiltroDeBuscaDeProdutos = z.infer<typeof esquemaDeBuscaDeProdutos>;

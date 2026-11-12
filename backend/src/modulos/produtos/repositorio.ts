@@ -21,6 +21,7 @@ import {
   type PassoDoLote,
 } from '../../dados';
 import { ErroInterno } from '../../erros';
+import { calcularSaldoDisponivel, somarReservasPorVariacao } from '../comum/estoque';
 import type { PlanoDeAtualizacao } from './plano';
 
 /** Identificação de cada chamada na auditoria do proxy (X-Operation-Id). */
@@ -105,8 +106,11 @@ export interface VariacaoDeProduto {
   /** Estoque físico. */
   readonly quantidadeEstoque: number;
   /**
-   * Físico menos reservas (RN14). TODO item 8: as reservas só existem a partir da emissão de
-   * orçamentos; até o módulo de estoque entrar, repete o estoque físico.
+   * Físico menos as reservas CONFIRMADA vigentes (RN14). Calculado de verdade por
+   * {@link RepositorioDeProdutos.buscarVariacaoComPrecos} e por quem usa
+   * {@link RepositorioDeProdutos.buscarReservadoPorVariacao} (UC15); no cadastro simples
+   * (`listar`/`buscarPorId`) repete o estoque físico, para não pagar uma consulta extra onde o
+   * saldo em tempo real não é necessário.
    */
   readonly saldoDisponivel: number;
   readonly faixasPreco: readonly FaixaDePreco[];
@@ -171,6 +175,38 @@ const esquemaDoFardo = z.object({
 
 const esquemaDoConflito = z.object({ codigoInterno: z.string(), ean: z.string().nullable() });
 const esquemaDoIdDoProduto = z.object({ idProduto: z.number().int() });
+
+/** Colunas de `variacao_produto` usadas por {@link RepositorioDeProdutos.buscarVariacoesPorId}. */
+const COLUNAS_DA_VARIACAO_SIMPLES = [
+  'id_variacao',
+  'id_produto',
+  'marca',
+  'tamanho_embalagem',
+  'quantidade_estoque',
+];
+
+const esquemaDaVariacaoSimples = z.object({
+  idVariacao: z.number().int(),
+  idProduto: z.number().int(),
+  marca: z.string(),
+  tamanhoEmbalagem: z.string(),
+  quantidadeEstoque: z.number().int(),
+});
+
+const esquemaDaDescricaoDoProduto = z.object({
+  idProduto: z.number().int(),
+  descricao: z.string(),
+});
+
+/** Variação com a descrição do produto ao qual pertence. */
+export interface VariacaoComProduto {
+  readonly idVariacao: number;
+  readonly idProduto: number;
+  readonly descricaoDoProduto: string;
+  readonly marca: string;
+  readonly tamanhoEmbalagem: string;
+  readonly quantidadeEstoque: number;
+}
 
 type LinhaDeProduto = z.infer<typeof esquemaDoProduto>;
 
@@ -244,6 +280,95 @@ export class RepositorioDeProdutos {
     );
     const [produto] = await this.montar(linhas, OPERACOES_DE_PRODUTOS.BUSCAR);
     return produto ?? null;
+  }
+
+  /**
+   * Variações pelo identificador, com a descrição do produto (item 6: item de pedido e de
+   * orçamento só guardam `id_variacao`). Ignora identificadores inexistentes.
+   *
+   * O proxy não faz junção com a tabela pai, então a descrição é buscada em uma segunda consulta.
+   */
+  async buscarVariacoesPorId(idsDasVariacoes: readonly number[]): Promise<VariacaoComProduto[]> {
+    if (idsDasVariacoes.length === 0) {
+      return [];
+    }
+    const variacoes: z.infer<typeof esquemaDaVariacaoSimples>[] = [];
+    for (const bloco of emBlocos(idsDasVariacoes, MAXIMO_DE_VALORES_NO_FILTRO_EM)) {
+      const linhas = await consultarTodas(
+        this.proxy,
+        {
+          tabela: TABELA_DE_VARIACOES,
+          campos: COLUNAS_DA_VARIACAO_SIMPLES,
+          filtros: { e: [['id_variacao', 'em', bloco]] },
+        },
+        OPERACOES_DE_PRODUTOS.BUSCAR,
+      );
+      variacoes.push(
+        ...linhas.map((linha) =>
+          validarLinha(esquemaDaVariacaoSimples, linha, TABELA_DE_VARIACOES),
+        ),
+      );
+    }
+    const idsDosProdutos = [...new Set(variacoes.map((variacao) => variacao.idProduto))];
+    const descricoes = await this.buscarDescricoesPorId(idsDosProdutos);
+    return variacoes.map((variacao) => ({
+      ...variacao,
+      descricaoDoProduto: descricoes.get(variacao.idProduto) ?? '',
+    }));
+  }
+
+  /**
+   * Uma variação com suas faixas de preço e fardos, para calcular o preço de um item de
+   * orçamento (UC15-18); `null` se não existir.
+   */
+  async buscarVariacaoComPrecos(idVariacao: number): Promise<VariacaoDeProduto | null> {
+    const [variacao] = await this.buscarVariacoesPorId([idVariacao]);
+    if (!variacao) {
+      return null;
+    }
+    const [faixas, fardos, reservas] = await Promise.all([
+      this.listarFaixas([idVariacao], OPERACOES_DE_PRODUTOS.BUSCAR),
+      this.listarFardos([idVariacao], OPERACOES_DE_PRODUTOS.BUSCAR),
+      somarReservasPorVariacao(this.proxy, [idVariacao], OPERACOES_DE_PRODUTOS.BUSCAR),
+    ]);
+    return {
+      idVariacao: variacao.idVariacao,
+      marca: variacao.marca,
+      tamanhoEmbalagem: variacao.tamanhoEmbalagem,
+      quantidadeEstoque: variacao.quantidadeEstoque,
+      saldoDisponivel: calcularSaldoDisponivel(
+        variacao.quantidadeEstoque,
+        reservas.get(idVariacao) ?? 0,
+      ),
+      faixasPreco: faixas.get(idVariacao) ?? [],
+      fardos: fardos.get(idVariacao) ?? [],
+    };
+  }
+
+  /** Descrição de cada produto pelo identificador, para exibir junto de uma variação. */
+  private async buscarDescricoesPorId(
+    idsDosProdutos: readonly number[],
+  ): Promise<Map<number, string>> {
+    const descricoes = new Map<number, string>();
+    if (idsDosProdutos.length === 0) {
+      return descricoes;
+    }
+    for (const bloco of emBlocos(idsDosProdutos, MAXIMO_DE_VALORES_NO_FILTRO_EM)) {
+      const linhas = await consultarTodas(
+        this.proxy,
+        {
+          tabela: TABELA_DE_PRODUTOS,
+          campos: ['id_produto', 'descricao'],
+          filtros: { e: [['id_produto', 'em', bloco]] },
+        },
+        OPERACOES_DE_PRODUTOS.BUSCAR,
+      );
+      for (const linha of linhas) {
+        const produto = validarLinha(esquemaDaDescricaoDoProduto, linha, TABELA_DE_PRODUTOS);
+        descricoes.set(produto.idProduto, produto.descricao);
+      }
+    }
+    return descricoes;
   }
 
   /**
@@ -453,7 +578,14 @@ export class RepositorioDeProdutos {
   // ------------------------------------------------------------------------------------------
   // Leitura
 
-  /** Junta cada produto às suas variações e busca os preços delas. */
+  /**
+   * Junta cada produto às suas variações e busca os preços delas.
+   *
+   * `saldoDisponivel` não é calculado aqui (o cadastro de produtos não precisa dele, e isso
+   * evitaria uma consulta extra por listagem): quem precisa do saldo em tempo real — a busca do
+   * catálogo do orçamento (UC15) e o cálculo de preço de um item (UC15-18) — usa
+   * {@link buscarSaldoDisponivel} ou {@link buscarVariacaoComPrecos}.
+   */
   private async montar(linhas: readonly unknown[], operationId: string): Promise<Produto[]> {
     const produtos = linhas.map((linha) =>
       validarLinha(esquemaDoProduto, linha, TABELA_DE_PRODUTOS),
@@ -475,11 +607,26 @@ export class RepositorioDeProdutos {
       .sort((a, b) => a.idVariacao - b.idVariacao)
       .map((variacao) => ({
         ...variacao,
+        // Placeholder: sem reserva somada, o disponível é o físico. Ver o comentário de `montar`.
         saldoDisponivel: variacao.quantidadeEstoque,
         faixasPreco: faixas.get(variacao.idVariacao) ?? [],
         fardos: fardos.get(variacao.idVariacao) ?? [],
       }));
     return { ...produto, variacoes };
+  }
+
+  /**
+   * Quantidade reservada (status CONFIRMADA) de cada variação, para calcular o saldo disponível
+   * (RN14: físico − reservado). Usado pela busca do catálogo do orçamento (UC15), onde o saldo
+   * precisa estar em dia; o chamador soma ao estoque físico que já tem em mãos.
+   */
+  async buscarReservadoPorVariacao(
+    idsDasVariacoes: readonly number[],
+  ): Promise<Map<number, number>> {
+    if (idsDasVariacoes.length === 0) {
+      return new Map();
+    }
+    return somarReservasPorVariacao(this.proxy, idsDasVariacoes, OPERACOES_DE_PRODUTOS.BUSCAR);
   }
 
   private async listarFaixas(

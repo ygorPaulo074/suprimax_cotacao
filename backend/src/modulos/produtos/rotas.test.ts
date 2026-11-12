@@ -64,6 +64,14 @@ async function montar() {
       .get('/produtos')
       .query(q === undefined ? {} : { q })
       .set('Authorization', autorizacao);
+  const buscar = (
+    query: Record<string, string | number | undefined> = {},
+    autorizacao = chefe.autorizacao,
+  ) =>
+    request(cenario.app)
+      .get('/produtos/busca')
+      .query(query as Record<string, string>)
+      .set('Authorization', autorizacao);
   /** Cria o produto padrão e devolve o corpo do PUT que o repete sem tocar nos preços. */
   const criarPadrao = async () => {
     const produto = (await criar(produtoNovo())).body as ProdutoDaResposta;
@@ -90,6 +98,7 @@ async function montar() {
     alterar,
     obter,
     listar,
+    buscar,
     criarPadrao,
     precos,
   };
@@ -567,6 +576,61 @@ describe('GET /produtos e GET /produtos/:id (UC04)', () => {
   });
 });
 
+describe('GET /produtos/busca (UC15)', () => {
+  it('só traz produtos ativos com ao menos uma variação que tem preço (RN08)', async () => {
+    const { criar, produtoNovo, buscar } = await montar();
+    await criar(produtoNovo());
+    await criar(
+      produtoNovo({
+        codigoInterno: 'INATIVO-001',
+        ean: undefined,
+        ativo: false,
+      }),
+    );
+    await criar(
+      produtoNovo({
+        codigoInterno: 'SEM-PRECO-001',
+        descricao: 'Grampeador sem preço cadastrado',
+        ean: undefined,
+        variacoes: [{ marca: 'X', tamanhoEmbalagem: '1 un' }],
+      }),
+    );
+
+    const resposta = await buscar({ idCliente: 1 });
+
+    expect(resposta.status).toBe(200);
+    const codigos = (resposta.body as { codigoInterno: string }[]).map((p) => p.codigoInterno);
+    expect(codigos).toEqual(['PAP-001']);
+  });
+
+  it('aplica os filtros de marca, tamanho/embalagem e categoria de forma cumulativa (RN09)', async () => {
+    const { criar, produtoNovo, buscar } = await montar();
+    await criar(produtoNovo());
+
+    const soChamex = await buscar({ idCliente: 1, marca: 'Chamex' });
+    const chamex500 = await buscar({
+      idCliente: 1,
+      marca: 'Chamex',
+      tamanhoEmbalagem: '500 folhas',
+    });
+    const outraCategoria = await buscar({ idCliente: 1, categoria: 'Outra' });
+
+    expect(soChamex.body[0]?.variacoes).toHaveLength(1);
+    expect(soChamex.body[0]?.variacoes[0]?.marca).toBe('Chamex');
+    expect(chamex500.body[0]?.variacoes).toHaveLength(1);
+    expect(outraCategoria.body).toEqual([]);
+  });
+
+  it('responde 400 sem idCliente', async () => {
+    const { buscar } = await montar();
+
+    const resposta = await buscar({});
+
+    expect(resposta.status).toBe(400);
+    expect(resposta.body.detalhes).toEqual({ campos: ['idCliente'] });
+  });
+});
+
 describe('PUT /produtos/:id (UC04)', () => {
   it('o operador altera dados do produto e da variação, sem tocar nos preços', async () => {
     const { criarPadrao, alterar, operador, precos, banco } = await montar();
@@ -976,6 +1040,7 @@ describe('PUT /produtos/:id (UC04)', () => {
 describe('autorização das rotas de produtos', () => {
   const ROTAS = [
     ['get', '/produtos'],
+    ['get', '/produtos/busca?idCliente=1'],
     ['get', '/produtos/1'],
     ['post', '/produtos'],
     ['put', '/produtos/1'],

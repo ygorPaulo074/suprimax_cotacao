@@ -115,6 +115,58 @@ export const CATALOGO_DE_ERROS = {
     status: STATUS_HTTP.NAO_PROCESSAVEL,
     mensagem: 'Você não pode inativar nem mudar o perfil do seu próprio usuário.',
   },
+  PEDIDO_NAO_ENCONTRADO: {
+    status: STATUS_HTTP.NAO_ENCONTRADO,
+    mensagem: 'Pedido não encontrado.',
+  },
+  PEDIDO_JA_ASSUMIDO: {
+    status: STATUS_HTTP.CONFLITO,
+    mensagem: 'Este pedido já está em análise por outro operador.',
+  },
+  PEDIDO_NAO_ASSUMIDO_POR_VOCE: {
+    status: STATUS_HTTP.CONFLITO,
+    mensagem: 'Você precisa assumir o pedido antes de montar o orçamento ou negá-lo.',
+  },
+  ORCAMENTO_NAO_ENCONTRADO: {
+    status: STATUS_HTTP.NAO_ENCONTRADO,
+    mensagem: 'Orçamento não encontrado.',
+  },
+  ORCAMENTO_NAO_EDITAVEL: {
+    status: STATUS_HTTP.NAO_PROCESSAVEL,
+    mensagem: 'Este orçamento não pode mais ser editado.',
+  },
+  ITEM_NAO_ENCONTRADO: {
+    status: STATUS_HTTP.NAO_ENCONTRADO,
+    mensagem: 'Item não encontrado neste orçamento.',
+  },
+  VARIACAO_NAO_ENCONTRADA: {
+    status: STATUS_HTTP.NAO_ENCONTRADO,
+    mensagem: 'Variação de produto não encontrada.',
+  },
+  ANEXO_NAO_ENCONTRADO: {
+    status: STATUS_HTTP.NAO_ENCONTRADO,
+    mensagem: 'Anexo não encontrado neste orçamento.',
+  },
+  CLIENTE_BLOQUEADO: {
+    status: STATUS_HTTP.NAO_PROCESSAVEL,
+    mensagem: 'Este cliente está inativo, bloqueado ou com dívida em aberto.',
+  },
+  ESTOQUE_INDISPONIVEL: {
+    status: STATUS_HTTP.NAO_PROCESSAVEL,
+    mensagem: 'Estoque indisponível para a quantidade solicitada.',
+  },
+  ESTOQUE_TIMEOUT: {
+    status: STATUS_HTTP.SERVICO_INDISPONIVEL,
+    mensagem: 'Não foi possível consultar o estoque agora. Tente novamente.',
+  },
+  ESTOQUE_INSUFICIENTE: {
+    status: STATUS_HTTP.NAO_PROCESSAVEL,
+    mensagem: 'Estoque insuficiente para emitir o orçamento.',
+  },
+  EMISSAO_BLOQUEADA: {
+    status: STATUS_HTTP.NAO_PROCESSAVEL,
+    mensagem: 'O orçamento tem pendências que impedem a emissão.',
+  },
   PAYLOAD_TOO_LARGE: {
     status: STATUS_HTTP.CORPO_GRANDE_DEMAIS,
     mensagem: 'Os dados enviados excedem o tamanho permitido.',
@@ -328,6 +380,100 @@ export class ErroDeVendedorComCarteira extends AppError {
 export class ErroDeAlteracaoDoProprioUsuario extends AppError {
   constructor() {
     super('ALTERACAO_DO_PROPRIO_USUARIO');
+  }
+}
+
+/** Pedido inexistente (404, UC10). */
+export class ErroDePedidoNaoEncontrado extends AppError {
+  constructor() {
+    super('PEDIDO_NAO_ENCONTRADO');
+  }
+}
+
+/** Pedido que outro operador já assumiu (409, UC10). */
+export class ErroDePedidoJaAssumido extends AppError {
+  constructor() {
+    super('PEDIDO_JA_ASSUMIDO');
+  }
+}
+
+/** Montar orçamento ou negar um pedido que a sessão não assumiu (409, UC10). */
+export class ErroDePedidoNaoAssumidoPorVoce extends AppError {
+  constructor() {
+    super('PEDIDO_NAO_ASSUMIDO_POR_VOCE');
+  }
+}
+
+/** Orçamento inexistente (404, UC01/UC14-19). */
+export class ErroDeOrcamentoNaoEncontrado extends AppError {
+  constructor() {
+    super('ORCAMENTO_NAO_ENCONTRADO');
+  }
+}
+
+/** Orçamento fora de um status editável (422, RN25/regra 4.6). */
+export class ErroDeOrcamentoNaoEditavel extends AppError {
+  constructor() {
+    super('ORCAMENTO_NAO_EDITAVEL');
+  }
+}
+
+/** Item inexistente no orçamento (404, UC16). */
+export class ErroDeItemNaoEncontrado extends AppError {
+  constructor() {
+    super('ITEM_NAO_ENCONTRADO');
+  }
+}
+
+/** Variação de produto inexistente (404, UC15/UC16). */
+export class ErroDeVariacaoNaoEncontrada extends AppError {
+  constructor() {
+    super('VARIACAO_NAO_ENCONTRADA');
+  }
+}
+
+/** Anexo inexistente no orçamento (404, UC19). */
+export class ErroDeAnexoNaoEncontrado extends AppError {
+  constructor() {
+    super('ANEXO_NAO_ENCONTRADO');
+  }
+}
+
+/** Cliente inativo, bloqueado ou com dívida em aberto (422, UC14-E1/RN06). */
+export class ErroDeClienteBloqueado extends AppError {
+  constructor(mensagem?: string) {
+    super('CLIENTE_BLOQUEADO', { mensagem });
+  }
+}
+
+/** Variação sem saldo para a quantidade pedida (422, UC17-E1/E2). */
+export class ErroDeEstoqueIndisponivel extends AppError {
+  /** @param maximoDisponivel Quantidade máxima disponível, na unidade da solicitação. */
+  constructor(maximoDisponivel: number) {
+    super('ESTOQUE_INDISPONIVEL', { detalhes: { maximoDisponivel } });
+  }
+}
+
+/** Consulta de estoque ao proxy expirou ou falhou (503, UC17-E3). */
+export class ErroDeEstoqueTimeout extends AppError {
+  constructor(opcoes: Pick<OpcoesDoAppError, 'causa'> = {}) {
+    super('ESTOQUE_TIMEOUT', opcoes);
+  }
+}
+
+/** Saldo insuficiente na emissão, apesar de confirmado na montagem (422, UC19-E5). */
+export class ErroDeEstoqueInsuficiente extends AppError {
+  /** @param detalhes Produto, disponível e quantidade no orçamento (mensagem do UC19-E5). */
+  constructor(mensagem: string, detalhes: DetalhesDoErro) {
+    super('ESTOQUE_INSUFICIENTE', { mensagem, detalhes });
+  }
+}
+
+/** Orçamento com pendências que impedem a emissão (422, UC19): `detalhes.bloqueios`. */
+export class ErroDeEmissaoBloqueada extends AppError {
+  /** @param bloqueios Lista de `{ codigo, mensagem }`, igual ao `condicoes.bloqueios` do GET. */
+  constructor(bloqueios: readonly { codigo: string; mensagem: string }[]) {
+    super('EMISSAO_BLOQUEADA', { detalhes: { bloqueios } });
   }
 }
 
