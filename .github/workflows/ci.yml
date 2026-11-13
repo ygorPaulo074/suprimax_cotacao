@@ -28,6 +28,8 @@ jobs:
         working-directory: ${{ matrix.servico }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       # Enquanto o serviço não tiver package.json, os passos abaixo são pulados e o job passa.
       - name: Verificar se o serviço já tem projeto Node
@@ -52,7 +54,33 @@ jobs:
 
       - name: Formatação (Prettier)
         if: steps.node.outputs.existe == 'true'
-        run: npm run format:check --if-present
+        shell: bash
+        env:
+          SERVICO: ${{ matrix.servico }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -z "$BASE_SHA" ] || [[ "$BASE_SHA" =~ ^0+$ ]]; then
+            echo "Sem commit base para comparar; pulando verificação incremental de formatação."
+            exit 0
+          fi
+          mapfile -d '' arquivos < <(
+            git -C "$GITHUB_WORKSPACE" diff --name-only -z --diff-filter=ACMR "$BASE_SHA...$GITHUB_SHA" -- "$SERVICO/" |
+              while IFS= read -r -d '' arquivo; do
+                if [[ "$SERVICO" == "backend" && "$arquivo" == backend/database/* ]]; then
+                  continue
+                fi
+                case "$arquivo" in
+                  *.cjs|*.js|*.jsx|*.mjs|*.ts|*.tsx|*.json|*.md|*.yml|*.yaml|*.css|*.scss|*.html)
+                    printf '%s\0' "${arquivo#"$SERVICO/"}"
+                    ;;
+                esac
+              done
+          )
+          if ((${#arquivos[@]})); then
+            npx prettier --check "${arquivos[@]}"
+          else
+            echo "Nenhum arquivo formatável foi alterado neste serviço."
+          fi
 
       - name: Checagem de tipos
         if: steps.node.outputs.existe == 'true'
@@ -65,13 +93,53 @@ jobs:
   # Job único para marcar como "required status check" na ruleset da main.
   ci:
     name: ci
-    needs: servico
+    needs: [servico, database]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Verificar resultado dos serviços
         run: |
-          if [ "${{ needs.servico.result }}" != "success" ]; then
-            echo "Algum serviço falhou ou foi cancelado: ${{ needs.servico.result }}"
+          if [ "${{ needs.servico.result }}" != "success" ] || [ "${{ needs.database.result }}" != "success" ]; then
+            echo "Algum job falhou ou foi cancelado: servico=${{ needs.servico.result }}, database=${{ needs.database.result }}"
             exit 1
           fi
+
+  # O banco é um pacote próprio dentro de backend/ e valida migrations contra PostgreSQL real.
+  database:
+    name: database
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: suprimax_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d suprimax_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    defaults:
+      run:
+        working-directory: backend/database
+    env:
+      DIRECT_URL: postgresql://postgres:postgres@localhost:5432/suprimax_test
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/suprimax_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/database/package-lock.json
+      - name: Instalar dependências
+        run: npm ci
+      - name: Validar schema Prisma
+        run: npm run validate
+      - name: Aplicar migrations no PostgreSQL de teste
+        run: npm run migrate:deploy
+      - name: Testes de regras do banco
+        run: npm test
