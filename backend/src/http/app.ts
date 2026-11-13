@@ -9,6 +9,8 @@ import { criarModuloDeAuth, type DependenciasDoModuloDeAuth } from '../modulos/a
 import type { RepositorioDeSessoes } from '../modulos/auth/sessoes';
 import { criarModuloDeClientes } from '../modulos/clientes';
 import { criarModuloDeFornecedores } from '../modulos/fornecedores';
+import { criarModuloDeOrcamentos } from '../modulos/orcamentos';
+import { criarModuloDePedidos } from '../modulos/pedidos';
 import { criarModuloDeProdutos } from '../modulos/produtos';
 import { criarModuloDeUsuarios, type NotificadorDeEmail } from '../modulos/usuarios';
 import { logRequisicao } from './middlewares/logRequisicao';
@@ -79,10 +81,16 @@ export function createApp({
   const comuns = { proxy, sessoes, logger };
   const { senhas, agora } = auth ?? {};
   app.use(criarModuloDeAuth({ ...comuns, ...auth }).rotas);
-  app.use(criarModuloDeClientes({ ...comuns, agora }).rotas);
+  // Orçamentos é montado antes de clientes e de pedidos: a ficha do cliente (RF04) lê os
+  // orçamentos dele, e a fila de pedidos (UC10) monta o orçamento (UC14); os dois através dele,
+  // sem que nenhum dos dois módulos importe `orcamentos` diretamente.
+  const orcamentos = criarModuloDeOrcamentos({ ...comuns, agora });
+  app.use(criarModuloDeClientes({ ...comuns, agora, orcamentos: orcamentos.servico }).rotas);
   app.use(criarModuloDeProdutos(comuns).rotas);
   app.use(criarModuloDeFornecedores(comuns).rotas);
   app.use(criarModuloDeUsuarios({ ...comuns, senhas, agora, notificador }).rotas);
+  app.use(orcamentos.rotas);
+  app.use(criarModuloDePedidos({ ...comuns, agora, orcamentos: orcamentos.servico }).rotas);
 
   app.use(rotaNaoEncontrada());
   app.use(tratamentoDeErros(logger));

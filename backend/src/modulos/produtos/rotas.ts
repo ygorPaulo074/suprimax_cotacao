@@ -6,11 +6,16 @@ import { rotaAssincrona } from '../../http/rotaAssincrona';
 import { validarEntrada } from '../../http/validacao';
 import type { RepositorioDeSessoes } from '../auth/sessoes';
 import { esquemaDeParametroId } from '../comum/campos';
-import { esquemaDeListaDeProdutos, esquemaDeProdutoSalvar } from './esquemas';
+import {
+  esquemaDeBuscaDeProdutos,
+  esquemaDeListaDeProdutos,
+  esquemaDeProdutoSalvar,
+} from './esquemas';
 import type { ServicoDeProdutos } from './servico';
 
 export const ROTAS_DE_PRODUTOS = {
   COLECAO: '/produtos',
+  BUSCA: '/produtos/busca',
   ITEM: '/produtos/:id',
 } as const;
 
@@ -22,6 +27,8 @@ export interface DependenciasDasRotasDeProdutos {
 /**
  * Rotas de produtos, para OPERADOR e OPERADOR_CHEFE:
  * - `GET /produtos?q=`: lista, com busca por descrição, código interno ou EAN;
+ * - `GET /produtos/busca?q&marca&tamanhoEmbalagem&categoria&idCliente`: catálogo do orçamento
+ *   (UC15), só produtos ativos com variações que têm preço;
  * - `GET /produtos/:id`: o produto com variações e preços;
  * - `POST /produtos`: cadastro → 201 com o produto;
  * - `PUT /produtos/:id`: alteração → o produto atualizado.
@@ -38,6 +45,16 @@ export function criarRotasDeProdutos({ servico, sessoes }: DependenciasDasRotasD
     rotaAssincrona(async (req, res) => {
       const { q } = validarEntrada(esquemaDeListaDeProdutos, req.query);
       res.status(STATUS_HTTP.OK).json(await servico.listar(q));
+    }),
+  );
+
+  // Antes de `/produtos/:id`: senão "busca" seria interpretado como um `id`.
+  rotas.get(
+    ROTAS_DE_PRODUTOS.BUSCA,
+    operador,
+    rotaAssincrona(async (req, res) => {
+      const filtro = validarEntrada(esquemaDeBuscaDeProdutos, req.query);
+      res.status(STATUS_HTTP.OK).json(await servico.buscar(filtro));
     }),
   );
 
