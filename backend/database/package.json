@@ -1,0 +1,26 @@
+{
+  "name": "suprimax-database",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Schema Prisma, migrations SQL e ferramentas do banco SupriMax",
+  "engines": {
+    "node": ">=20.19"
+  },
+  "scripts": {
+    "format": "prisma format --schema schema.prisma",
+    "validate": "prisma validate --schema schema.prisma",
+    "migrate:dev": "prisma migrate dev --schema schema.prisma",
+    "migrate:deploy": "prisma migrate deploy --schema schema.prisma",
+    "migrate:status": "prisma migrate status --schema schema.prisma",
+    "db:seed": "prisma db seed --schema schema.prisma",
+    "test": "node --test tests/*.test.cjs"
+  },
+  "prisma": {
+    "schema": "schema.prisma"
+  },
+  "devDependencies": {
+    "dotenv": "^17.2.3",
+    "pg": "^8.23.1",
+    "prisma": "^7.0.0"
+  }
+}

@@ -1,0 +1,512 @@
+// Modelo relacional; checks, triggers e funções ficam nas migrations SQL.
+datasource db {
+  provider = "postgresql"
+}
+
+model Operador {
+  id_operador                                            Int                   @id @default(autoincrement()) @db.Integer
+  usuario                                                String                @unique @db.VarChar(50)
+  email                                                  String                @unique @db.VarChar(120)
+  senha_hash                                             String                @db.VarChar(255)
+  perfil                                                 String                @db.VarChar(20)
+  status                                                 String                @default("ATIVO") @db.VarChar(7)
+  tentativas_login_invalidas                             Int                   @default(0) @db.SmallInt
+  bloqueado_ate                                          DateTime?             @db.Timestamp(6)
+  token_recuperacao_senha                                String?               @unique @db.VarChar(255)
+  validade_token                                         DateTime?             @db.Timestamp(6)
+  data_cadastro                                          DateTime              @default(now()) @db.Timestamp(6)
+  rel_cliente_id_operador_vendedor_children              Cliente[]             @relation("Rel_cliente_id_operador_vendedor")
+  rel_orcamento_id_operador_children                     Orcamento[]           @relation("Rel_orcamento_id_operador")
+  rel_historico_orcamento_id_operador_children           HistoricoOrcamento[]  @relation("Rel_historico_orcamento_id_operador")
+  rel_entrada_mercadoria_id_operador_children            EntradaMercadoria[]   @relation("Rel_entrada_mercadoria_id_operador")
+  rel_entrada_mercadoria_id_operador_liberacao_children  EntradaMercadoria[]   @relation("Rel_entrada_mercadoria_id_operador_liberacao")
+  rel_pedido_id_operador_vendedor_children               Pedido[]              @relation("Rel_pedido_id_operador_vendedor")
+  rel_pedido_id_operador_atendimento_children            Pedido[]              @relation("Rel_pedido_id_operador_atendimento")
+  rel_resposta_orcamento_id_operador_vendedor_children   RespostaOrcamento[]   @relation("Rel_resposta_orcamento_id_operador_vendedor")
+  rel_resposta_orcamento_id_operador_tratamento_children RespostaOrcamento[]   @relation("Rel_resposta_orcamento_id_operador_tratamento")
+  rel_movimentacao_estoque_id_operador_children          MovimentacaoEstoque[] @relation("Rel_movimentacao_estoque_id_operador")
+  rel_divida_inadimplencia_id_operador_registro_children DividaInadimplencia[] @relation("Rel_divida_inadimplencia_id_operador_registro")
+  rel_analise_credito_id_operador_fiscal_children        AnaliseCredito[]      @relation("Rel_analise_credito_id_operador_fiscal")
+
+  @@map("operador")
+}
+
+model Cliente {
+  id_cliente                                   Int                   @id @default(autoincrement()) @db.Integer
+  cnpj                                         String                @unique @db.Char(14)
+  razao_social                                 String                @db.VarChar(150)
+  nome_fantasia                                String?               @db.VarChar(150)
+  nome_contato                                 String                @db.VarChar(100)
+  telefone_contato                             String?               @db.VarChar(20)
+  email_contato                                String?               @db.VarChar(120)
+  tipo_unidade                                 String                @db.VarChar(6)
+  status                                       String                @default("ATIVO") @db.VarChar(9)
+  id_operador_vendedor                         Int                   @db.Integer
+  aceite_lgpd                                  Boolean               @db.Boolean
+  data_aceite_lgpd                             DateTime              @db.Timestamp(6)
+  data_cadastro                                DateTime              @default(now()) @db.Timestamp(6)
+  rel_id_operador_vendedor                     Operador              @relation("Rel_cliente_id_operador_vendedor", fields: [id_operador_vendedor], references: [id_operador])
+  rel_endereco_cliente_id_cliente_children     EnderecoCliente[]     @relation("Rel_endereco_cliente_id_cliente")
+  rel_orcamento_id_cliente_children            Orcamento[]           @relation("Rel_orcamento_id_cliente")
+  rel_analise_credito_id_cliente_children      AnaliseCredito[]      @relation("Rel_analise_credito_id_cliente")
+  rel_divida_inadimplencia_id_cliente_children DividaInadimplencia[] @relation("Rel_divida_inadimplencia_id_cliente")
+  rel_pedido_id_cliente_children               Pedido[]              @relation("Rel_pedido_id_cliente")
+
+  @@index([id_operador_vendedor])
+  @@map("cliente")
+}
+
+model EnderecoCliente {
+  id_endereco                                Int         @id @default(autoincrement()) @db.Integer
+  id_cliente                                 Int         @db.Integer
+  tipo                                       String      @db.VarChar(10)
+  logradouro                                 String      @db.VarChar(150)
+  numero                                     String      @db.VarChar(10)
+  complemento                                String?     @db.VarChar(60)
+  bairro                                     String      @db.VarChar(80)
+  cidade                                     String      @db.VarChar(80)
+  uf                                         String      @db.Char(2)
+  cep                                        String      @db.Char(8)
+  rel_id_cliente                             Cliente     @relation("Rel_endereco_cliente_id_cliente", fields: [id_cliente], references: [id_cliente])
+  rel_orcamento_id_endereco_entrega_children Orcamento[] @relation("Rel_orcamento_id_endereco_entrega")
+  rel_pedido_id_endereco_entrega_children    Pedido[]    @relation("Rel_pedido_id_endereco_entrega")
+
+  @@index([id_cliente])
+  @@map("endereco_cliente")
+}
+
+model Produto {
+  id_produto                               Int               @id @default(autoincrement()) @db.Integer
+  codigo_interno                           String            @unique @db.VarChar(30)
+  descricao                                String            @db.VarChar(200)
+  ncm                                      String?           @db.Char(8)
+  ean                                      String?           @unique @db.VarChar(14)
+  categoria                                String?           @db.VarChar(60)
+  ativo                                    Boolean           @default(true) @db.Boolean
+  rel_variacao_produto_id_produto_children VariacaoProduto[] @relation("Rel_variacao_produto_id_produto")
+
+  @@map("produto")
+}
+
+model VariacaoProduto {
+  id_variacao                                   Int                   @id @default(autoincrement()) @db.Integer
+  id_produto                                    Int                   @db.Integer
+  marca                                         String                @db.VarChar(60)
+  tamanho_embalagem                             String                @db.VarChar(40)
+  quantidade_estoque                            Int                   @default(0) @db.Integer
+  rel_id_produto                                Produto               @relation("Rel_variacao_produto_id_produto", fields: [id_produto], references: [id_produto])
+  rel_faixa_preco_id_variacao_children          FaixaPreco[]          @relation("Rel_faixa_preco_id_variacao")
+  rel_fardo_id_variacao_children                Fardo[]               @relation("Rel_fardo_id_variacao")
+  rel_item_orcamento_id_variacao_children       ItemOrcamento[]       @relation("Rel_item_orcamento_id_variacao")
+  rel_entrada_mercadoria_id_variacao_children   EntradaMercadoria[]   @relation("Rel_entrada_mercadoria_id_variacao")
+  rel_item_pedido_id_variacao_children          ItemPedido[]          @relation("Rel_item_pedido_id_variacao")
+  rel_movimentacao_estoque_id_variacao_children MovimentacaoEstoque[] @relation("Rel_movimentacao_estoque_id_variacao")
+
+  @@index([id_produto])
+  @@index([marca, tamanho_embalagem])
+  @@map("variacao_produto")
+}
+
+model FaixaPreco {
+  id_faixa_preco                                             Int                     @id @default(autoincrement()) @db.Integer
+  id_variacao                                                Int                     @db.Integer
+  quantidade_minima                                          Int                     @db.Integer
+  preco_unitario                                             Decimal                 @db.Decimal(12, 2)
+  rel_id_variacao                                            VariacaoProduto         @relation("Rel_faixa_preco_id_variacao", fields: [id_variacao], references: [id_variacao])
+  rel_item_orcamento_id_faixa_preco_children                 ItemOrcamento[]         @relation("Rel_item_orcamento_id_faixa_preco")
+  rel_item_resposta_orcamento_id_faixa_preco_aceita_children ItemRespostaOrcamento[] @relation("Rel_item_resposta_orcamento_id_faixa_preco_aceita")
+
+  @@index([id_variacao])
+  @@map("faixa_preco")
+}
+
+model Fardo {
+  id_fardo                             Int             @id @default(autoincrement()) @db.Integer
+  id_variacao                          Int             @db.Integer
+  quantidade_unidades                  Int             @db.Integer
+  preco_fixo                           Decimal         @db.Decimal(12, 2)
+  rel_id_variacao                      VariacaoProduto @relation("Rel_fardo_id_variacao", fields: [id_variacao], references: [id_variacao])
+  rel_item_orcamento_id_fardo_children ItemOrcamento[] @relation("Rel_item_orcamento_id_fardo")
+  rel_item_pedido_id_fardo_children    ItemPedido[]    @relation("Rel_item_pedido_id_fardo")
+
+  @@index([id_variacao])
+  @@map("fardo")
+}
+
+model Orcamento {
+  id_orcamento                                   Int                   @id @default(autoincrement()) @db.Integer
+  numero_orcamento                               BigInt?               @unique @db.BigInt
+  id_cliente                                     Int                   @db.Integer
+  id_operador                                    Int                   @db.Integer
+  id_endereco_entrega                            Int?                  @db.Integer
+  id_pedido                                      Int?                  @db.Integer
+  id_orcamento_origem                            Int?                  @db.Integer
+  data_criacao                                   DateTime              @default(now()) @db.Timestamp(6)
+  data_ultima_edicao                             DateTime              @default(now()) @db.Timestamp(6)
+  data_encerramento                              DateTime?             @db.Timestamp(6)
+  data_emissao                                   DateTime?             @db.Date
+  data_validade                                  DateTime?             @db.Date
+  status                                         String                @default("RASCUNHO") @db.VarChar(20)
+  motivo_expiracao                               String?               @db.VarChar(10)
+  numero_solicitacao_compra                      String?               @db.VarChar(30)
+  contato_solicitacao                            String?               @db.VarChar(100)
+  prazo_entrega_dias                             Int?                  @db.SmallInt
+  primeira_compra                                Boolean               @default(false) @db.Boolean
+  condicao_pagamento                             String?               @db.VarChar(16)
+  prazo_dias                                     Int?                  @db.SmallInt
+  numero_parcelas                                Int?                  @db.SmallInt
+  modalidade_frete                               String?               @db.VarChar(3)
+  origem_transportadora                          String?               @db.VarChar(9)
+  transportadora                                 String?               @db.VarChar(100)
+  valor_frete                                    Decimal?              @db.Decimal(12, 2)
+  frete_provisorio                               Boolean               @default(false) @db.Boolean
+  valor_total_itens                              Decimal?              @db.Decimal(12, 2)
+  valor_total_imposto                            Decimal?              @db.Decimal(12, 2)
+  valor_total_proposta                           Decimal?              @db.Decimal(12, 2)
+  justificativa                                  String?               @db.Text
+  chave_seguranca                                String?               @unique @db.VarChar(64)
+  rel_id_cliente                                 Cliente               @relation("Rel_orcamento_id_cliente", fields: [id_cliente], references: [id_cliente])
+  rel_id_operador                                Operador              @relation("Rel_orcamento_id_operador", fields: [id_operador], references: [id_operador])
+  rel_id_endereco_entrega                        EnderecoCliente?      @relation("Rel_orcamento_id_endereco_entrega", fields: [id_endereco_entrega], references: [id_endereco])
+  rel_id_pedido                                  Pedido?               @relation("Rel_orcamento_id_pedido", fields: [id_pedido], references: [id_pedido])
+  rel_id_orcamento_origem                        Orcamento?            @relation("Rel_orcamento_id_orcamento_origem", fields: [id_orcamento_origem], references: [id_orcamento], onDelete: SetNull)
+  rel_item_orcamento_id_orcamento_children       ItemOrcamento[]       @relation("Rel_item_orcamento_id_orcamento")
+  rel_anexo_orcamento_id_orcamento_children      AnexoOrcamento[]      @relation("Rel_anexo_orcamento_id_orcamento")
+  rel_analise_credito_id_orcamento_children      AnaliseCredito[]      @relation("Rel_analise_credito_id_orcamento")
+  rel_historico_orcamento_id_orcamento_children  HistoricoOrcamento[]  @relation("Rel_historico_orcamento_id_orcamento")
+  rel_orcamento_id_orcamento_origem_children     Orcamento[]           @relation("Rel_orcamento_id_orcamento_origem")
+  rel_resposta_orcamento_id_orcamento_children   RespostaOrcamento[]   @relation("Rel_resposta_orcamento_id_orcamento")
+  rel_movimentacao_estoque_id_orcamento_children MovimentacaoEstoque[] @relation("Rel_movimentacao_estoque_id_orcamento")
+
+  @@index([id_cliente])
+  @@index([status])
+  @@index([id_operador])
+  @@index([id_endereco_entrega])
+  @@index([id_pedido])
+  @@index([id_orcamento_origem])
+  @@map("orcamento")
+}
+
+model ItemOrcamento {
+  id_item                                      Int                     @id @default(autoincrement()) @db.Integer
+  id_orcamento                                 Int                     @db.Integer
+  id_variacao                                  Int                     @db.Integer
+  granularidade                                String                  @db.VarChar(6)
+  id_fardo                                     Int?                    @db.Integer
+  quantidade_fardos                            Int?                    @db.Integer
+  id_faixa_preco                               Int?                    @db.Integer
+  quantidade_avulsa                            Int?                    @db.Integer
+  preco_unitario_aplicado                      Decimal                 @db.Decimal(12, 2)
+  valor_imposto                                Decimal                 @db.Decimal(12, 2)
+  valor_total_item                             Decimal                 @db.Decimal(12, 2)
+  aprovacao_herdada                            Boolean                 @default(false) @db.Boolean
+  rel_id_orcamento                             Orcamento               @relation("Rel_item_orcamento_id_orcamento", fields: [id_orcamento], references: [id_orcamento], onDelete: Cascade)
+  rel_id_variacao                              VariacaoProduto         @relation("Rel_item_orcamento_id_variacao", fields: [id_variacao], references: [id_variacao])
+  rel_id_fardo                                 Fardo?                  @relation("Rel_item_orcamento_id_fardo", fields: [id_fardo], references: [id_fardo])
+  rel_id_faixa_preco                           FaixaPreco?             @relation("Rel_item_orcamento_id_faixa_preco", fields: [id_faixa_preco], references: [id_faixa_preco])
+  rel_reserva_estoque_id_item_children         ReservaEstoque?         @relation("Rel_reserva_estoque_id_item")
+  rel_item_resposta_orcamento_id_item_children ItemRespostaOrcamento[] @relation("Rel_item_resposta_orcamento_id_item")
+
+  @@index([id_orcamento])
+  @@index([id_variacao])
+  @@index([id_fardo])
+  @@index([id_faixa_preco])
+  @@map("item_orcamento")
+}
+
+model ReservaEstoque {
+  id_reserva           Int           @id @default(autoincrement()) @db.Integer
+  id_item              Int           @unique @db.Integer
+  quantidade_reservada Int           @db.Integer
+  status               String        @default("CONFIRMADA") @db.VarChar(10)
+  data_expiracao       DateTime      @db.Date
+  rel_id_item          ItemOrcamento @relation("Rel_reserva_estoque_id_item", fields: [id_item], references: [id_item], onDelete: Cascade)
+
+  @@map("reserva_estoque")
+}
+
+model AnexoOrcamento {
+  id_anexo         Int       @id @default(autoincrement()) @db.Integer
+  id_orcamento     Int       @db.Integer
+  tipo_anexo       String    @db.VarChar(20)
+  nome_arquivo     String    @db.VarChar(255)
+  caminho_arquivo  String    @db.VarChar(500)
+  tamanho_bytes    BigInt?   @db.BigInt
+  data_anexo       DateTime  @default(now()) @db.Timestamp(6)
+  rel_id_orcamento Orcamento @relation("Rel_anexo_orcamento_id_orcamento", fields: [id_orcamento], references: [id_orcamento], onDelete: Cascade)
+
+  @@index([id_orcamento])
+  @@map("anexo_orcamento")
+}
+
+model AnaliseCredito {
+  id_analise                                        Int                       @id @default(autoincrement()) @db.Integer
+  id_cliente                                        Int                       @db.Integer
+  id_orcamento                                      Int?                      @db.Integer
+  data_solicitacao                                  DateTime                  @default(dbgenerated("CURRENT_DATE")) @db.Date
+  resultado                                         String?                   @db.VarChar(9)
+  data_analise                                      DateTime?                 @db.Date
+  id_operador_fiscal                                Int?                      @db.Integer
+  rel_id_cliente                                    Cliente                   @relation("Rel_analise_credito_id_cliente", fields: [id_cliente], references: [id_cliente])
+  rel_id_orcamento                                  Orcamento?                @relation("Rel_analise_credito_id_orcamento", fields: [id_orcamento], references: [id_orcamento], onDelete: SetNull)
+  rel_id_operador_fiscal                            Operador?                 @relation("Rel_analise_credito_id_operador_fiscal", fields: [id_operador_fiscal], references: [id_operador])
+  rel_documento_analise_credito_id_analise_children DocumentoAnaliseCredito[] @relation("Rel_documento_analise_credito_id_analise")
+
+  @@index([id_cliente])
+  @@index([id_orcamento])
+  @@index([id_operador_fiscal])
+  @@map("analise_credito")
+}
+
+model DocumentoAnaliseCredito {
+  id_documento     Int            @id @default(autoincrement()) @db.Integer
+  id_analise       Int            @db.Integer
+  tipo_documento   String         @db.VarChar(25)
+  nome_arquivo     String         @db.VarChar(255)
+  caminho_arquivo  String         @db.VarChar(500)
+  data_recebimento DateTime       @default(dbgenerated("CURRENT_DATE")) @db.Date
+  rel_id_analise   AnaliseCredito @relation("Rel_documento_analise_credito_id_analise", fields: [id_analise], references: [id_analise])
+
+  @@index([id_analise])
+  @@map("documento_analise_credito")
+}
+
+model DividaInadimplencia {
+  id_divida                Int       @id @default(autoincrement()) @db.Integer
+  id_cliente               Int       @db.Integer
+  id_operador_registro     Int       @db.Integer
+  valor_divida             Decimal   @db.Decimal(12, 2)
+  status                   String    @default("EM_ABERTO") @db.VarChar(12)
+  data_vencimento_original DateTime  @db.Date
+  data_renegociacao        DateTime? @db.Date
+  valor_pago_renegociacao  Decimal?  @db.Decimal(12, 2)
+  data_protesto            DateTime? @db.Date
+  rel_id_cliente           Cliente   @relation("Rel_divida_inadimplencia_id_cliente", fields: [id_cliente], references: [id_cliente])
+  rel_id_operador_registro Operador  @relation("Rel_divida_inadimplencia_id_operador_registro", fields: [id_operador_registro], references: [id_operador])
+
+  @@index([id_cliente, status])
+  @@index([id_operador_registro])
+  @@map("divida_inadimplencia")
+}
+
+model HistoricoOrcamento {
+  id_historico     Int       @id @default(autoincrement()) @db.Integer
+  id_orcamento     Int       @db.Integer
+  id_operador      Int?      @db.Integer
+  tipo_evento      String    @db.VarChar(20)
+  status_anterior  String?   @db.VarChar(20)
+  status_novo      String    @db.VarChar(20)
+  observacao       String?   @db.Text
+  data_registro    DateTime  @default(now()) @db.Timestamp(6)
+  rel_id_orcamento Orcamento @relation("Rel_historico_orcamento_id_orcamento", fields: [id_orcamento], references: [id_orcamento], onDelete: Cascade)
+  rel_id_operador  Operador? @relation("Rel_historico_orcamento_id_operador", fields: [id_operador], references: [id_operador])
+
+  @@index([id_orcamento, data_registro])
+  @@index([id_operador])
+  @@map("historico_orcamento")
+}
+
+model EntradaMercadoria {
+  id_entrada                                   Int                   @id @default(autoincrement()) @db.Integer
+  id_variacao                                  Int                   @db.Integer
+  id_fornecedor                                Int                   @db.Integer
+  id_operador                                  Int                   @db.Integer
+  numero_cotacao_compra                        String?               @db.VarChar(30)
+  quantidade_comprada                          Int                   @db.Integer
+  quantidade_informada                         Int                   @db.Integer
+  data_entrada                                 DateTime              @default(now()) @db.Timestamp(6)
+  id_operador_liberacao                        Int?                  @db.Integer
+  data_liberacao                               DateTime?             @db.Timestamp(6)
+  rel_id_variacao                              VariacaoProduto       @relation("Rel_entrada_mercadoria_id_variacao", fields: [id_variacao], references: [id_variacao])
+  rel_id_operador                              Operador              @relation("Rel_entrada_mercadoria_id_operador", fields: [id_operador], references: [id_operador])
+  rel_id_operador_liberacao                    Operador?             @relation("Rel_entrada_mercadoria_id_operador_liberacao", fields: [id_operador_liberacao], references: [id_operador])
+  rel_id_fornecedor                            Fornecedor            @relation("Rel_entrada_mercadoria_id_fornecedor", fields: [id_fornecedor], references: [id_fornecedor])
+  rel_movimentacao_estoque_id_entrada_children MovimentacaoEstoque[] @relation("Rel_movimentacao_estoque_id_entrada")
+
+  @@index([id_variacao])
+  @@index([id_operador])
+  @@index([id_operador_liberacao])
+  @@index([id_fornecedor])
+  @@map("entrada_mercadoria")
+}
+
+model Fornecedor {
+  id_fornecedor                                 Int                 @id @default(autoincrement()) @db.Integer
+  cnpj                                          String              @unique @db.Char(14)
+  razao_social                                  String              @db.VarChar(150)
+  nome_contato                                  String?             @db.VarChar(100)
+  telefone_contato                              String?             @db.VarChar(20)
+  email_contato                                 String?             @db.VarChar(120)
+  data_cadastro                                 DateTime            @default(now()) @db.Timestamp(6)
+  rel_entrada_mercadoria_id_fornecedor_children EntradaMercadoria[] @relation("Rel_entrada_mercadoria_id_fornecedor")
+
+  @@map("fornecedor")
+}
+
+model Pedido {
+  id_pedido                          Int              @id @default(autoincrement()) @db.Integer
+  id_cliente                         Int              @db.Integer
+  id_operador_vendedor               Int              @db.Integer
+  id_endereco_entrega                Int?             @db.Integer
+  numero_solicitacao_compra          String?          @db.VarChar(30)
+  contato_solicitacao                String?          @db.VarChar(100)
+  condicao_pagamento_desejada        String?          @db.VarChar(16)
+  prazo_dias_desejado                Int?             @db.SmallInt
+  numero_parcelas_desejado           Int?             @db.SmallInt
+  transportadora_indicada            String?          @db.VarChar(100)
+  observacoes                        String?          @db.Text
+  status                             String           @default("SOLICITADO") @db.VarChar(12)
+  motivo_negativa                    String?          @db.Text
+  id_operador_atendimento            Int?             @db.Integer
+  data_solicitacao                   DateTime         @default(now()) @db.Timestamp(6)
+  data_decisao                       DateTime?        @db.Timestamp(6)
+  rel_id_cliente                     Cliente          @relation("Rel_pedido_id_cliente", fields: [id_cliente], references: [id_cliente])
+  rel_id_operador_vendedor           Operador         @relation("Rel_pedido_id_operador_vendedor", fields: [id_operador_vendedor], references: [id_operador])
+  rel_id_endereco_entrega            EnderecoCliente? @relation("Rel_pedido_id_endereco_entrega", fields: [id_endereco_entrega], references: [id_endereco])
+  rel_id_operador_atendimento        Operador?        @relation("Rel_pedido_id_operador_atendimento", fields: [id_operador_atendimento], references: [id_operador])
+  rel_item_pedido_id_pedido_children ItemPedido[]     @relation("Rel_item_pedido_id_pedido")
+  rel_orcamento_id_pedido_children   Orcamento[]      @relation("Rel_orcamento_id_pedido")
+
+  @@index([status])
+  @@index([id_cliente])
+  @@index([id_operador_vendedor])
+  @@index([id_endereco_entrega])
+  @@index([id_operador_atendimento])
+  @@map("pedido")
+}
+
+model ItemPedido {
+  id_item_pedido        Int             @id @default(autoincrement()) @db.Integer
+  id_pedido             Int             @db.Integer
+  id_variacao           Int             @db.Integer
+  granularidade         String          @db.VarChar(6)
+  id_fardo              Int?            @db.Integer
+  quantidade_solicitada Int             @db.Integer
+  rel_id_pedido         Pedido          @relation("Rel_item_pedido_id_pedido", fields: [id_pedido], references: [id_pedido])
+  rel_id_variacao       VariacaoProduto @relation("Rel_item_pedido_id_variacao", fields: [id_variacao], references: [id_variacao])
+  rel_id_fardo          Fardo?          @relation("Rel_item_pedido_id_fardo", fields: [id_fardo], references: [id_fardo])
+
+  @@index([id_pedido])
+  @@index([id_variacao])
+  @@index([id_fardo])
+  @@map("item_pedido")
+}
+
+model RespostaOrcamento {
+  id_resposta                                      Int                     @id @default(autoincrement()) @db.Integer
+  id_orcamento                                     Int                     @db.Integer
+  tipo_resposta                                    String                  @db.VarChar(10)
+  status_resposta                                  String                  @default("PENDENTE") @db.VarChar(20)
+  motivo_tratamento                                String?                 @db.VarChar(22)
+  justificativa                                    String?                 @db.Text
+  id_operador_vendedor                             Int                     @db.Integer
+  data_resposta                                    DateTime                @default(now()) @db.Timestamp(6)
+  data_processamento                               DateTime?               @db.Timestamp(6)
+  id_operador_tratamento                           Int?                    @db.Integer
+  data_tratamento                                  DateTime?               @db.Timestamp(6)
+  valor_total_itens_aprovado                       Decimal?                @db.Decimal(12, 2)
+  valor_total_imposto_aprovado                     Decimal?                @db.Decimal(12, 2)
+  modalidade_frete_aceita                          String?                 @db.VarChar(3)
+  valor_frete_aceito                               Decimal?                @db.Decimal(12, 2)
+  valor_total_aceito                               Decimal?                @db.Decimal(12, 2)
+  rel_id_orcamento                                 Orcamento               @relation("Rel_resposta_orcamento_id_orcamento", fields: [id_orcamento], references: [id_orcamento], onDelete: Cascade)
+  rel_id_operador_vendedor                         Operador                @relation("Rel_resposta_orcamento_id_operador_vendedor", fields: [id_operador_vendedor], references: [id_operador])
+  rel_id_operador_tratamento                       Operador?               @relation("Rel_resposta_orcamento_id_operador_tratamento", fields: [id_operador_tratamento], references: [id_operador])
+  rel_item_resposta_orcamento_id_resposta_children ItemRespostaOrcamento[] @relation("Rel_item_resposta_orcamento_id_resposta")
+
+  @@index([id_orcamento, status_resposta])
+  @@index([id_operador_vendedor])
+  @@index([id_operador_tratamento])
+  @@map("resposta_orcamento")
+}
+
+model ItemRespostaOrcamento {
+  id_item_resposta          Int               @id @default(autoincrement()) @db.Integer
+  id_resposta               Int               @db.Integer
+  id_item                   Int               @db.Integer
+  quantidade_aprovada       Int               @db.Integer
+  situacao                  String            @db.VarChar(12)
+  id_faixa_preco_aceita     Int?              @db.Integer
+  preco_unitario_aceito     Decimal?          @db.Decimal(12, 2)
+  valor_imposto_aceito      Decimal?          @db.Decimal(12, 2)
+  valor_total_item_aceito   Decimal?          @db.Decimal(12, 2)
+  rel_id_resposta           RespostaOrcamento @relation("Rel_item_resposta_orcamento_id_resposta", fields: [id_resposta], references: [id_resposta], onDelete: Cascade)
+  rel_id_item               ItemOrcamento     @relation("Rel_item_resposta_orcamento_id_item", fields: [id_item], references: [id_item], onDelete: Cascade)
+  rel_id_faixa_preco_aceita FaixaPreco?       @relation("Rel_item_resposta_orcamento_id_faixa_preco_aceita", fields: [id_faixa_preco_aceita], references: [id_faixa_preco])
+
+  @@unique([id_resposta, id_item], map: "item_resposta_por_resposta_unique")
+  @@index([id_resposta])
+  @@index([id_item])
+  @@index([id_faixa_preco_aceita])
+  @@map("item_resposta_orcamento")
+}
+
+model MovimentacaoEstoque {
+  id_movimentacao   Int                @id @default(autoincrement()) @db.Integer
+  id_variacao       Int                @db.Integer
+  tipo              String             @db.VarChar(7)
+  quantidade        Int                @db.Integer
+  id_operador       Int?               @db.Integer
+  id_orcamento      Int?               @db.Integer
+  id_entrada        Int?               @db.Integer
+  motivo            String?            @db.Text
+  data_movimentacao DateTime           @default(now()) @db.Timestamp(6)
+  rel_id_variacao   VariacaoProduto    @relation("Rel_movimentacao_estoque_id_variacao", fields: [id_variacao], references: [id_variacao])
+  rel_id_operador   Operador?          @relation("Rel_movimentacao_estoque_id_operador", fields: [id_operador], references: [id_operador])
+  rel_id_orcamento  Orcamento?         @relation("Rel_movimentacao_estoque_id_orcamento", fields: [id_orcamento], references: [id_orcamento], onDelete: SetNull)
+  rel_id_entrada    EntradaMercadoria? @relation("Rel_movimentacao_estoque_id_entrada", fields: [id_entrada], references: [id_entrada])
+
+  @@index([id_variacao, data_movimentacao])
+  @@index([id_operador])
+  @@index([id_orcamento])
+  @@index([id_entrada])
+  @@map("movimentacao_estoque")
+}
+
+// Tabelas operacionais do proxy, descritas em docs/12-proxy.md.
+model IntegranteProxy {
+  id           String    @id @db.Uuid
+  nome_sistema String    @db.VarChar(60)
+  chave_hash   String    @db.Char(64)
+  escopos      String[]  @db.Text
+  ativo        Boolean   @default(true)
+  criado_em    DateTime  @default(now()) @db.Timestamptz(6)
+  expira_em    DateTime? @db.Timestamptz(6)
+
+  @@index([ativo])
+  @@map("integrantes_proxy")
+}
+
+model FilaEscrita {
+  id             String   @id @db.Uuid
+  sistema_origem String   @db.VarChar(100)
+  dominio        String   @db.VarChar(100)
+  operacao       String   @db.VarChar(100)
+  payload        Json     @db.JsonB
+  status         String   @default("pendente") @db.VarChar(12)
+  tentativas     Int      @default(0) @db.Integer
+  criado_em      DateTime @default(now()) @db.Timestamptz(6)
+  atualizado_em  DateTime @default(now()) @db.Timestamptz(6)
+  erro_mensagem  String?  @db.Text
+
+  @@index([status, criado_em])
+  @@map("fila_escrita")
+}
+
+model LogAuditoria {
+  id                          BigInt   @id @default(autoincrement()) @db.BigInt
+  timestamp                   DateTime @default(now()) @db.Timestamptz(6)
+  sistema_origem              String   @db.VarChar(100)
+  operacao                    String   @db.VarChar(120)
+  resultado_verificacao_risco String   @db.VarChar(20)
+  status_execucao             String   @db.VarChar(10)
+  duracao_ms                  Int      @db.Integer
+  request_id                  String   @db.VarChar(100)
+  resultado                   String   @db.VarChar(100)
+  id_usuario                  String?  @db.Text
+  ip_origem                   String?  @db.Inet
+
+  @@index([timestamp])
+  @@index([sistema_origem])
+  @@map("log_auditoria")
+}

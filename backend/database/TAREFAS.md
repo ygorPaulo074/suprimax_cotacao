@@ -1,40 +1,60 @@
-# Banco de dados — orientações
+# Banco de dados — andamento e próximos passos
 
-**Responsável:** modelagem e administração do banco. **Pasta:** `backend/database/` (Prisma). Os revisores obrigatórios do CODEOWNERS são os donos desta pasta, e toda mudança de schema precisa da aprovação dos responsáveis pelos três sistemas.
+**Responsável:** modelagem e administração do banco. **Pasta:** `backend/database/`. Mudanças compartilhadas do schema precisam da revisão e aprovação dos responsáveis pelos três sistemas, conforme o processo do repositório.
 
-## Leia antes de começar
+## Escopo entregue nesta etapa
 
-- `docs/13-banco-de-dados.md`: modelo, entidades (13.3), **regras implementadas no banco (13.4)**, segurança e índices (13.5) e dicionário completo (13.7).
-- `docs/banco-de-dados/dicionario-de-dados.json`: 22 tabelas, 212 colunas e 45 chaves estrangeiras, prontas para gerar o schema.
-- `docs/04-regras-de-negocio.md` (status e transições) e `docs/12-proxy.md` (operações nomeadas e escopos).
+Os artefatos locais foram preparados para revisão e validação:
 
-## Entregas, em ordem
+- Schema Prisma com as 22 entidades do negócio e as três tabelas operacionais do proxy.
+- Três migrations versionadas: estrutura e índices; regras, gatilhos e RLS; funções transacionais e jobs.
+- Script do bucket privado e script opcional de agendamento via `pg_cron`.
+- Seed sintético local, testes de integração com guarda de segurança e instruções de uso.
 
-- [x] **1. Projeto Supabase** (plano gratuito) criado e `DATABASE_URL` configurada no `.env` do proxy; a conexão foi testada e o schema `public` está **vazio**.
-- [ ] **1b. Bucket privado** do Supabase Storage para os documentos de crédito.
-- [ ] **2. `schema.prisma`** com as 22 tabelas, tipos, chaves primárias/estrangeiras, `UNIQUE` e valores padrão do dicionário. Nomes em `snake_case`, como no dicionário.
-- [ ] **3. Migration inicial** gerada pelo Prisma. O Prisma só define e versiona o schema; não consulta dados em produção (o acesso é pelo proxy). Para as migrations use `DIRECT_URL` com o **Session pooler (porta 5432)** ou a conexão direta, e não o Transaction pooler (6543), que o proxy usa e costuma dar problema com migrations. O `migrate dev` precisa de um banco “sombra”: se o Supabase não permitir, gere as migrations num Postgres local.
-- [ ] **4. Migration SQL manual** (o Prisma não expressa isto) com as regras da seção 13.4:
-  - `CHECK` de valores permitidos (perfis, status, condição de pagamento, prazo do boleto em 10/15/20/28/30, parcelas > 1, CIF sem frete, LGPD, imposto 18%, validade de 30 dias, renegociação ≥ 50%, entrada sem divergência);
-  - `sequence` do número do orçamento (BIGINT, sem limite superior);
-  - gatilhos: reserva não excede o saldo, orçamento emitido imutável, endereço de entrega do mesmo cliente, cliente inadimplente bloqueia novo orçamento, nova versão marca o original como SUBSTITUIDO, movimentação atualiza o estoque, inativar vendedor com carteira exige novo responsável, bloqueio de login após 3 tentativas;
-  - índices da seção 13.5;
-  - **RLS ligado em todas as tabelas, sem políticas** (`ALTER TABLE ... ENABLE ROW LEVEL SECURITY`): o Supabase expõe o schema `public` por uma API REST própria, e só o proxy (usuário `postgres`, que ignora o RLS) deve acessar os dados.
-- [ ] **5. Tabelas do proxy** (colunas em `docs/12-proxy.md`, seções 12.5 e 12.7): `integrantes_proxy` (`escopos` deve ser `text[]`), `log_auditoria` e `fila_escrita`. **São as primeiras a criar**: sem `integrantes_proxy` o proxy não emite o token do backend.
-- [ ] **6. Funções do banco** chamadas pelo proxy, com o contrato descrito em `proxy/README.md` (“Contrato com o banco”):
-  - `proxy_orcamento_emitir(p_id_orcamento, p_id_operador, p_chave_seguranca)` → `(id_orcamento, numero_orcamento, data_validade)`;
-  - `proxy_resposta_processar(p_id_resposta, p_resultado jsonb)` → `(status_orcamento, status_resposta)`;
-  - erros de negócio com `RAISE EXCEPTION 'CODIGO'` ou `'CODIGO:{json}'` (`ESTOQUE_INSUFICIENTE`, `ORCAMENTO_NAO_EDITAVEL`, `CHAVE_DUPLICADA`, `RESPOSTA_JA_PROCESSADA`, `PEDIDO_JA_ASSUMIDO`, `NOT_FOUND`).
-  - `pedido.assumir` **não** precisa de função: o proxy faz um `UPDATE` condicional.
-- [ ] **7. Jobs periódicos** (`pg_cron`, se o plano permitir; senão cron no Render): rascunho expirado após 30 dias e apagado 30 dias depois, orçamento emitido expirado em 30 dias, reservas `EXPIRADA`, protesto após 60 dias sem renegociação.
-- [ ] **8. Seed:** um usuário `OPERADOR_CHEFE` inicial e dados de exemplo para desenvolvimento (clientes, produtos com variações, faixas e fardos).
-- [ ] **9. Testes das regras do banco** (inserções que devem falhar e passar), rodando contra um banco de teste.
-- [ ] **10. Backup manual (dump)** antes de mudanças estruturais e nos marcos do projeto, com o procedimento descrito aqui.
+A validação do schema pelo Prisma CLI passou e a migration inicial foi gerada e comparada. As três migrations foram aplicadas com sucesso nos bancos locais `suprimax_dev` e `suprimax_test`; os testes básicos passaram. Nada foi aplicado no Supabase. A equipe do proxy poderá conectar a aplicação ao Supabase depois; isso não substitui a execução das migrations, que precisa de conexão autorizada para DDL.
 
-## Definição de pronto
+## Checklist atualizado
 
-`prisma migrate deploy` num banco vazio cria tudo, o seed roda e os testes de regra passam. O `README.md` desta pasta explica como subir o banco local.
+- [x] Schema Prisma escrito para 22 tabelas do negócio + 3 do proxy; nomes e 212 campos do negócio conferidos contra o dicionário, depois validado e formatado pelo Prisma CLI.
+- [x] Migration inicial gerada pelo Prisma CLI e comparada com a versão preparada: 25 tabelas, 240 colunas, 45 chaves estrangeiras e 51 índices, sem diferenças estruturais detectadas; aplicada nos dois bancos locais.
+- [x] Migration SQL de regras aplicada nos dois bancos locais: RLS ativado nas 25 tabelas e sem políticas instaladas.
+- [x] Funções nomeadas do proxy e jobs SQL aplicados localmente; sete funções `proxy_*` presentes. O contrato integrado com o proxy ainda requer conferência conjunta.
+- [x] Bucket privado e agendamento `pg_cron` documentados em scripts separados.
+- [x] Seed de desenvolvimento preparado, restrito a PostgreSQL local `_dev` e sem senha em texto puro.
+- [ ] Executar o seed depois que o backend definir o mecanismo de hash de senha e fornecer um hash compatível.
+- [x] Testes básicos preparados, restritos a PostgreSQL local `_test`; a verificação de saldo foi corrigida para alcançar o gatilho de estoque.
+- [x] Executar a suíte básica no banco local: cinco testes passaram.
+- [ ] Ampliar os testes para a lista recomendada em `docs/13-banco-de-dados.md` (concorrência, login/token, reserva, fechamento da resposta, pedido e expiração de rascunho).
+- [x] Instruções de configuração, backup e futura aplicação escritas.
+- [x] Instalar dependências locais (`prisma`, `pg`, `dotenv`); `prisma validate` passou e `prisma format` foi executado.
+- [x] Configurar conexão PostgreSQL local no `.env`, aplicar migrations nos bancos vazios e confirmar as três migrations aplicadas.
+- [ ] Expandir os testes além dos cinco casos básicos; sem `TEST_DATABASE_URL`, eles serão ignorados.
+- [ ] Revisão/aprovação pelos responsáveis dos três sistemas.
+- [ ] Configurar a conexão autorizada de migration (`DIRECT_URL`) e aplicar migrations no Supabase; não usar a URL do Transaction pooler.
+- [ ] Habilitar `pg_cron`, se disponível, e executar o script de agendamento.
+- [ ] Criar o bucket privado executando o script de Storage autorizado.
+- [ ] Fazer backup antes de alterações estruturais em ambiente compartilhado.
 
-## Dependências
+## Integrações que precisam de conferência conjunta
 
-O proxy e o backend só conseguem avançar depois do schema. Ordem de prioridade: **item 5** (tabelas do proxy, para emitir o token do backend), depois os itens 2 a 4 (schema e regras) e o item 6 (funções).
+- A criação do projeto Supabase e a conexão de runtime no `.env` do proxy ficam com a equipe do proxy. Não foram verificadas nem alteradas nesta entrega; a informação atual é que o proxy será conectado depois.
+- O schema Prisma limita `chave_seguranca` a 64 caracteres, enquanto a validação atual de `orcamento.emitir` no proxy aceita até 255. Confirmar o tamanho real do token e alinhar o contrato antes de integrar.
+- A função SQL levanta alguns erros de negócio além dos seis códigos que o tradutor atual do proxy reconhece. Sem alinhar a lista, esses casos viram `INTERNAL_ERROR` no proxy; combinar os códigos e as respostas HTTP com a equipe do proxy.
+- O teste de estoque agora chega à validação de saldo. Os cinco testes básicos passaram, mas a suíte ainda não cobre todos os cenários recomendados na seção 13.5.
+
+## Próxima etapa local
+
+Os bancos locais `suprimax_dev` e `suprimax_test`, as dependências e as migrations já estão configurados. Para executar o seed, o backend precisa primeiro definir seu mecanismo de hash de senha; então forneça `SEED_OPERATOR_PASSWORD_HASH` compatível e rode o procedimento do `README.md`. A ampliação dos testes pode avançar em paralelo, coordenando os contratos que dependem do proxy e do backend.
+
+## Próxima etapa no ambiente compartilhado
+
+Antes de aplicar qualquer DDL, combinar a janela e revisar os arquivos de migration com os responsáveis. Configure `DIRECT_URL` somente no ambiente local autorizado e use conexão direta ou Session pooler (porta 5432). O endpoint operacional do proxy não transporta migrations nem executa DDL arbitrário. Nunca grave credenciais no repositório.
+
+Para o Supabase, aplique `prisma migrate deploy`; em seguida, se habilitado, execute `supabase/002_agendar_jobs_pg_cron.sql` e `supabase/001_bucket_privado.sql`. Consulte o [README da pasta](README.md) para comandos e backup.
+
+## Premissas a confirmar antes de produção
+
+- O bloqueio após três tentativas está configurado para 15 minutos, pois a documentação funcional só especifica bloqueio temporário.
+- A migration de emissão exige pagamento `ADIANTADO_100` para primeira compra. Confirmar com as regras comerciais e o Sistema 1.
+- A política de acesso do bucket deve ser implementada pelo serviço responsável; o script cria bucket privado sem políticas públicas.
+- Os jobs podem rodar por `pg_cron` ou agendador do proxy, conforme infraestrutura disponível.
