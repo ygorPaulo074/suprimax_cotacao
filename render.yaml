@@ -1,0 +1,69 @@
+# Blueprint do Render (fica na raiz: é onde o Render procura; cada serviço aponta a sua pasta em rootDir).
+# Publica o proxy (docs/12-proxy.md) e o backend do Sistema 2 (docs/11). O frontend vai para a Vercel
+# (frontend/vercel.json), não para o Render.
+#
+# Segredos usam `sync: false`: o Render pede o valor no painel e ele não fica no repositório.
+# Os valores estão em scripts/<codename>_<timestamp>_<versao>/ (gerado por scripts/gerar-env.cjs):
+# proxy.env para o suprimax-cotacao-proxy e backend.env para o suprimax-cotacao.
+services:
+  - type: web
+    name: suprimax-cotacao-proxy
+    runtime: node
+    plan: free
+    rootDir: proxy
+    # --include=dev: o Render pode omitir devDependencies em produção, e o build precisa do tsc.
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /saude
+    autoDeployTrigger: commit # deploy a cada merge na main (docs/03, seção 3.2)
+    branch: main
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: ENV
+        value: producao
+      # PORT: não definir; o Render injeta.
+      - key: DATABASE_URL # pooler, Transaction, porta 6543
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: PROXY_ADMIN_KEY
+        sync: false
+      - key: JWT_SIGNING_SECRET
+        sync: false
+
+  - type: web
+    name: suprimax-cotacao
+    runtime: node
+    plan: free
+    rootDir: backend
+    # O módulo de cálculo (backend/services/calculo) é compilado junto: o tsc usa rootDir ".".
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /saude
+    autoDeployTrigger: commit
+    branch: main
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: ENV
+        value: producao
+      # PORT: não definir; o Render injeta.
+      - key: LOG_LEVEL
+        value: info
+      - key: TRUST_PROXY # um balanceador do Render à frente (identifica o IP do cliente)
+        value: "1"
+      - key: SESSAO_INATIVIDADE_MINUTOS
+        value: "30"
+      # Em produção o backend recusa localhost e valores de exemplo nestas quatro.
+      - key: CORS_ORIGENS # URL do frontend na Vercel, sem barra final
+        sync: false
+      - key: PROXY_URL # URL pública do suprimax-cotacao-proxy neste Render
+        sync: false
+      - key: PROXY_SERVICE_ID
+        sync: false
+      - key: PROXY_SERVICE_TOKEN
+        sync: false
+      # RESEND_API_KEY: o backend ainda não lê essa variável (backend/src/config.ts). Acrescentar quando o e-mail for implementado.

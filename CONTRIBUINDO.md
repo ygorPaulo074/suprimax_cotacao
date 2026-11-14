@@ -16,7 +16,7 @@ Guia para quem vai desenvolver neste repositório. As regras vêm da documentaç
    cd suprimax_cotacao/<servico>   # frontend, backend ou proxy
    npm install
    ```
-4. Copie `.env.example` (raiz) para `.env` no serviço e preencha. **Nunca** commite o `.env` nem chaves.
+4. Em cada serviço (`proxy/`, `backend/`, `frontend/`), copie o `.env.example` da própria pasta para `.env` e preencha (ou use `node scripts/gerar-env.cjs`). **Nunca** commite o `.env` nem chaves.
 
 ## 2. Fluxo de trabalho
 

@@ -4,4 +4,5 @@ Uma entrada por PR: data, descrição e UC de origem (ver docs/03-requisitos-nao
 
 ## [Não lançado]
 
+- 2026-11-13 — Variáveis de ambiente: `.env.example` próprio do serviço (substitui o da raiz); `VITE_API_URL` é lida no build da Vercel. Infra (docs/03, seção 3.2); sem UC.
 - 2026-10-19 — Frontend criado a partir do protótipo do Figma: Vite, React 19, Tailwind 4, React Router, camada de API tipada, 18 telas sem dados fixos, menu por perfil. UC01–UC25 (telas).
