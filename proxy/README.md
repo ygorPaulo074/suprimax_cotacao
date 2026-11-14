@@ -12,7 +12,7 @@ Backend S2 ─┘                                                          └�
 
 ```bash
 npm install
-cp ../.env.example .env      # preencha a seção do proxy
+cp .env.example .env         # preencha (ou gere com scripts/gerar-env.cjs)
 npm run dev                  # http://localhost:3001  (GET /saude)
 npm run lint && npm run format:check && npm run typecheck && npm test
 ```

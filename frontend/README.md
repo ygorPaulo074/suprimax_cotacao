@@ -6,7 +6,7 @@ React 19 + Vite + Tailwind CSS 4 + TypeScript. Consome **somente** a API REST do
 
 ```bash
 npm install
-cp ../.env.example .env   # ajuste VITE_API_URL (padrão: http://localhost:3000)
+cp .env.example .env   # ajuste VITE_API_URL (padrão: http://localhost:3000)
 npm run dev               # http://localhost:5173
 npm run lint && npm run format:check && npm run typecheck && npm test
 npm run build
