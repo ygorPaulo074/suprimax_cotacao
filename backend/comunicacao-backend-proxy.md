@@ -224,6 +224,8 @@ export function decimalParaCentavos(texto: string): number {
 
 Mantenha o formato de erro do backend para o frontend (`{ codigo, mensagem, detalhes? }`, em `docs/frontend-api.md`). **Não repasse a mensagem do proxy ao frontend sem revisar**, e nunca exponha `detalhes` internos.
 
+**Proxy em espera:** o proxy no Render gratuito hiberna e leva de 20 a 60 s para subir. O cliente (`ClienteProxy.aPartirDaConfig`) o acorda com `GET /saude` antes de operar, quando passou mais de 10 minutos sem contato ou depois de uma falha de comunicação. Se o proxy não acordar em 90 s, ou se a chamada falhar por rede, prazo ou 502/503/504, o backend responde `503 SERVICO_INDISPONIVEL` (o usuário tenta de novo), e não `500`.
+
 **Nova tentativa (retry):**
 
 - Leituras (`dados.consultar`): pode repetir em falha de rede, `429` e `5xx`, com espera crescente.
