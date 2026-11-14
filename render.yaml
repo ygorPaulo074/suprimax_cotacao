@@ -4,10 +4,10 @@
 #
 # Segredos usam `sync: false`: o Render pede o valor no painel e ele não fica no repositório.
 # Os valores estão em scripts/<codename>_<timestamp>_<versao>/ (gerado por scripts/gerar-env.cjs):
-# proxy.env para o suprimax-proxy e backend.env para o suprimax-backend.
+# proxy.env para o suprimax-cotacao-proxy e backend.env para o suprimax-cotacao.
 services:
   - type: web
-    name: suprimax-proxy
+    name: suprimax-cotacao-proxy
     runtime: node
     plan: free
     rootDir: proxy
@@ -35,7 +35,7 @@ services:
         sync: false
 
   - type: web
-    name: suprimax-backend
+    name: suprimax-cotacao
     runtime: node
     plan: free
     rootDir: backend
@@ -60,7 +60,7 @@ services:
       # Em produção o backend recusa localhost e valores de exemplo nestas quatro.
       - key: CORS_ORIGENS # URL do frontend na Vercel, sem barra final
         sync: false
-      - key: PROXY_URL # URL pública do suprimax-proxy neste Render
+      - key: PROXY_URL # URL pública do suprimax-cotacao-proxy neste Render
         sync: false
       - key: PROXY_SERVICE_ID
         sync: false
