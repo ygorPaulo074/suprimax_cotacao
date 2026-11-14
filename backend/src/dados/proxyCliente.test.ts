@@ -1,5 +1,5 @@
 import type { Config } from '../config';
-import { ErroDeValidacao, ErroInterno } from '../erros';
+import { ErroDeServicoIndisponivel, ErroDeValidacao, ErroInterno } from '../erros';
 import { criarLogger } from '../log';
 import {
   ClienteProxy,
@@ -170,9 +170,9 @@ describe('ClienteProxy.executar — erros do proxy', () => {
   });
 
   it.each([
-    ['HTML no lugar de JSON', resposta(502, '<html>Bad Gateway</html>')],
     ['JSON fora do formato', resposta(200, { dados: [] })],
     ['erro sem código', resposta(500, { ok: false, erro: {} })],
+    ['HTML com status 200', resposta(200, '<html>ok</html>')],
   ])('resposta inválida (%s) vira ErroInterno', async (_caso, respostaInvalida) => {
     const { cliente } = montar(fetchQueDevolve(respostaInvalida));
 
@@ -236,7 +236,7 @@ describe('ClienteProxy.executar — repetição de leitura', () => {
     expect(new Set(timestamps).size).toBe(3);
   });
 
-  it('desiste no limite de tentativas e vira ErroInterno', async () => {
+  it('desiste no limite de tentativas e vira serviço indisponível', async () => {
     const falha = new TypeError('fetch failed');
     const fetchSimulado = fetchQueDevolve(falha, falha, falha);
 
@@ -244,8 +244,11 @@ describe('ClienteProxy.executar — repetição de leitura', () => {
       montar(fetchSimulado).cliente.executar('dados.consultar', { tabela: 'cliente' }, 'UC03'),
     );
 
-    expect(erro).toBeInstanceOf(ErroInterno);
-    expect((erro as ErroInterno).cause).toMatchObject({ codigo: 'FALHA_DE_REDE', status: 503 });
+    expect(erro).toBeInstanceOf(ErroDeServicoIndisponivel);
+    expect((erro as ErroDeServicoIndisponivel).cause).toMatchObject({
+      codigo: 'FALHA_DE_REDE',
+      status: 503,
+    });
     expect(fetchSimulado).toHaveBeenCalledTimes(3);
   });
 
@@ -264,7 +267,7 @@ describe('ClienteProxy.executar — repetição de leitura', () => {
 
     const erro = await capturar(cliente.executar(operacao, {}, 'UC'));
 
-    expect(erro).toBeInstanceOf(ErroInterno);
+    expect(erro).toBeInstanceOf(ErroDeServicoIndisponivel);
     expect(fetchSimulado).toHaveBeenCalledTimes(1);
     expect(esperar).not.toHaveBeenCalled();
   });
@@ -281,7 +284,11 @@ describe('ClienteProxy.executar — repetição de leitura', () => {
 
     const erro = await capturar(cliente.executar('dados.inserir', {}, 'UC02'));
 
-    expect((erro as ErroInterno).cause).toMatchObject({ codigo: 'TEMPO_ESGOTADO', status: 504 });
+    expect(erro).toBeInstanceOf(ErroDeServicoIndisponivel);
+    expect((erro as ErroDeServicoIndisponivel).cause).toMatchObject({
+      codigo: 'TEMPO_ESGOTADO',
+      status: 504,
+    });
   });
 });
 
@@ -307,11 +314,26 @@ describe('ClienteProxy.aPartirDaConfig', () => {
 
   it('cria o cliente quando as três variáveis existem', async () => {
     const fetchSimulado = fetchQueDevolve(resposta(200, SUCESSO));
-    const cliente = ClienteProxy.aPartirDaConfig(COMPLETA, logger, { fetch: fetchSimulado });
+    const cliente = ClienteProxy.aPartirDaConfig(COMPLETA, logger, {
+      fetch: fetchSimulado,
+      aquecimento: false,
+    });
 
     await cliente.executar('dados.inserir', {}, 'UC02');
 
     expect(fetchSimulado.mock.calls[0]?.[0]).toBe('https://proxy.teste/executar');
+  });
+
+  it('liga o aquecimento do proxy por padrão', async () => {
+    const fetchSimulado = fetchQueDevolve(resposta(200, { ok: true }), resposta(200, SUCESSO));
+    const cliente = ClienteProxy.aPartirDaConfig(COMPLETA, logger, { fetch: fetchSimulado });
+
+    await cliente.executar('dados.inserir', {}, 'UC02');
+
+    expect(fetchSimulado.mock.calls.map(([url]) => url)).toEqual([
+      'https://proxy.teste/saude',
+      'https://proxy.teste/executar',
+    ]);
   });
 
   it.each([
@@ -322,5 +344,155 @@ describe('ClienteProxy.aPartirDaConfig', () => {
 
     expect(criar).toThrow(ProxyNaoConfiguradoError);
     expect(criar).toThrow(faltando.join(', '));
+  });
+});
+
+describe('ClienteProxy — proxy em espera (aquecimento)', () => {
+  const saude = () => new Response(JSON.stringify({ ok: true }), { status: 200 });
+  const urls = (fetchSimulado: FetchSimulado) =>
+    fetchSimulado.mock.calls.map(([url]) => String(url));
+  const chamadasDeSaude = (fetchSimulado: FetchSimulado) =>
+    urls(fetchSimulado).filter((url) => url.endsWith('/saude'));
+
+  it('acorda o proxy com GET /saude antes da primeira operação', async () => {
+    const fetchSimulado = fetchQueDevolve(saude(), resposta(200, SUCESSO));
+    const { cliente } = montar(fetchSimulado, { aquecimento: true });
+
+    await cliente.executar('dados.inserir', {}, 'UC02');
+
+    expect(urls(fetchSimulado)).toEqual([
+      'https://proxy.teste/saude',
+      'https://proxy.teste/executar',
+    ]);
+    expect(fetchSimulado.mock.calls[0]?.[1]?.method).toBe('GET');
+    expect(fetchSimulado.mock.calls[0]?.[1]?.headers).toBeUndefined();
+  });
+
+  it('não acorda de novo enquanto o proxy respondeu há pouco', async () => {
+    const fetchSimulado = fetchQueDevolve(saude(), resposta(200, SUCESSO), resposta(200, SUCESSO));
+    const { cliente } = montar(fetchSimulado, { aquecimento: true });
+
+    await cliente.executar('dados.inserir', {}, 'UC02');
+    await cliente.executar('dados.inserir', {}, 'UC02');
+
+    expect(chamadasDeSaude(fetchSimulado)).toHaveLength(1);
+  });
+
+  it('chamadas simultâneas compartilham um só aquecimento', async () => {
+    const fetchSimulado = fetchQueDevolve(saude(), resposta(200, SUCESSO), resposta(200, SUCESSO));
+    const { cliente } = montar(fetchSimulado, { aquecimento: true });
+
+    await Promise.all([
+      cliente.executar('dados.inserir', {}, 'UC02'),
+      cliente.executar('dados.inserir', {}, 'UC02'),
+    ]);
+
+    expect(chamadasDeSaude(fetchSimulado)).toHaveLength(1);
+    expect(fetchSimulado).toHaveBeenCalledTimes(3);
+  });
+
+  it('acorda de novo depois de um longo tempo sem contato', async () => {
+    let agora = AGORA.getTime();
+    const fetchSimulado = fetchQueDevolve(
+      saude(),
+      resposta(200, SUCESSO),
+      saude(),
+      resposta(200, SUCESSO),
+    );
+    const { cliente } = montar(fetchSimulado, {
+      aquecimento: true,
+      ociosidadeMaximaMs: 60_000,
+      agora: () => new Date(agora),
+    });
+
+    await cliente.executar('dados.inserir', {}, 'UC02');
+    agora += 61_000;
+    await cliente.executar('dados.inserir', {}, 'UC02');
+
+    expect(chamadasDeSaude(fetchSimulado)).toHaveLength(2);
+  });
+
+  it('se o proxy não acordar, falha como serviço indisponível sem enviar a operação', async () => {
+    const fetchSimulado = fetchQueDevolve(new TypeError('fetch failed'));
+    const { cliente, linhas } = montar(fetchSimulado, { aquecimento: true });
+
+    const erro = await capturar(cliente.executar('dados.inserir', {}, 'UC02'));
+
+    expect(erro).toBeInstanceOf(ErroDeServicoIndisponivel);
+    expect(urls(fetchSimulado)).toEqual(['https://proxy.teste/saude']);
+    expect(linhas.join()).toContain('o proxy não acordou dentro do prazo');
+  });
+
+  it('trata /saude fora do ar (5xx) como proxy que não acordou', async () => {
+    const fetchSimulado = fetchQueDevolve(resposta(503, '<html>starting</html>'));
+    const { cliente } = montar(fetchSimulado, { aquecimento: true });
+
+    const erro = await capturar(cliente.executar('dados.consultar', { tabela: 'x' }, 'UC03'));
+
+    expect(erro).toBeInstanceOf(ErroDeServicoIndisponivel);
+    expect(fetchSimulado).toHaveBeenCalledTimes(1);
+  });
+
+  it('usa o prazo longo no aquecimento e o prazo curto na operação', async () => {
+    const fetchSimulado = fetchQueDevolve(saude(), resposta(200, SUCESSO));
+    const { cliente } = montar(fetchSimulado, {
+      aquecimento: true,
+      tempoLimiteMs: 10,
+      tempoLimiteAquecimentoMs: 60_000,
+    });
+    const timeout = jest.spyOn(AbortSignal, 'timeout');
+
+    await cliente.executar('dados.inserir', {}, 'UC02');
+
+    expect(timeout.mock.calls.map(([ms]) => ms)).toEqual([60_000, 10]);
+    timeout.mockRestore();
+  });
+
+  it('depois de uma falha de comunicação, acorda o proxy antes da próxima operação', async () => {
+    const fetchSimulado = fetchQueDevolve(
+      saude(),
+      new TypeError('fetch failed'),
+      saude(),
+      resposta(200, SUCESSO),
+    );
+    const { cliente } = montar(fetchSimulado, { aquecimento: true });
+
+    await capturar(cliente.executar('dados.inserir', {}, 'UC02'));
+    await cliente.executar('dados.inserir', {}, 'UC02');
+
+    expect(urls(fetchSimulado)).toEqual([
+      'https://proxy.teste/saude',
+      'https://proxy.teste/executar',
+      'https://proxy.teste/saude',
+      'https://proxy.teste/executar',
+    ]);
+  });
+
+  it('numa leitura repetida por falha de rede, acorda o proxy antes da nova tentativa', async () => {
+    const fetchSimulado = fetchQueDevolve(
+      saude(),
+      new TypeError('fetch failed'),
+      saude(),
+      resposta(200, SUCESSO),
+    );
+    const { cliente, esperar } = montar(fetchSimulado, { aquecimento: true });
+
+    await cliente.executar('dados.consultar', { tabela: 'cliente' }, 'UC03');
+
+    expect(urls(fetchSimulado)).toEqual([
+      'https://proxy.teste/saude',
+      'https://proxy.teste/executar',
+      'https://proxy.teste/saude',
+      'https://proxy.teste/executar',
+    ]);
+    expect(esperar).toHaveBeenCalledTimes(1);
+  });
+
+  it('sem aquecimento (padrão do construtor), nunca chama /saude', async () => {
+    const fetchSimulado = fetchQueDevolve(resposta(200, SUCESSO));
+
+    await montar(fetchSimulado).cliente.executar('dados.inserir', {}, 'UC02');
+
+    expect(urls(fetchSimulado)).toEqual(['https://proxy.teste/executar']);
   });
 });
