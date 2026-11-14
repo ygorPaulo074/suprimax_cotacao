@@ -4,7 +4,6 @@ Uma entrada por PR: data, descrição e UC de origem (ver docs/03-requisitos-nao
 
 ## [Não lançado]
 
- chore/deploy-render-e-env
 - 2026-11-13 — Deploy e variáveis: `.env.example` próprio do serviço (substitui o da raiz), serviço no `render.yaml` da raiz e `src/testing/**` fora do build (`tsconfig.build.json`). Infra (docs/03, seção 3.2); sem UC.
 - 2026-11-13 — Proxy em espera: antes de operar, o cliente do proxy o acorda com `GET /saude` (espera de até 90 s; o Render gratuito hiberna), sem repetir quando houve contato há menos de 10 min e compartilhando um só aquecimento entre chamadas simultâneas; falha de rede, prazo esgotado e 502/503/504 passam a responder `503 SERVICO_INDISPONIVEL` em vez de `500`. Infra (docs/12, seção 12.1; RNF06); sem UC.
 - 2026-11-13 — Banco de dados: schema Prisma, três migrations SQL, seed sintético restrito a banco local, scripts de Storage/jobs, testes de integração e documentação de operação. Entrega transversal de persistência para os casos de uso do Sistema 2 descritos em `docs/13-banco-de-dados.md`; não corresponde a um UC isolado.
