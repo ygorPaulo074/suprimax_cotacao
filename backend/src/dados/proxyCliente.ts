@@ -4,7 +4,7 @@ import { VARIAVEIS_DO_PROXY, type Config } from '../config';
 import type { Logger } from '../log';
 import { ErroDeServicoIndisponivel } from '../erros';
 import { converterChavesParaCamelCase } from './conversao';
-import { CODIGOS_DO_PROXY, traduzirErroDeProxy } from './traducaoDeErros';
+import { CODIGOS_DO_PROXY, proxyEmEspera, traduzirErroDeProxy } from './traducaoDeErros';
 
 /** Rota única do proxy (docs/12, seção 12.2). */
 export const ROTA_EXECUTAR = '/executar';
@@ -30,6 +30,19 @@ export const MAXIMO_DE_TENTATIVAS_DE_LEITURA = 3;
 /** Espera antes da primeira repetição; dobra a cada nova repetição. */
 export const ESPERA_INICIAL_PADRAO_MS = 200;
 const FATOR_DE_CRESCIMENTO_DA_ESPERA = 2;
+
+/** Rota de saúde do proxy; aberta, sem credencial. Serve para acordá-lo (ver aquecer). */
+export const ROTA_SAUDE_DO_PROXY = '/saude';
+/**
+ * Quanto esperar o proxy acordar. O Render gratuito hiberna o serviço e segura a primeira
+ * requisição até ele subir, o que leva de 20 a 60 segundos.
+ */
+export const TEMPO_LIMITE_AQUECIMENTO_PADRAO_MS = 90_000;
+/**
+ * Sem contato com o proxy por mais que isso, ele é tratado como possivelmente hibernado (o Render
+ * gratuito hiberna após 15 minutos sem requisição) e é acordado antes da próxima operação.
+ */
+export const OCIOSIDADE_MAXIMA_PADRAO_MS = 10 * 60_000;
 
 /** Falhas que acontecem antes de existir uma resposta válida do proxy, com o status equivalente. */
 export const FALHAS_DE_COMUNICACAO = {
@@ -139,6 +152,14 @@ export interface OpcoesDoClienteProxy {
   readonly tempoLimiteMs?: number;
   readonly maximoDeTentativasDeLeitura?: number;
   readonly esperaInicialMs?: number;
+  /**
+   * Acorda o proxy (GET /saude, com espera longa) antes da primeira operação e depois de um
+   * período sem contato ou de uma falha de comunicação. Desligado por padrão no construtor;
+   * `ClienteProxy.aPartirDaConfig` o liga.
+   */
+  readonly aquecimento?: boolean;
+  readonly tempoLimiteAquecimentoMs?: number;
+  readonly ociosidadeMaximaMs?: number;
   /** Função de requisição HTTP; por padrão, o `fetch` do Node. */
   readonly fetch?: typeof fetch;
   /** Pausa entre tentativas; por padrão, `setTimeout`. */
@@ -171,6 +192,12 @@ function ehObjeto(valor: unknown): valor is Record<string, unknown> {
  *
  * Gravação que falha nunca é repetida aqui: se a resposta se perdeu, a gravação pode ter
  * acontecido, e quem chamou precisa ler o estado antes de tentar de novo.
+ *
+ * Proxy em espera: com o aquecimento ligado, antes de enviar a operação o cliente confere se o
+ * proxy está acordado, com um GET /saude que tolera a subida do serviço (o Render gratuito
+ * hiberna). Assim a operação real, com prazo curto, nunca fica presa à subida, e uma gravação não
+ * é enviada a um proxy que ainda não está de pé. Chamadas simultâneas compartilham um só
+ * aquecimento. Se o proxy não acordar no prazo, a operação falha com SERVICO_INDISPONIVEL (503).
  */
 export class ClienteProxy implements ClienteDeProxy {
   private readonly tempoLimiteMs: number;
@@ -179,7 +206,13 @@ export class ClienteProxy implements ClienteDeProxy {
   private readonly fetch: typeof fetch;
   private readonly esperar: (ms: number) => Promise<void>;
   private readonly agora: () => Date;
+  private readonly aquecimento: boolean;
+  private readonly tempoLimiteAquecimentoMs: number;
+  private readonly ociosidadeMaximaMs: number;
   private ultimoTimestampMs = 0;
+  /** Último instante em que o proxy respondeu; -Infinity força o aquecimento na próxima operação. */
+  private ultimoContatoMs = Number.NEGATIVE_INFINITY;
+  private aquecendo?: Promise<void>;
 
   constructor(
     private readonly config: ConfigDoProxy,
@@ -193,6 +226,10 @@ export class ClienteProxy implements ClienteDeProxy {
     this.fetch = opcoes.fetch ?? ((...argumentos) => fetch(...argumentos));
     this.esperar = opcoes.esperar ?? esperarComTemporizador;
     this.agora = opcoes.agora ?? (() => new Date());
+    this.aquecimento = opcoes.aquecimento ?? false;
+    this.tempoLimiteAquecimentoMs =
+      opcoes.tempoLimiteAquecimentoMs ?? TEMPO_LIMITE_AQUECIMENTO_PADRAO_MS;
+    this.ociosidadeMaximaMs = opcoes.ociosidadeMaximaMs ?? OCIOSIDADE_MAXIMA_PADRAO_MS;
   }
 
   /**
@@ -212,7 +249,7 @@ export class ClienteProxy implements ClienteDeProxy {
     return new ClienteProxy(
       { url: proxyUrl, serviceId: proxyServiceId, token: proxyServiceToken },
       logger,
-      opcoes,
+      { aquecimento: true, ...opcoes },
     );
   }
 
@@ -228,6 +265,7 @@ export class ClienteProxy implements ClienteDeProxy {
     let tentativa = 1;
     let renovouTimestamp = false;
 
+    await this.garantirProxyAcordado();
     for (;;) {
       try {
         return (await this.enviar(requisicao)) as T;
@@ -236,10 +274,15 @@ export class ClienteProxy implements ClienteDeProxy {
           throw erro;
         }
         this.registrarFalha(requisicao, erro, tentativa);
+        if (proxyEmEspera(erro)) {
+          // Sem resposta válida: o proxy pode ter hibernado. A próxima operação o acorda antes.
+          this.ultimoContatoMs = Number.NEGATIVE_INFINITY;
+        }
         if (erro.codigo === CODIGOS_DO_PROXY.TOKEN_INVALIDO && !renovouTimestamp) {
           renovouTimestamp = true;
         } else if (erro.ehTransitorio && tentativa < maximoDeTentativas) {
           await this.esperar(this.esperaAntesDaRepeticao(tentativa));
+          await this.garantirProxyAcordado();
           tentativa += 1;
         } else {
           throw traduzirErroDeProxy(erro) ?? erro;
@@ -263,7 +306,46 @@ export class ClienteProxy implements ClienteDeProxy {
     } catch (erro) {
       throw this.criarFalhaDeComunicacao(erro);
     }
+    this.ultimoContatoMs = this.agora().getTime();
     return this.interpretar(operacao, resposta.status, texto);
+  }
+
+  /** Acorda o proxy se ele ficou muito tempo sem contato. Chamadas simultâneas esperam o mesmo. */
+  private async garantirProxyAcordado(): Promise<void> {
+    if (!this.aquecimento) {
+      return;
+    }
+    if (this.agora().getTime() - this.ultimoContatoMs < this.ociosidadeMaximaMs) {
+      return;
+    }
+    this.aquecendo ??= this.aquecer().finally(() => {
+      this.aquecendo = undefined;
+    });
+    await this.aquecendo;
+  }
+
+  /**
+   * GET /saude com espera longa: o Render segura a requisição até o serviço hibernado subir.
+   *
+   * @throws {ErroDeServicoIndisponivel} Se o proxy não responder 2xx dentro do prazo.
+   */
+  private async aquecer(): Promise<void> {
+    const inicio = this.agora().getTime();
+    try {
+      const resposta = await this.fetch(`${this.config.url}${ROTA_SAUDE_DO_PROXY}`, {
+        method: 'GET',
+        signal: AbortSignal.timeout(this.tempoLimiteAquecimentoMs),
+      });
+      await resposta.text();
+      if (!resposta.ok) {
+        throw new Error(`o proxy respondeu ${resposta.status} em ${ROTA_SAUDE_DO_PROXY}`);
+      }
+    } catch (erro) {
+      this.logger.warn({ err: erro }, 'o proxy não acordou dentro do prazo');
+      throw new ErroDeServicoIndisponivel({ causa: erro });
+    }
+    this.ultimoContatoMs = this.agora().getTime();
+    this.logger.info({ duracaoMs: this.ultimoContatoMs - inicio }, 'proxy pronto');
   }
 
   private montarCabecalhos(operationId: string): Record<string, string> {
