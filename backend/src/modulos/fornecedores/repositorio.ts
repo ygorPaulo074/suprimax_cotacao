@@ -78,6 +78,16 @@ export class RepositorioDeFornecedores {
     return linha === undefined ? null : paraFornecedor(linha);
   }
 
+  /** Busca o fornecedor pelo identificador (UC04, entrada de mercadoria); `null` se não existir. */
+  async buscarPorId(idFornecedor: number): Promise<Fornecedor | null> {
+    const [linha] = await consultar(
+      this.proxy,
+      { tabela: TABELA, campos: COLUNAS, filtros: { e: [['id_fornecedor', '=', idFornecedor]] } },
+      OPERACOES_DE_FORNECEDORES.BUSCAR,
+    );
+    return linha === undefined ? null : paraFornecedor(linha);
+  }
+
   /** Grava o fornecedor e devolve a linha criada. */
   async inserir(novo: FornecedorAInserir): Promise<Fornecedor> {
     const resposta = await this.proxy.executar(

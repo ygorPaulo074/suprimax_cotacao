@@ -1,14 +1,24 @@
 // UC13 — montagem do módulo de autenticação.
 import type { Router } from 'express';
 import type { ClienteDeProxy } from '../../dados';
-import { limiteDeLogin, type OpcoesDoLimiteDeLogin } from '../../http/middlewares/limiteDeLogin';
+import {
+  limiteDeLogin,
+  limiteDeRecuperacaoDeSenha,
+  type OpcoesDoLimiteDeLogin,
+  type OpcoesDoLimiteDeRecuperacao,
+} from '../../http/middlewares/limiteDeLogin';
 import type { Logger } from '../../log';
+import {
+  NotificadorDeRecuperacaoDeSenhaMudo,
+  type NotificadorDeRecuperacaoDeSenha,
+} from './notificador';
 import { RepositorioDeOperadores } from './operadores';
 import { criarRotasDeAuth } from './rotas';
 import { ServicoDeSenha } from './senha';
 import { ServicoDeAutenticacao } from './servico';
 import type { RepositorioDeSessoes } from './sessoes';
 
+export * from './notificador';
 export * from './operadores';
 export * from './rotas';
 export * from './senha';
@@ -24,6 +34,9 @@ export interface DependenciasDoModuloDeAuth {
   /** Por padrão, bcrypt com o custo de produção. */
   readonly senhas?: ServicoDeSenha;
   readonly limiteDeLogin?: OpcoesDoLimiteDeLogin;
+  readonly limiteDeRecuperacao?: OpcoesDoLimiteDeRecuperacao;
+  /** Envio do e-mail de recuperação de senha; por padrão, o notificador que só registra em log. */
+  readonly notificador?: NotificadorDeRecuperacaoDeSenha;
   readonly agora?: () => Date;
 }
 
@@ -40,12 +53,15 @@ export function criarModuloDeAuth(dependencias: DependenciasDoModuloDeAuth): Mod
     sessoes: dependencias.sessoes,
     senhas: dependencias.senhas ?? new ServicoDeSenha(),
     logger: dependencias.logger,
+    notificador:
+      dependencias.notificador ?? new NotificadorDeRecuperacaoDeSenhaMudo(dependencias.logger),
     agora: dependencias.agora,
   });
   const rotas = criarRotasDeAuth({
     servico,
     sessoes: dependencias.sessoes,
     limiteDeLogin: limiteDeLogin(dependencias.limiteDeLogin),
+    limiteDeRecuperacao: limiteDeRecuperacaoDeSenha(dependencias.limiteDeRecuperacao),
   });
   return { rotas, servico };
 }

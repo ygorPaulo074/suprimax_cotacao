@@ -182,3 +182,122 @@ describe('RepositorioDeOperadores.zerarTentativas', () => {
     ]);
   });
 });
+
+describe('RepositorioDeOperadores.buscarPorEmail (item 10)', () => {
+  it('consulta o operador pelo e-mail, pedindo as mesmas colunas do login', async () => {
+    const { proxy, operadores } = montar();
+    proxy.responder('dados.consultar', { ok: true, dados: [LINHA] });
+
+    expect(await operadores.buscarPorEmail('davi@suprimax.com.br')).toEqual(OPERADOR);
+    expect(proxy.chamadas[0]).toEqual({
+      operacao: 'dados.consultar',
+      operationId: 'UC13-recuperar-senha-buscar-email',
+      payload: {
+        tabela: 'operador',
+        campos: [
+          'id_operador',
+          'usuario',
+          'email',
+          'perfil',
+          'status',
+          'senha_hash',
+          'tentativas_login_invalidas',
+          'bloqueado_ate',
+        ],
+        filtros: { e: [['email', '=', 'davi@suprimax.com.br']] },
+        limite: 1,
+      },
+    });
+  });
+
+  it('devolve null quando o e-mail não existe', async () => {
+    const { proxy, operadores } = montar();
+    proxy.responder('dados.consultar', { ok: true, dados: [] });
+
+    expect(await operadores.buscarPorEmail('ninguem@suprimax.com.br')).toBeNull();
+  });
+});
+
+describe('RepositorioDeOperadores.gravarTokenDeRecuperacao (item 10)', () => {
+  it('grava o resumo do token e a validade', async () => {
+    const { proxy, operadores } = montar();
+    proxy.responder('dados.atualizar', { ok: true, afetados: 1 });
+    const validade = new Date('2026-11-13T13:00:00Z');
+
+    await operadores.gravarTokenDeRecuperacao(7, 'resumo-sha256', validade);
+
+    expect(proxy.chamadas).toEqual([
+      {
+        operacao: 'dados.atualizar',
+        operationId: 'UC13-recuperar-senha-gravar-token',
+        payload: {
+          tabela: 'operador',
+          filtros: { e: [['id_operador', '=', 7]] },
+          valores: {
+            token_recuperacao_senha: 'resumo-sha256',
+            validade_token: '2026-11-13T13:00:00.000Z',
+          },
+        },
+      },
+    ]);
+  });
+});
+
+describe('RepositorioDeOperadores.buscarPorResumoDeToken (item 10)', () => {
+  it('consulta o operador pelo resumo do token, sem pedir o token nem o hash da senha', async () => {
+    const { proxy, operadores } = montar();
+    proxy.responder('dados.consultar', {
+      ok: true,
+      dados: [{ idOperador: 7, status: 'ATIVO', validadeToken: '2026-11-13T13:00:00Z' }],
+    });
+
+    expect(await operadores.buscarPorResumoDeToken('resumo-sha256')).toEqual({
+      idOperador: 7,
+      status: 'ATIVO',
+      validadeToken: new Date('2026-11-13T13:00:00Z'),
+    });
+    expect(proxy.chamadas[0]).toEqual({
+      operacao: 'dados.consultar',
+      operationId: 'UC13-redefinir-senha-buscar-token',
+      payload: {
+        tabela: 'operador',
+        campos: ['id_operador', 'status', 'validade_token'],
+        filtros: { e: [['token_recuperacao_senha', '=', 'resumo-sha256']] },
+        limite: 1,
+      },
+    });
+  });
+
+  it('devolve null quando nenhum token bate', async () => {
+    const { proxy, operadores } = montar();
+    proxy.responder('dados.consultar', { ok: true, dados: [] });
+
+    expect(await operadores.buscarPorResumoDeToken('resumo-inexistente')).toBeNull();
+  });
+});
+
+describe('RepositorioDeOperadores.definirNovaSenha (item 10)', () => {
+  it('grava o novo hash, invalida o token e zera as tentativas de login', async () => {
+    const { proxy, operadores } = montar();
+    proxy.responder('dados.atualizar', { ok: true, afetados: 1 });
+
+    await operadores.definirNovaSenha(7, '$2b$12$novo-hash');
+
+    expect(proxy.chamadas).toEqual([
+      {
+        operacao: 'dados.atualizar',
+        operationId: 'UC13-redefinir-senha-gravar',
+        payload: {
+          tabela: 'operador',
+          filtros: { e: [['id_operador', '=', 7]] },
+          valores: {
+            senha_hash: '$2b$12$novo-hash',
+            token_recuperacao_senha: null,
+            validade_token: null,
+            tentativas_login_invalidas: 0,
+          },
+        },
+      },
+    ]);
+  });
+});

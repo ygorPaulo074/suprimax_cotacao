@@ -10,6 +10,7 @@ import {
 } from './dados';
 import { createApp, type DependenciasDoApp } from './http/app';
 import { RepositorioDeSessoesEmMemoria } from './modulos/auth/sessoes';
+import { criarModuloDeJobs } from './modulos/jobs';
 import { criarLogger, type Logger, type OpcoesDoLogger } from './log';
 
 /** Tempo para as requisições em andamento terminarem antes de as conexões serem derrubadas. */
@@ -171,6 +172,18 @@ export async function principal(
     const servidor = new ServidorHttp({ config, logger, proxy, sessoes });
     await servidor.iniciar();
     servidor.registrarEncerramento(processo);
+    // Item 9 — agendador in-process dos jobs de expiração/protesto, desligado por padrão
+    // (JOBS_AGENDADOS_HABILITADOS): ver o comentário de `criarModuloDeJobs` em `http/app.ts`
+    // sobre a outra forma de disparo (POST /jobs/executar, para um cron externo).
+    if (config.jobsAgendadosHabilitados) {
+      const jobs = criarModuloDeJobs({
+        proxy,
+        sessoes,
+        logger,
+        intervaloDoAgendadorMs: config.jobsAgendadosIntervaloMs,
+      });
+      jobs.agendador.iniciar();
+    }
   } catch (erro) {
     if (erro instanceof ConfigInvalidaError) {
       logger.fatal({ variaveis: erro.variaveis }, erro.message);

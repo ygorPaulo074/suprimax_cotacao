@@ -1,5 +1,6 @@
 // Cenário dos testes de rota dos cadastros: aplicação montada com o banco em memória atrás do
-// dublê do proxy, usuários já com sessão aberta e um notificador que guarda o que seria enviado.
+// dublê do proxy, usuários já com sessão aberta e notificadores que guardam o que seria enviado.
+import type { NotificadorDeRecuperacaoDeSenha, RecuperacaoDeSenha } from '../modulos/auth';
 import type { Perfil } from '../modulos/auth/sessoes';
 import type {
   ConviteDeDefinicaoDeSenha,
@@ -26,6 +27,21 @@ export class NotificadorDeEmailEspiao implements NotificadorDeEmail {
   }
 }
 
+/** Notificador que não envia nada e guarda os pedidos de recuperação, para o teste conferir. */
+export class NotificadorDeRecuperacaoEspiao implements NotificadorDeRecuperacaoDeSenha {
+  readonly pedidos: RecuperacaoDeSenha[] = [];
+  /** Quando definido, o envio falha com este erro. */
+  falha?: Error;
+
+  enviarRecuperacaoDeSenha(recuperacao: RecuperacaoDeSenha): Promise<void> {
+    if (this.falha) {
+      return Promise.reject(this.falha);
+    }
+    this.pedidos.push(recuperacao);
+    return Promise.resolve();
+  }
+}
+
 /** Usuário semeado com sessão aberta. */
 export interface UsuarioDeTeste {
   readonly idOperador: number;
@@ -37,6 +53,7 @@ export interface UsuarioDeTeste {
 export interface CenarioDeCadastros extends AppDeTeste {
   readonly banco: BancoFalso;
   readonly notificador: NotificadorDeEmailEspiao;
+  readonly notificadorDeRecuperacao: NotificadorDeRecuperacaoEspiao;
   /** Grava um usuário na tabela `operador`, sem abrir sessão, e devolve o identificador. */
   semearUsuario(perfil: Perfil, usuario: string, status?: string): number;
   /** Grava um usuário ativo com o perfil informado e abre uma sessão para ele. */
@@ -46,7 +63,8 @@ export interface CenarioDeCadastros extends AppDeTeste {
 /** Monta a aplicação de teste sobre um banco em memória vazio. */
 export function montarCenarioDeCadastros(opcoes: OpcoesDoAppDeTeste = {}): CenarioDeCadastros {
   const notificador = new NotificadorDeEmailEspiao();
-  const teste = montarAppDeTeste({ notificador, ...opcoes });
+  const notificadorDeRecuperacao = new NotificadorDeRecuperacaoEspiao();
+  const teste = montarAppDeTeste({ notificador, notificadorDeRecuperacao, ...opcoes });
   const banco = new BancoFalso({ agora: opcoes.agora }).instalarEm(teste.proxy);
 
   const semearUsuario = (perfil: Perfil, usuario: string, status = 'ATIVO'): number => {
@@ -70,5 +88,5 @@ export function montarCenarioDeCadastros(opcoes: OpcoesDoAppDeTeste = {}): Cenar
     return { idOperador, token, autorizacao: `Bearer ${token}` };
   };
 
-  return { ...teste, banco, notificador, semearUsuario, entrarComo };
+  return { ...teste, banco, notificador, notificadorDeRecuperacao, semearUsuario, entrarComo };
 }

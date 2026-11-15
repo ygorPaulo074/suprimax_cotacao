@@ -103,3 +103,6 @@ export const esquemaDeCentavos = z.number().int().min(0).max(MAIOR_VALOR_EM_CENT
 
 /** Quantidade inteira maior que zero. */
 export const esquemaDeQuantidade = z.number().int().positive().max(MAIOR_INTEIRO_DO_BANCO);
+
+/** Data no formato `DataISO` ('AAAA-MM-DD') usado pelo frontend; não confere se a data existe. */
+export const esquemaDeDataISO = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);

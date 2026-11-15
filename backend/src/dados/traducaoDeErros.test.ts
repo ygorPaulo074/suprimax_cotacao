@@ -33,7 +33,6 @@ describe('traduzirErroDeProxy', () => {
     ['ESCOPO_NEGADO', 403],
     ['OPERACAO_DESCONHECIDA', 404],
     ['RISCO_ESTRUTURAL', 422],
-    ['LIMITE_EXCEDIDO', 429],
     ['INTERNAL_ERROR', 500],
     ['OPERACAO_NAO_IMPLEMENTADA', 501],
     ['CODIGO_NOVO_DO_PROXY', 500],
@@ -45,6 +44,16 @@ describe('traduzirErroDeProxy', () => {
     expect(traduzido).toBeInstanceOf(ErroInterno);
     expect(traduzido?.cause).toBe(erro);
     expect(JSON.stringify(traduzido?.paraCorpo())).not.toContain('proxy');
+  });
+
+  it('LIMITE_EXCEDIDO (429) é indisponibilidade momentânea: vira serviço indisponível, não erro interno', () => {
+    const erro = new ErroProxy(429, 'LIMITE_EXCEDIDO', 'Limite de requisições excedido.');
+
+    const traduzido = traduzirErroDeProxy(erro);
+
+    expect(traduzido).toBeInstanceOf(ErroDeServicoIndisponivel);
+    expect(traduzido?.cause).toBe(erro);
+    expect(traduzido?.paraCorpo()).toMatchObject({ codigo: 'SERVICO_INDISPONIVEL' });
   });
 
   it.each([

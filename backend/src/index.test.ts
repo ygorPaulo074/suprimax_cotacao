@@ -31,12 +31,13 @@ describe('ServidorHttp', () => {
     await servidor.iniciar();
     const url = `http://127.0.0.1:${servidor.porta}/saude`;
 
-    const resposta = await fetch(url);
+    // Connection: close evita que o fetch mantenha o socket keep-alive aberto após o teste.
+    const resposta = await fetch(url, { headers: { Connection: 'close' } });
     expect(await resposta.json()).toEqual({ status: 'ok' });
 
     await servidor.encerrar();
     await servidor.encerrar();
-    await expect(fetch(url)).rejects.toThrow();
+    await expect(fetch(url, { headers: { Connection: 'close' } })).rejects.toThrow();
   });
 
   it('recusa uso fora de ordem', async () => {

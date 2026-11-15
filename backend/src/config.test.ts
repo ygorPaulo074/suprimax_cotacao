@@ -12,12 +12,28 @@ const PROXY = {
   PROXY_SERVICE_ID: 'sistema2-backend',
   PROXY_SERVICE_TOKEN: 'eyJhbGciOi.abc.def',
 };
-const PRODUCAO = { ENV: 'producao', CORS_ORIGENS: ORIGEM_REAL, ...PROXY };
+const EMPRESA = {
+  EMPRESA_RAZAO_SOCIAL: 'SupriMax Distribuidora Ltda.',
+  EMPRESA_ENDERECO: 'Av. Exemplo, 1000 — Centro — Cidade/UF — 11111-111',
+  EMPRESA_TELEFONE: '(11) 1111-1111',
+  EMPRESA_CNPJ: '11.111.111/0001-11',
+  EMPRESA_INSCRICAO_ESTADUAL: '111.111.111.111',
+  EMPRESA_PIX: 'financeiro@suprimax.com.br',
+  EMPRESA_DADOS_BANCARIOS: 'Banco Exemplo — Agência 0001 — Conta 123456-7',
+};
+const PRODUCAO = { ENV: 'producao', CORS_ORIGENS: ORIGEM_REAL, ...PROXY, ...EMPRESA };
 const VARIAVEIS_OBRIGATORIAS_FORA_DE_DEV = [
   'CORS_ORIGENS',
   'PROXY_URL',
   'PROXY_SERVICE_ID',
   'PROXY_SERVICE_TOKEN',
+  'EMPRESA_RAZAO_SOCIAL',
+  'EMPRESA_ENDERECO',
+  'EMPRESA_TELEFONE',
+  'EMPRESA_CNPJ',
+  'EMPRESA_INSCRICAO_ESTADUAL',
+  'EMPRESA_PIX',
+  'EMPRESA_DADOS_BANCARIOS',
 ];
 
 function capturarErro(env: NodeJS.ProcessEnv): ConfigInvalidaError {
@@ -41,6 +57,17 @@ describe('carregarConfig', () => {
       corsOrigens: ORIGENS_CORS_PADRAO_DEV,
       sessaoInatividadeMs: 30 * 60 * 1000,
       trustProxy: 0,
+      jobsAgendadosHabilitados: false,
+      jobsAgendadosIntervaloMs: 60 * 60 * 1000,
+      empresaEmissora: {
+        razaoSocial: '(completar EMPRESA_RAZAO_SOCIAL)',
+        endereco: '(completar EMPRESA_ENDERECO)',
+        telefone: '(completar EMPRESA_TELEFONE)',
+        cnpj: '(completar EMPRESA_CNPJ)',
+        inscricaoEstadual: '(completar EMPRESA_INSCRICAO_ESTADUAL)',
+        pix: '(completar EMPRESA_PIX)',
+        dadosBancarios: '(completar EMPRESA_DADOS_BANCARIOS)',
+      },
     });
   });
 
@@ -56,6 +83,8 @@ describe('carregarConfig', () => {
       CORS_ORIGENS: `${ORIGEM_REAL}, https://suprimax.vercel.app`,
       SESSAO_INATIVIDADE_MINUTOS: '15',
       TRUST_PROXY: '1',
+      JOBS_AGENDADOS_HABILITADOS: 'true',
+      JOBS_AGENDADOS_INTERVALO_MINUTOS: '30',
     });
 
     expect(config).toEqual({
@@ -68,6 +97,17 @@ describe('carregarConfig', () => {
       proxyUrl: 'https://proxy.suprimax.com.br',
       proxyServiceId: 'sistema2-backend',
       proxyServiceToken: 'eyJhbGciOi.abc.def',
+      jobsAgendadosHabilitados: true,
+      jobsAgendadosIntervaloMs: 30 * 60 * 1000,
+      empresaEmissora: {
+        razaoSocial: EMPRESA.EMPRESA_RAZAO_SOCIAL,
+        endereco: EMPRESA.EMPRESA_ENDERECO,
+        telefone: EMPRESA.EMPRESA_TELEFONE,
+        cnpj: EMPRESA.EMPRESA_CNPJ,
+        inscricaoEstadual: EMPRESA.EMPRESA_INSCRICAO_ESTADUAL,
+        pix: EMPRESA.EMPRESA_PIX,
+        dadosBancarios: EMPRESA.EMPRESA_DADOS_BANCARIOS,
+      },
     });
   });
 
@@ -97,6 +137,10 @@ describe('carregarConfig', () => {
     ['SESSAO_INATIVIDADE_MINUTOS', 'meia hora'],
     ['TRUST_PROXY', '11'],
     ['TRUST_PROXY', 'true'],
+    ['JOBS_AGENDADOS_HABILITADOS', 'sim'],
+    ['JOBS_AGENDADOS_HABILITADOS', '1'],
+    ['JOBS_AGENDADOS_INTERVALO_MINUTOS', '0'],
+    ['JOBS_AGENDADOS_INTERVALO_MINUTOS', '1441'],
   ])('recusa %s=%s', (variavel, valor) => {
     expect(capturarErro({ [variavel]: valor }).variaveis).toEqual([variavel]);
   });
@@ -163,5 +207,60 @@ describe('carregarConfig', () => {
     expect(erro.variaveis).toEqual(['PORT', 'LOG_LEVEL', ...VARIAVEIS_OBRIGATORIAS_FORA_DE_DEV]);
     expect(erro.message).not.toContain('porta-secreta-123');
     expect(erro.message).not.toContain('nivel-secreto-456');
+  });
+
+  describe('empresa emissora (PDF de orçamento, item 10)', () => {
+    it('em dev, sem as variáveis, usa placeholders óbvios', () => {
+      const config = carregarConfig({});
+
+      expect(config.empresaEmissora).toEqual({
+        razaoSocial: '(completar EMPRESA_RAZAO_SOCIAL)',
+        endereco: '(completar EMPRESA_ENDERECO)',
+        telefone: '(completar EMPRESA_TELEFONE)',
+        cnpj: '(completar EMPRESA_CNPJ)',
+        inscricaoEstadual: '(completar EMPRESA_INSCRICAO_ESTADUAL)',
+        pix: '(completar EMPRESA_PIX)',
+        dadosBancarios: '(completar EMPRESA_DADOS_BANCARIOS)',
+      });
+    });
+
+    it('lê as sete variáveis quando informadas', () => {
+      const config = carregarConfig(EMPRESA);
+
+      expect(config.empresaEmissora).toEqual({
+        razaoSocial: EMPRESA.EMPRESA_RAZAO_SOCIAL,
+        endereco: EMPRESA.EMPRESA_ENDERECO,
+        telefone: EMPRESA.EMPRESA_TELEFONE,
+        cnpj: EMPRESA.EMPRESA_CNPJ,
+        inscricaoEstadual: EMPRESA.EMPRESA_INSCRICAO_ESTADUAL,
+        pix: EMPRESA.EMPRESA_PIX,
+        dadosBancarios: EMPRESA.EMPRESA_DADOS_BANCARIOS,
+      });
+    });
+  });
+
+  describe('jobs agendados (item 9)', () => {
+    it('vem desligado por padrão, com intervalo de 60 minutos', () => {
+      const config = carregarConfig({});
+
+      expect(config.jobsAgendadosHabilitados).toBe(false);
+      expect(config.jobsAgendadosIntervaloMs).toBe(60 * 60 * 1000);
+    });
+
+    it('liga com JOBS_AGENDADOS_HABILITADOS=true e aceita um intervalo próprio', () => {
+      const config = carregarConfig({
+        JOBS_AGENDADOS_HABILITADOS: 'true',
+        JOBS_AGENDADOS_INTERVALO_MINUTOS: '15',
+      });
+
+      expect(config.jobsAgendadosHabilitados).toBe(true);
+      expect(config.jobsAgendadosIntervaloMs).toBe(15 * 60 * 1000);
+    });
+
+    it('aceita JOBS_AGENDADOS_HABILITADOS=false explicitamente', () => {
+      expect(carregarConfig({ JOBS_AGENDADOS_HABILITADOS: 'false' }).jobsAgendadosHabilitados).toBe(
+        false,
+      );
+    });
   });
 });

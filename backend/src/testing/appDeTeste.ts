@@ -21,6 +21,17 @@ export const CONFIG_DE_TESTE: Config = {
   corsOrigens: [ORIGEM_DE_TESTE],
   sessaoInatividadeMs: 30 * 60 * 1000,
   trustProxy: 0,
+  jobsAgendadosHabilitados: false,
+  jobsAgendadosIntervaloMs: 60 * 60 * 1000,
+  empresaEmissora: {
+    razaoSocial: 'SupriMax Distribuidora de Papéis Ltda.',
+    endereco: 'Rua de Teste, 123 — Centro — Cidade/UF — 00000-000',
+    telefone: '(00) 0000-0000',
+    cnpj: '00.000.000/0001-00',
+    inscricaoEstadual: '000.000.000.000',
+    pix: 'financeiro@suprimax-teste.com.br',
+    dadosBancarios: 'Banco de Teste — Agência 0001 — Conta 123456-7',
+  },
 };
 
 export interface OpcoesDoAppDeTeste {
@@ -28,8 +39,10 @@ export interface OpcoesDoAppDeTeste {
   readonly auth?: DependenciasDoApp['auth'];
   /** Relógio das sessões, do login e dos cadastros. */
   readonly agora?: () => Date;
-  /** Dublê do envio de e-mails. */
+  /** Dublê do envio de e-mails de definição de senha a usuário novo. */
   readonly notificador?: DependenciasDoApp['notificador'];
+  /** Dublê do envio de e-mails de recuperação de senha. */
+  readonly notificadorDeRecuperacao?: DependenciasDoApp['notificadorDeRecuperacao'];
 }
 
 export interface AppDeTeste {
@@ -61,6 +74,7 @@ export function montarAppDeTeste(opcoes: OpcoesDoAppDeTeste = {}): AppDeTeste {
     sessoes,
     auth: { senhas, agora: opcoes.agora, ...opcoes.auth },
     notificador: opcoes.notificador,
+    notificadorDeRecuperacao: opcoes.notificadorDeRecuperacao,
   };
   return { app: createApp(dependencias), proxy, sessoes, senhas, linhas, dependencias };
 }

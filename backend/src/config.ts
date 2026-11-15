@@ -25,8 +25,45 @@ export const TRUST_PROXY_PADRAO = 0;
 export const TRUST_PROXY_MAXIMO = 10;
 const MS_POR_MINUTO = 60_000;
 
+/**
+ * Agendador in-process dos jobs do item 9 (expirações e avisos, seção 11.4): desligado por
+ * padrão — a decisão de ligá-lo (em vez de um cron externo chamando `POST /jobs/executar`) é um
+ * dos pontos a combinar com o responsável pelo banco, citado no próprio TAREFAS.md.
+ */
+export const JOBS_AGENDADOS_HABILITADOS_PADRAO = false;
+export const JOBS_AGENDADOS_INTERVALO_PADRAO_MINUTOS = 60;
+export const JOBS_AGENDADOS_INTERVALO_MAXIMO_MINUTOS = 1440;
+
 /** Variáveis de acesso ao proxy: opcionais em dev, obrigatórias nos demais ambientes. */
 export const VARIAVEIS_DO_PROXY = ['PROXY_URL', 'PROXY_SERVICE_ID', 'PROXY_SERVICE_TOKEN'] as const;
+
+/**
+ * Dados da SupriMax (emissora) para o cabeçalho e o rodapé do PDF de orçamento (docs/09): não há
+ * tabela no banco para isso (é informação fixa da empresa, não um cadastro), e por isso vem de
+ * variáveis de ambiente, como o resto da configuração. Opcionais em dev (com um valor-placeholder
+ * óbvio, que aparece no PDF se alguém gerar um em dev sem configurar nada); obrigatórias nos
+ * demais ambientes, para nunca sair um PDF real com um placeholder impresso.
+ */
+export const VARIAVEIS_DA_EMPRESA_EMISSORA = [
+  'EMPRESA_RAZAO_SOCIAL',
+  'EMPRESA_ENDERECO',
+  'EMPRESA_TELEFONE',
+  'EMPRESA_CNPJ',
+  'EMPRESA_INSCRICAO_ESTADUAL',
+  'EMPRESA_PIX',
+  'EMPRESA_DADOS_BANCARIOS',
+] as const;
+const PLACEHOLDER_DA_EMPRESA_EMISSORA: Readonly<
+  Record<(typeof VARIAVEIS_DA_EMPRESA_EMISSORA)[number], string>
+> = {
+  EMPRESA_RAZAO_SOCIAL: '(completar EMPRESA_RAZAO_SOCIAL)',
+  EMPRESA_ENDERECO: '(completar EMPRESA_ENDERECO)',
+  EMPRESA_TELEFONE: '(completar EMPRESA_TELEFONE)',
+  EMPRESA_CNPJ: '(completar EMPRESA_CNPJ)',
+  EMPRESA_INSCRICAO_ESTADUAL: '(completar EMPRESA_INSCRICAO_ESTADUAL)',
+  EMPRESA_PIX: '(completar EMPRESA_PIX)',
+  EMPRESA_DADOS_BANCARIOS: '(completar EMPRESA_DADOS_BANCARIOS)',
+};
 
 /** Origem liberada por padrão em desenvolvimento: o servidor local do Vite (frontend). */
 export const ORIGENS_CORS_PADRAO_DEV: readonly string[] = ['http://localhost:5173'];
@@ -48,6 +85,9 @@ export const NOMES_DAS_VARIAVEIS = [
   'PROXY_SERVICE_TOKEN',
   'SESSAO_INATIVIDADE_MINUTOS',
   'TRUST_PROXY',
+  'JOBS_AGENDADOS_HABILITADOS',
+  'JOBS_AGENDADOS_INTERVALO_MINUTOS',
+  ...VARIAVEIS_DA_EMPRESA_EMISSORA,
 ] as const;
 export type NomeDaVariavel = (typeof NOMES_DAS_VARIAVEIS)[number];
 
@@ -94,6 +134,15 @@ const FORMATO_ESPERADO: Readonly<Record<NomeDaVariavel, string>> = {
   PROXY_SERVICE_TOKEN: 'deve ser um texto sem espaços',
   SESSAO_INATIVIDADE_MINUTOS: `deve ser um inteiro entre 1 e ${SESSAO_INATIVIDADE_MAXIMA_MINUTOS}`,
   TRUST_PROXY: `deve ser um inteiro entre 0 e ${TRUST_PROXY_MAXIMO}`,
+  JOBS_AGENDADOS_HABILITADOS: 'deve ser true ou false',
+  JOBS_AGENDADOS_INTERVALO_MINUTOS: `deve ser um inteiro entre 1 e ${JOBS_AGENDADOS_INTERVALO_MAXIMO_MINUTOS}`,
+  EMPRESA_RAZAO_SOCIAL: 'deve ser um texto não vazio',
+  EMPRESA_ENDERECO: 'deve ser um texto não vazio',
+  EMPRESA_TELEFONE: 'deve ser um texto não vazio',
+  EMPRESA_CNPJ: 'deve ser um texto não vazio',
+  EMPRESA_INSCRICAO_ESTADUAL: 'deve ser um texto não vazio',
+  EMPRESA_PIX: 'deve ser um texto não vazio',
+  EMPRESA_DADOS_BANCARIOS: 'deve ser um texto não vazio',
 };
 const MOTIVO_OBRIGATORIA_FORA_DE_DEV = 'é obrigatória fora do ambiente dev';
 const MOTIVO_VALOR_DE_EXEMPLO = 'não pode ficar com valor de exemplo em produção';
@@ -117,6 +166,25 @@ export interface Config {
   readonly proxyServiceId?: string;
   /** Segredo: nunca registre em log nem devolva em resposta. */
   readonly proxyServiceToken?: string;
+  /** Liga o agendador in-process dos jobs do item 9 (RF16, RN06; docs/11, seção 11.4). */
+  readonly jobsAgendadosHabilitados: boolean;
+  /** Intervalo entre rodadas do agendador in-process, em milissegundos. */
+  readonly jobsAgendadosIntervaloMs: number;
+  /** Cabeçalho/rodapé do PDF de orçamento (docs/09). Sempre presente: ver {@link DadosDaEmpresaEmissora}. */
+  readonly empresaEmissora: DadosDaEmpresaEmissora;
+}
+
+/** Dados fixos da SupriMax usados no PDF de orçamento (docs/09, seções "cabeçalho — empresa" e "pagamento"). */
+export interface DadosDaEmpresaEmissora {
+  readonly razaoSocial: string;
+  readonly endereco: string;
+  readonly telefone: string;
+  readonly cnpj: string;
+  readonly inscricaoEstadual: string;
+  /** Chave PIX para pagamento (docs/09, "avisos e pagamento"). */
+  readonly pix: string;
+  /** Banco, agência e conta, em um único texto livre (é só para imprimir no PDF). */
+  readonly dadosBancarios: string;
 }
 
 /** Uma variável de ambiente recusada e o motivo, sem o valor recebido. */
@@ -167,6 +235,21 @@ const esquemaDasVariaveis = z.object({
   PROXY_SERVICE_TOKEN: z.string().regex(PADRAO_TEXTO_SEM_ESPACOS).optional(),
   SESSAO_INATIVIDADE_MINUTOS: inteiroEntre(1, SESSAO_INATIVIDADE_MAXIMA_MINUTOS).optional(),
   TRUST_PROXY: inteiroEntre(0, TRUST_PROXY_MAXIMO).optional(),
+  JOBS_AGENDADOS_HABILITADOS: z
+    .enum(['true', 'false'])
+    .transform((valor) => valor === 'true')
+    .optional(),
+  JOBS_AGENDADOS_INTERVALO_MINUTOS: inteiroEntre(
+    1,
+    JOBS_AGENDADOS_INTERVALO_MAXIMO_MINUTOS,
+  ).optional(),
+  EMPRESA_RAZAO_SOCIAL: z.string().trim().min(1).optional(),
+  EMPRESA_ENDERECO: z.string().trim().min(1).optional(),
+  EMPRESA_TELEFONE: z.string().trim().min(1).optional(),
+  EMPRESA_CNPJ: z.string().trim().min(1).optional(),
+  EMPRESA_INSCRICAO_ESTADUAL: z.string().trim().min(1).optional(),
+  EMPRESA_PIX: z.string().trim().min(1).optional(),
+  EMPRESA_DADOS_BANCARIOS: z.string().trim().min(1).optional(),
 });
 
 function separarLista(texto: string): string[] {
@@ -230,7 +313,11 @@ function validarRegrasDoAmbiente(
     return;
   }
   if (ambiente.data !== 'dev') {
-    for (const nome of ['CORS_ORIGENS', ...VARIAVEIS_DO_PROXY] as const) {
+    for (const nome of [
+      'CORS_ORIGENS',
+      ...VARIAVEIS_DO_PROXY,
+      ...VARIAVEIS_DA_EMPRESA_EMISSORA,
+    ] as const) {
       if (brutas[nome] === undefined) {
         problemas.set(nome, MOTIVO_OBRIGATORIA_FORA_DE_DEV);
       }
@@ -292,6 +379,23 @@ export function carregarConfig(env: NodeJS.ProcessEnv = process.env): Config {
     ...(dados.PROXY_SERVICE_ID !== undefined && { proxyServiceId: dados.PROXY_SERVICE_ID }),
     ...(dados.PROXY_SERVICE_TOKEN !== undefined && {
       proxyServiceToken: dados.PROXY_SERVICE_TOKEN,
+    }),
+    jobsAgendadosHabilitados: dados.JOBS_AGENDADOS_HABILITADOS ?? JOBS_AGENDADOS_HABILITADOS_PADRAO,
+    jobsAgendadosIntervaloMs:
+      (dados.JOBS_AGENDADOS_INTERVALO_MINUTOS ?? JOBS_AGENDADOS_INTERVALO_PADRAO_MINUTOS) *
+      MS_POR_MINUTO,
+    empresaEmissora: Object.freeze({
+      razaoSocial:
+        dados.EMPRESA_RAZAO_SOCIAL ?? PLACEHOLDER_DA_EMPRESA_EMISSORA.EMPRESA_RAZAO_SOCIAL,
+      endereco: dados.EMPRESA_ENDERECO ?? PLACEHOLDER_DA_EMPRESA_EMISSORA.EMPRESA_ENDERECO,
+      telefone: dados.EMPRESA_TELEFONE ?? PLACEHOLDER_DA_EMPRESA_EMISSORA.EMPRESA_TELEFONE,
+      cnpj: dados.EMPRESA_CNPJ ?? PLACEHOLDER_DA_EMPRESA_EMISSORA.EMPRESA_CNPJ,
+      inscricaoEstadual:
+        dados.EMPRESA_INSCRICAO_ESTADUAL ??
+        PLACEHOLDER_DA_EMPRESA_EMISSORA.EMPRESA_INSCRICAO_ESTADUAL,
+      pix: dados.EMPRESA_PIX ?? PLACEHOLDER_DA_EMPRESA_EMISSORA.EMPRESA_PIX,
+      dadosBancarios:
+        dados.EMPRESA_DADOS_BANCARIOS ?? PLACEHOLDER_DA_EMPRESA_EMISSORA.EMPRESA_DADOS_BANCARIOS,
     }),
   });
 }

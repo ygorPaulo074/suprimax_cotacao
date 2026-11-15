@@ -14,6 +14,10 @@ export interface LinhaDeOperador {
   senhaHash: string;
   tentativasLoginInvalidas: number;
   bloqueadoAte: string | null;
+  /** Resumo do token de recuperação de senha (item 10); ausente até o primeiro pedido. */
+  tokenRecuperacaoSenha?: string | null;
+  /** Validade do token de recuperação de senha (item 10); ausente até o primeiro pedido. */
+  validadeToken?: string | null;
 }
 
 /** Duração do bloqueio aplicada pelo gatilho simulado. */

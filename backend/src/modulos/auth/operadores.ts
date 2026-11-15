@@ -17,6 +17,10 @@ export const OPERACOES_DE_LOGIN = {
   BUSCAR: 'UC13-login',
   REGISTRAR_FALHA: 'UC13-login-falha',
   ZERAR_TENTATIVAS: 'UC13-login-sucesso',
+  BUSCAR_POR_EMAIL: 'UC13-recuperar-senha-buscar-email',
+  GRAVAR_TOKEN_DE_RECUPERACAO: 'UC13-recuperar-senha-gravar-token',
+  BUSCAR_POR_TOKEN_DE_RECUPERACAO: 'UC13-redefinir-senha-buscar-token',
+  DEFINIR_NOVA_SENHA: 'UC13-redefinir-senha-gravar',
 } as const;
 
 const TABELA = 'operador';
@@ -30,6 +34,7 @@ const COLUNAS_DAS_CREDENCIAIS = [
   'senha_hash',
   ...COLUNAS_DO_BLOQUEIO,
 ];
+const COLUNAS_DO_TOKEN_DE_RECUPERACAO = ['id_operador', 'status', 'validade_token'];
 /** TIMESTAMP sem fuso é lido como UTC; este padrão reconhece o texto que já traz o fuso. */
 const PADRAO_COM_FUSO = /(Z|[+-]\d{2}:?\d{2})$/i;
 const SUFIXO_UTC = 'Z';
@@ -65,6 +70,19 @@ const esquemaDasCredenciais = esquemaDoBloqueio.extend({
   perfil: z.enum(PERFIS),
   status: z.enum(STATUS_DO_USUARIO),
   senhaHash: z.string(),
+});
+
+/** O que a redefinição de senha precisa saber do usuário encontrado pelo token. */
+export interface OperadorDoTokenDeRecuperacao {
+  readonly idOperador: number;
+  readonly status: StatusDoUsuario;
+  readonly validadeToken: Date | null;
+}
+
+const esquemaDoTokenDeRecuperacao = z.object({
+  idOperador: z.number().int(),
+  status: z.enum(STATUS_DO_USUARIO),
+  validadeToken: z.string().nullable(),
 });
 
 function paraData(texto: string | null): Date | null {
@@ -173,6 +191,84 @@ export class RepositorioDeOperadores {
   private paraEstadoDoBloqueio(linha: unknown): EstadoDoBloqueio {
     const { tentativasLoginInvalidas, bloqueadoAte } = this.validar(esquemaDoBloqueio, linha);
     return { tentativasLoginInvalidas, bloqueadoAte: paraData(bloqueadoAte) };
+  }
+
+  /** Busca o usuário pelo e-mail (recuperação de senha); `null` se não existir. */
+  async buscarPorEmail(email: string): Promise<CredenciaisDoOperador | null> {
+    const resposta = await this.proxy.executar(
+      'dados.consultar',
+      {
+        tabela: TABELA,
+        campos: COLUNAS_DAS_CREDENCIAIS,
+        filtros: { e: [['email', '=', email]] },
+        limite: 1,
+      },
+      OPERACOES_DE_LOGIN.BUSCAR_POR_EMAIL,
+    );
+    const [linha] = linhasDe(resposta);
+    if (linha === undefined) {
+      return null;
+    }
+    const { bloqueadoAte, ...demais } = this.validar(esquemaDasCredenciais, linha);
+    return { ...demais, bloqueadoAte: paraData(bloqueadoAte) };
+  }
+
+  /** Grava o token de recuperação de senha (só o resumo) e a validade dele. */
+  async gravarTokenDeRecuperacao(
+    idOperador: number,
+    resumo: string,
+    validade: Date,
+  ): Promise<void> {
+    await this.proxy.executar(
+      'dados.atualizar',
+      {
+        tabela: TABELA,
+        filtros: { e: [['id_operador', '=', idOperador]] },
+        valores: { token_recuperacao_senha: resumo, validade_token: validade.toISOString() },
+      },
+      OPERACOES_DE_LOGIN.GRAVAR_TOKEN_DE_RECUPERACAO,
+    );
+  }
+
+  /** Busca o usuário pelo resumo do token de recuperação; `null` se nenhum token bater. */
+  async buscarPorResumoDeToken(resumo: string): Promise<OperadorDoTokenDeRecuperacao | null> {
+    const resposta = await this.proxy.executar(
+      'dados.consultar',
+      {
+        tabela: TABELA,
+        campos: COLUNAS_DO_TOKEN_DE_RECUPERACAO,
+        filtros: { e: [['token_recuperacao_senha', '=', resumo]] },
+        limite: 1,
+      },
+      OPERACOES_DE_LOGIN.BUSCAR_POR_TOKEN_DE_RECUPERACAO,
+    );
+    const [linha] = linhasDe(resposta);
+    if (linha === undefined) {
+      return null;
+    }
+    const { validadeToken, ...demais } = this.validar(esquemaDoTokenDeRecuperacao, linha);
+    return { ...demais, validadeToken: paraData(validadeToken) };
+  }
+
+  /**
+   * Grava a nova senha e invalida o token de recuperação (uso único): depois desta chamada, o
+   * mesmo link não serve mais.
+   */
+  async definirNovaSenha(idOperador: number, senhaHash: string): Promise<void> {
+    await this.proxy.executar(
+      'dados.atualizar',
+      {
+        tabela: TABELA,
+        filtros: { e: [['id_operador', '=', idOperador]] },
+        valores: {
+          senha_hash: senhaHash,
+          token_recuperacao_senha: null,
+          validade_token: null,
+          tentativas_login_invalidas: 0,
+        },
+      },
+      OPERACOES_DE_LOGIN.DEFINIR_NOVA_SENHA,
+    );
   }
 
   /** Uma linha fora do formato é defeito do backend ou do schema, nunca culpa do usuário. */

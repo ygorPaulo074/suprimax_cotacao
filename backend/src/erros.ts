@@ -115,9 +115,126 @@ export const CATALOGO_DE_ERROS = {
     status: STATUS_HTTP.NAO_PROCESSAVEL,
     mensagem: 'Você não pode inativar nem mudar o perfil do seu próprio usuário.',
   },
+  PEDIDO_NAO_ENCONTRADO: {
+    status: STATUS_HTTP.NAO_ENCONTRADO,
+    mensagem: 'Pedido não encontrado.',
+  },
+  PEDIDO_JA_ASSUMIDO: {
+    status: STATUS_HTTP.CONFLITO,
+    mensagem: 'Este pedido já está em análise por outro operador.',
+  },
+  PEDIDO_NAO_ASSUMIDO_POR_VOCE: {
+    status: STATUS_HTTP.CONFLITO,
+    mensagem: 'Você precisa assumir o pedido antes de montar o orçamento ou negá-lo.',
+  },
+  ORCAMENTO_NAO_ENCONTRADO: {
+    status: STATUS_HTTP.NAO_ENCONTRADO,
+    mensagem: 'Orçamento não encontrado.',
+  },
+  ORCAMENTO_NAO_EDITAVEL: {
+    status: STATUS_HTTP.NAO_PROCESSAVEL,
+    mensagem: 'Este orçamento não pode mais ser editado.',
+  },
+  ITEM_NAO_ENCONTRADO: {
+    status: STATUS_HTTP.NAO_ENCONTRADO,
+    mensagem: 'Item não encontrado neste orçamento.',
+  },
+  VARIACAO_NAO_ENCONTRADA: {
+    status: STATUS_HTTP.NAO_ENCONTRADO,
+    mensagem: 'Variação de produto não encontrada.',
+  },
+  ANEXO_NAO_ENCONTRADO: {
+    status: STATUS_HTTP.NAO_ENCONTRADO,
+    mensagem: 'Anexo não encontrado neste orçamento.',
+  },
+  CLIENTE_BLOQUEADO: {
+    status: STATUS_HTTP.NAO_PROCESSAVEL,
+    mensagem: 'Este cliente está inativo, bloqueado ou com dívida em aberto.',
+  },
+  ESTOQUE_INDISPONIVEL: {
+    status: STATUS_HTTP.NAO_PROCESSAVEL,
+    mensagem: 'Estoque indisponível para a quantidade solicitada.',
+  },
+  ESTOQUE_TIMEOUT: {
+    status: STATUS_HTTP.SERVICO_INDISPONIVEL,
+    mensagem: 'Não foi possível consultar o estoque agora. Tente novamente.',
+  },
+  ESTOQUE_INSUFICIENTE: {
+    status: STATUS_HTTP.NAO_PROCESSAVEL,
+    mensagem: 'Estoque insuficiente para emitir o orçamento.',
+  },
+  EMISSAO_BLOQUEADA: {
+    status: STATUS_HTTP.NAO_PROCESSAVEL,
+    mensagem: 'O orçamento tem pendências que impedem a emissão.',
+  },
+  RESPOSTA_NAO_ENCONTRADA: {
+    status: STATUS_HTTP.NAO_ENCONTRADO,
+    mensagem: 'Resposta do cliente não encontrada.',
+  },
+  RESPOSTA_JA_TRATADA: {
+    status: STATUS_HTTP.CONFLITO,
+    mensagem: 'Esta resposta já foi tratada pelo operador.',
+  },
+  RESPOSTA_JA_PROCESSADA: {
+    status: STATUS_HTTP.CONFLITO,
+    mensagem: 'Esta resposta já foi processada.',
+  },
+  NOVA_VERSAO_NAO_PERMITIDA: {
+    status: STATUS_HTTP.NAO_PROCESSAVEL,
+    mensagem: 'Não é possível criar uma nova versão para este orçamento.',
+  },
   PAYLOAD_TOO_LARGE: {
     status: STATUS_HTTP.CORPO_GRANDE_DEMAIS,
     mensagem: 'Os dados enviados excedem o tamanho permitido.',
+  },
+  ANALISE_CREDITO_NAO_ENCONTRADA: {
+    status: STATUS_HTTP.NAO_ENCONTRADO,
+    mensagem: 'Análise de crédito não encontrada.',
+  },
+  ANALISE_CREDITO_JA_CONCLUIDA: {
+    status: STATUS_HTTP.CONFLITO,
+    mensagem: 'Esta análise de crédito já tem um resultado registrado.',
+  },
+  DIVIDA_NAO_ENCONTRADA: {
+    status: STATUS_HTTP.NAO_ENCONTRADO,
+    mensagem: 'Dívida não encontrada.',
+  },
+  DIVIDA_NAO_RENEGOCIAVEL: {
+    status: STATUS_HTTP.NAO_PROCESSAVEL,
+    mensagem: 'Esta dívida já foi renegociada, quitada ou protestada.',
+  },
+  RENEGOCIACAO_ABAIXO_DO_MINIMO: {
+    status: STATUS_HTTP.NAO_PROCESSAVEL,
+    mensagem: 'O valor pago precisa ser de pelo menos 50% da dívida.',
+  },
+  AJUSTE_ABAIXO_DO_RESERVADO: {
+    status: STATUS_HTTP.NAO_PROCESSAVEL,
+    mensagem: 'Este ajuste deixaria o estoque físico menor que o total reservado.',
+  },
+  ENTRADA_DIVERGENTE: {
+    status: STATUS_HTTP.NAO_PROCESSAVEL,
+    mensagem:
+      'A quantidade comprada e a quantidade informada não coincidem. Peça a liberação do operador chefe.',
+  },
+  LIBERACAO_NEGADA: {
+    status: STATUS_HTTP.ACESSO_NEGADO,
+    mensagem: 'Usuário ou senha do operador chefe inválidos para liberar a divergência.',
+  },
+  FORNECEDOR_NAO_ENCONTRADO: {
+    status: STATUS_HTTP.NAO_ENCONTRADO,
+    mensagem: 'Fornecedor não encontrado.',
+  },
+  TOKEN_RECUPERACAO_INVALIDO: {
+    status: STATUS_HTTP.NAO_PROCESSAVEL,
+    mensagem: 'Link de redefinição de senha inválido ou expirado. Peça um novo.',
+  },
+  ENVIO_NAO_PERMITIDO: {
+    status: STATUS_HTTP.NAO_PROCESSAVEL,
+    mensagem: 'O orçamento precisa estar emitido e sem pendência de crédito para ser enviado.',
+  },
+  PDF_INDISPONIVEL: {
+    status: STATUS_HTTP.NAO_PROCESSAVEL,
+    mensagem: 'O orçamento precisa estar emitido para gerar o PDF.',
   },
   INTERNAL_ERROR: {
     status: STATUS_HTTP.ERRO_INTERNO,
@@ -328,6 +445,214 @@ export class ErroDeVendedorComCarteira extends AppError {
 export class ErroDeAlteracaoDoProprioUsuario extends AppError {
   constructor() {
     super('ALTERACAO_DO_PROPRIO_USUARIO');
+  }
+}
+
+/** Pedido inexistente (404, UC10). */
+export class ErroDePedidoNaoEncontrado extends AppError {
+  constructor() {
+    super('PEDIDO_NAO_ENCONTRADO');
+  }
+}
+
+/** Pedido que outro operador já assumiu (409, UC10). */
+export class ErroDePedidoJaAssumido extends AppError {
+  constructor() {
+    super('PEDIDO_JA_ASSUMIDO');
+  }
+}
+
+/** Montar orçamento ou negar um pedido que a sessão não assumiu (409, UC10). */
+export class ErroDePedidoNaoAssumidoPorVoce extends AppError {
+  constructor() {
+    super('PEDIDO_NAO_ASSUMIDO_POR_VOCE');
+  }
+}
+
+/** Orçamento inexistente (404, UC01/UC14-19). */
+export class ErroDeOrcamentoNaoEncontrado extends AppError {
+  constructor() {
+    super('ORCAMENTO_NAO_ENCONTRADO');
+  }
+}
+
+/** Orçamento fora de um status editável (422, RN25/regra 4.6). */
+export class ErroDeOrcamentoNaoEditavel extends AppError {
+  constructor() {
+    super('ORCAMENTO_NAO_EDITAVEL');
+  }
+}
+
+/** Item inexistente no orçamento (404, UC16). */
+export class ErroDeItemNaoEncontrado extends AppError {
+  constructor() {
+    super('ITEM_NAO_ENCONTRADO');
+  }
+}
+
+/** Variação de produto inexistente (404, UC15/UC16). */
+export class ErroDeVariacaoNaoEncontrada extends AppError {
+  constructor() {
+    super('VARIACAO_NAO_ENCONTRADA');
+  }
+}
+
+/** Anexo inexistente no orçamento (404, UC19). */
+export class ErroDeAnexoNaoEncontrado extends AppError {
+  constructor() {
+    super('ANEXO_NAO_ENCONTRADO');
+  }
+}
+
+/** Cliente inativo, bloqueado ou com dívida em aberto (422, UC14-E1/RN06). */
+export class ErroDeClienteBloqueado extends AppError {
+  constructor(mensagem?: string) {
+    super('CLIENTE_BLOQUEADO', { mensagem });
+  }
+}
+
+/** Variação sem saldo para a quantidade pedida (422, UC17-E1/E2). */
+export class ErroDeEstoqueIndisponivel extends AppError {
+  /** @param maximoDisponivel Quantidade máxima disponível, na unidade da solicitação. */
+  constructor(maximoDisponivel: number) {
+    super('ESTOQUE_INDISPONIVEL', { detalhes: { maximoDisponivel } });
+  }
+}
+
+/** Consulta de estoque ao proxy expirou ou falhou (503, UC17-E3). */
+export class ErroDeEstoqueTimeout extends AppError {
+  constructor(opcoes: Pick<OpcoesDoAppError, 'causa'> = {}) {
+    super('ESTOQUE_TIMEOUT', opcoes);
+  }
+}
+
+/** Saldo insuficiente na emissão, apesar de confirmado na montagem (422, UC19-E5). */
+export class ErroDeEstoqueInsuficiente extends AppError {
+  /** @param detalhes Produto, disponível e quantidade no orçamento (mensagem do UC19-E5). */
+  constructor(mensagem: string, detalhes: DetalhesDoErro) {
+    super('ESTOQUE_INSUFICIENTE', { mensagem, detalhes });
+  }
+}
+
+/** Orçamento com pendências que impedem a emissão (422, UC19): `detalhes.bloqueios`. */
+export class ErroDeEmissaoBloqueada extends AppError {
+  /** @param bloqueios Lista de `{ codigo, mensagem }`, igual ao `condicoes.bloqueios` do GET. */
+  constructor(bloqueios: readonly { codigo: string; mensagem: string }[]) {
+    super('EMISSAO_BLOQUEADA', { detalhes: { bloqueios } });
+  }
+}
+
+/** Resposta do cliente inexistente (404, UC20/UC21). */
+export class ErroDeRespostaNaoEncontrada extends AppError {
+  constructor() {
+    super('RESPOSTA_NAO_ENCONTRADA');
+  }
+}
+
+/** Resposta fora de AGUARDA_OPERADOR quando a tela de tratamento a exige (409, UC21). */
+export class ErroDeRespostaJaTratada extends AppError {
+  constructor() {
+    super('RESPOSTA_JA_TRATADA');
+  }
+}
+
+/** Resposta que não estava mais PENDENTE quando `resposta.processar` foi chamada (409, UC20). */
+export class ErroDeRespostaJaProcessada extends AppError {
+  constructor() {
+    super('RESPOSTA_JA_PROCESSADA');
+  }
+}
+
+/** Orçamento original fora de um status que permita nova versão (422, UC21-E1/RF21). */
+export class ErroDeNovaVersaoNaoPermitida extends AppError {
+  constructor() {
+    super('NOVA_VERSAO_NAO_PERMITIDA');
+  }
+}
+
+/** Análise de crédito inexistente (404, UC07). */
+export class ErroDeAnaliseCreditoNaoEncontrada extends AppError {
+  constructor() {
+    super('ANALISE_CREDITO_NAO_ENCONTRADA');
+  }
+}
+
+/** Resultado já registrado para esta análise (409, UC07). */
+export class ErroDeAnaliseCreditoJaConcluida extends AppError {
+  constructor() {
+    super('ANALISE_CREDITO_JA_CONCLUIDA');
+  }
+}
+
+/** Dívida inexistente (404, UC23). */
+export class ErroDeDividaNaoEncontrada extends AppError {
+  constructor() {
+    super('DIVIDA_NAO_ENCONTRADA');
+  }
+}
+
+/** Dívida que não está mais EM_ABERTO (422, UC23). */
+export class ErroDeDividaNaoRenegociavel extends AppError {
+  constructor() {
+    super('DIVIDA_NAO_RENEGOCIAVEL');
+  }
+}
+
+/** Valor pago na renegociação abaixo de 50% da dívida (422, UC23/CHECK do banco). */
+export class ErroDeRenegociacaoAbaixoDoMinimo extends AppError {
+  /** @param minimoEmCentavos Valor mínimo aceito, para a tela orientar o operador. */
+  constructor(minimoEmCentavos: number) {
+    super('RENEGOCIACAO_ABAIXO_DO_MINIMO', { detalhes: { minimoEmCentavos } });
+  }
+}
+
+/** Ajuste deixaria o saldo físico menor que o reservado (422, UC24/RN14). */
+export class ErroDeAjusteAbaixoDoReservado extends AppError {
+  /** @param reservado Total reservado no momento, para a tela orientar o operador. */
+  constructor(reservado: number) {
+    super('AJUSTE_ABAIXO_DO_RESERVADO', { detalhes: { reservado } });
+  }
+}
+
+/** Quantidade comprada e informada divergem, sem liberação (422, UC04/RF19). */
+export class ErroDeEntradaDivergente extends AppError {
+  constructor() {
+    super('ENTRADA_DIVERGENTE');
+  }
+}
+
+/** Credenciais do operador chefe inválidas para liberar a divergência (403, UC04/RF19). */
+export class ErroDeLiberacaoNegada extends AppError {
+  constructor() {
+    super('LIBERACAO_NEGADA');
+  }
+}
+
+/** Fornecedor inexistente (404, UC04/UC22). */
+export class ErroDeFornecedorNaoEncontrado extends AppError {
+  constructor() {
+    super('FORNECEDOR_NAO_ENCONTRADO');
+  }
+}
+
+/** Token de recuperação de senha inexistente, já usado ou vencido (422, UC13). */
+export class ErroDeTokenDeRecuperacaoInvalido extends AppError {
+  constructor() {
+    super('TOKEN_RECUPERACAO_INVALIDO');
+  }
+}
+
+/** Orçamento ainda não emitido ou com pendência de crédito ao tentar enviar (422, UC08-E1). */
+export class ErroDeEnvioNaoPermitido extends AppError {
+  constructor() {
+    super('ENVIO_NAO_PERMITIDO');
+  }
+}
+
+/** Orçamento ainda em RASCUNHO/PENDENTE_CREDITO (sem número) ao tentar gerar o PDF (422, UC19). */
+export class ErroDePdfIndisponivel extends AppError {
+  constructor() {
+    super('PDF_INDISPONIVEL');
   }
 }
 
