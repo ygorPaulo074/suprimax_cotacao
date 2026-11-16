@@ -94,4 +94,78 @@ describe('AgendadorDeJobs (item 9)', () => {
 
     await expect(agendador.executar()).resolves.toEqual(resumoEsperado);
   });
+
+  describe('rodadas simultâneas', () => {
+    function servicoLento(): {
+      servico: ServicoDeJobsAgendados;
+      concluir: (resumo: ResumoDoJob[]) => void;
+      falhar: (erro: Error) => void;
+      chamadas: () => number;
+    } {
+      let total = 0;
+      let concluir: (resumo: ResumoDoJob[]) => void = () => undefined;
+      let falhar: (erro: Error) => void = () => undefined;
+      const servico = {
+        executarTodos: () => {
+          total += 1;
+          return new Promise<ResumoDoJob[]>((resolve, reject) => {
+            concluir = resolve;
+            falhar = reject;
+          });
+        },
+      } as unknown as ServicoDeJobsAgendados;
+      return {
+        servico,
+        concluir: (resumo) => concluir(resumo),
+        falhar: (erro) => falhar(erro),
+        chamadas: () => total,
+      };
+    }
+
+    it('duas chamadas simultâneas executam uma só rodada e dividem o resumo', async () => {
+      const { servico, concluir, chamadas } = servicoLento();
+      const agendador = new AgendadorDeJobs({ servico, logger: LOGGER_SILENCIOSO });
+      const resumo: ResumoDoJob[] = [{ job: 'expirar_reservas', processados: 1 }];
+
+      const primeira = agendador.executar();
+      const segunda = agendador.executar();
+      concluir(resumo);
+
+      await expect(primeira).resolves.toEqual(resumo);
+      await expect(segunda).resolves.toEqual(resumo);
+      expect(chamadas()).toBe(1);
+    });
+
+    it('o intervalo não inicia nova rodada enquanto a anterior não terminou', async () => {
+      const { servico, concluir, chamadas } = servicoLento();
+      const agendador = new AgendadorDeJobs({
+        servico,
+        logger: LOGGER_SILENCIOSO,
+        intervaloMs: 1000,
+      });
+
+      agendador.iniciar();
+      await jest.advanceTimersByTimeAsync(3500);
+      expect(chamadas()).toBe(1);
+
+      concluir([]);
+      await jest.advanceTimersByTimeAsync(1000);
+      expect(chamadas()).toBe(2);
+      agendador.parar();
+    });
+
+    it('libera nova rodada depois que a anterior falha', async () => {
+      const { servico, falhar, concluir, chamadas } = servicoLento();
+      const agendador = new AgendadorDeJobs({ servico, logger: LOGGER_SILENCIOSO });
+
+      const primeira = agendador.executar();
+      falhar(new Error('quebrou'));
+      await expect(primeira).rejects.toThrow('quebrou');
+
+      const segunda = agendador.executar();
+      concluir([]);
+      await expect(segunda).resolves.toEqual([]);
+      expect(chamadas()).toBe(2);
+    });
+  });
 });

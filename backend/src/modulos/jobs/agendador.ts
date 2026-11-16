@@ -25,6 +25,7 @@ export class AgendadorDeJobs {
   private readonly logger: Logger;
   private readonly intervaloMs: number;
   private temporizador?: NodeJS.Timeout;
+  private rodadaEmAndamento?: Promise<ResumoDoJob[]>;
 
   constructor(opcoes: OpcoesDoAgendadorDeJobs) {
     this.servico = opcoes.servico;
@@ -37,7 +38,11 @@ export class AgendadorDeJobs {
     if (this.temporizador) {
       return;
     }
-    this.temporizador = setInterval(() => void this.executar(), this.intervaloMs);
+    this.temporizador = setInterval(() => {
+      this.executar().catch((erro: unknown) => {
+        this.logger.error({ evento: 'jobs_agendados_falhou', err: erro }, 'A rodada falhou.');
+      });
+    }, this.intervaloMs);
     this.temporizador.unref();
   }
 
@@ -47,8 +52,29 @@ export class AgendadorDeJobs {
     this.temporizador = undefined;
   }
 
-  /** Dispara uma rodada imediatamente, fora do intervalo — usado pela rota `/jobs/executar`. */
-  async executar(): Promise<ResumoDoJob[]> {
+  /**
+   * Dispara uma rodada imediatamente, fora do intervalo — usado pela rota `/jobs/executar`.
+   *
+   * Nunca há duas rodadas ao mesmo tempo (o intervalo e a rota podem coincidir, e duas rodadas
+   * duplicariam o histórico de expiração): se já houver uma em andamento, quem chama recebe o
+   * resumo dela em vez de iniciar outra.
+   */
+  executar(): Promise<ResumoDoJob[]> {
+    if (this.rodadaEmAndamento) {
+      this.logger.info(
+        { evento: 'jobs_agendados_ja_em_execucao' },
+        'Já há uma rodada dos jobs agendados em andamento; reaproveitando-a.',
+      );
+      return this.rodadaEmAndamento;
+    }
+    const rodada = this.executarRodada().finally(() => {
+      this.rodadaEmAndamento = undefined;
+    });
+    this.rodadaEmAndamento = rodada;
+    return rodada;
+  }
+
+  private async executarRodada(): Promise<ResumoDoJob[]> {
     const resumo = await this.servico.executarTodos();
     this.logger.info(
       { evento: 'jobs_agendados_executados', resumo },

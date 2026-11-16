@@ -4,6 +4,7 @@ Uma entrada por PR: data, descrição e UC de origem (ver docs/03-requisitos-nao
 
 ## [Não lançado]
 
+- 2026-11-16 — Jobs agendados (item 9; RF16, RN06, RN25): `AgendadorDeJobs.executar` não inicia uma segunda rodada enquanto outra está em andamento; o intervalo e `POST /jobs/executar` passam a dividir o resumo da rodada em curso, evitando histórico de expiração duplicado. Uma rodada que falha libera a seguinte, e a falha do disparo por intervalo é registrada em log em vez de virar rejeição não tratada.
 - 2026-11-16 — Renegociação de dívida (UC23): o mínimo de 50% passa a ser calculado só com inteiros (`Math.ceil(valorDivida / 2)`, constante `DIVISOR_DO_MINIMO_DA_RENEGOCIACAO`) em vez de multiplicar por 0,5, mantendo o dinheiro em centavos inteiros; teste com dívida de valor ímpar (101 → mínimo 51). Sem mudança de comportamento.
 - 2026-11-15 — Correções achadas ao rodar frontend, backend, proxy e banco juntos: (1) o detalhe do orçamento passa a bloquear a emissão com `CONDICOES_INCOMPLETAS` enquanto faltarem condição de pagamento e frete, e `orcamento.emitir` traduz `ORCAMENTO_NAO_EDITAVEL` do proxy em 422 em vez de 500 (UC18, UC19); (2) `LIMITE_EXCEDIDO` do proxy (429) vira `503 SERVICO_INDISPONIVEL` em vez de 500 (infra, docs/12; RNF06).
 - 2026-11-13 — Deploy e variáveis: `.env.example` próprio do serviço (substitui o da raiz), serviço no `render.yaml` da raiz e `src/testing/**` fora do build (`tsconfig.build.json`). Infra (docs/03, seção 3.2); sem UC.
