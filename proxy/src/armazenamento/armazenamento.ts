@@ -6,7 +6,20 @@ import { AppError } from '../erros';
 
 export const BUCKET_ANEXOS = 'anexos-orcamento';
 export const LIMITE_BYTES = 10 * 1024 * 1024;
+export const BUCKET_DOCUMENTOS_CREDITO = 'documentos-credito';
 export const PREFIXO_CAMINHO = 'orcamento/';
+export const PREFIXO_CAMINHO_CREDITO = 'analise-credito/';
+/** Prefixo do caminho -> bucket privado onde o objeto mora (um bucket por categoria). */
+const BUCKET_POR_PREFIXO: ReadonlyArray<readonly [string, string]> = [
+  [PREFIXO_CAMINHO, BUCKET_ANEXOS],
+  [PREFIXO_CAMINHO_CREDITO, BUCKET_DOCUMENTOS_CREDITO],
+];
+
+function bucketDoCaminho(caminho: string): string {
+  const achado = BUCKET_POR_PREFIXO.find(([prefixo]) => caminho.startsWith(prefixo));
+  if (!achado) throw new AppError('PAYLOAD_INVALIDO', undefined, 'caminho fora dos prefixos');
+  return achado[1];
+}
 export const EXPIRA_PADRAO_SEGUNDOS = 300;
 export const EXPIRA_MAXIMO_SEGUNDOS = 3600;
 const TAMANHO_MAXIMO_NOME = 100;
@@ -29,7 +42,7 @@ export function sanearNome(nome: string): string {
 
 export function caminhoValido(caminho: string): boolean {
   return (
-    caminho.startsWith(PREFIXO_CAMINHO) &&
+    BUCKET_POR_PREFIXO.some(([prefixo]) => caminho.startsWith(prefixo)) &&
     !caminho.includes('..') &&
     !caminho.includes('\\') &&
     // eslint-disable-next-line no-control-regex
@@ -38,7 +51,7 @@ export function caminhoValido(caminho: string): boolean {
 }
 
 export class Armazenamento {
-  private bucketPronto: Promise<void> | null = null;
+  private readonly bucketsProntos = new Map<string, Promise<void>>();
 
   constructor(
     private readonly url: string | null,
@@ -73,18 +86,22 @@ export class Armazenamento {
   }
 
   /** Cria o bucket privado se não existir; a verificação fica em cache na memória. */
-  private garantirBucket(): Promise<void> {
-    this.bucketPronto ??= this.criarBucket().catch((e: unknown) => {
-      this.bucketPronto = null; // tenta de novo na próxima chamada
-      throw e;
-    });
-    return this.bucketPronto;
+  private garantirBucket(bucket: string): Promise<void> {
+    let pronto = this.bucketsProntos.get(bucket);
+    if (!pronto) {
+      pronto = this.criarBucket(bucket).catch((e: unknown) => {
+        this.bucketsProntos.delete(bucket); // tenta de novo na próxima chamada
+        throw e;
+      });
+      this.bucketsProntos.set(bucket, pronto);
+    }
+    return pronto;
   }
 
-  private async criarBucket(): Promise<void> {
+  private async criarBucket(bucket: string): Promise<void> {
     const { url, cab } = this.base();
     const existe = await this.chamar(
-      `${url}/bucket/${BUCKET_ANEXOS}`,
+      `${url}/bucket/${bucket}`,
       { method: 'GET', headers: cab },
       'consulta do bucket',
     );
@@ -94,7 +111,7 @@ export class Armazenamento {
       {
         method: 'POST',
         headers: { ...cab, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: BUCKET_ANEXOS, name: BUCKET_ANEXOS, public: false }),
+        body: JSON.stringify({ id: bucket, name: bucket, public: false }),
       },
       'criacao do bucket',
     );
@@ -104,8 +121,10 @@ export class Armazenamento {
     throw this.falha('criacao do bucket', r.status);
   }
 
+  /** Informe exatamente um de `idOrcamento` (anexos) e `idAnaliseCredito` (documentos de crédito). */
   async salvar(p: {
-    idOrcamento: number;
+    idOrcamento?: number;
+    idAnaliseCredito?: number;
     nomeArquivo: string;
     tipoConteudo: string;
     conteudoBase64: string;
@@ -118,11 +137,22 @@ export class Armazenamento {
     if (bytes.length > LIMITE_BYTES) {
       throw new AppError('PAYLOAD_INVALIDO', undefined, 'arquivo acima de 10 MB');
     }
-    const caminho = `${PREFIXO_CAMINHO}${p.idOrcamento}/${randomUUID()}-${sanearNome(p.nomeArquivo)}`;
-    await this.garantirBucket();
+    if ((p.idOrcamento === undefined) === (p.idAnaliseCredito === undefined)) {
+      throw new AppError(
+        'PAYLOAD_INVALIDO',
+        undefined,
+        'informe id_orcamento ou id_analise_credito',
+      );
+    }
+    const [prefixo, dono, bucket] =
+      p.idOrcamento !== undefined
+        ? [PREFIXO_CAMINHO, p.idOrcamento, BUCKET_ANEXOS]
+        : [PREFIXO_CAMINHO_CREDITO, p.idAnaliseCredito as number, BUCKET_DOCUMENTOS_CREDITO];
+    const caminho = `${prefixo}${dono}/${randomUUID()}-${sanearNome(p.nomeArquivo)}`;
+    await this.garantirBucket(bucket);
     const { url, cab } = this.base();
     const r = await this.chamar(
-      `${url}/object/${BUCKET_ANEXOS}/${caminho.split('/').map(encodeURIComponent).join('/')}`,
+      `${url}/object/${bucket}/${caminho.split('/').map(encodeURIComponent).join('/')}`,
       {
         method: 'POST',
         headers: { ...cab, 'Content-Type': p.tipoConteudo, 'x-upsert': 'false' },
@@ -135,10 +165,11 @@ export class Armazenamento {
   }
 
   async remover(caminho: string): Promise<void> {
-    await this.garantirBucket();
+    const bucket = bucketDoCaminho(caminho);
+    await this.garantirBucket(bucket);
     const { url, cab } = this.base();
     const r = await this.chamar(
-      `${url}/object/${BUCKET_ANEXOS}`,
+      `${url}/object/${bucket}`,
       {
         method: 'DELETE',
         headers: { ...cab, 'Content-Type': 'application/json' },
@@ -153,10 +184,11 @@ export class Armazenamento {
     caminho: string,
     expiraEmSegundos: number,
   ): Promise<{ url: string; expira_em: string }> {
-    await this.garantirBucket();
+    const bucket = bucketDoCaminho(caminho);
+    await this.garantirBucket(bucket);
     const { url, cab } = this.base();
     const r = await this.chamar(
-      `${url}/object/sign/${BUCKET_ANEXOS}/${caminho.split('/').map(encodeURIComponent).join('/')}`,
+      `${url}/object/sign/${bucket}/${caminho.split('/').map(encodeURIComponent).join('/')}`,
       {
         method: 'POST',
         headers: { ...cab, 'Content-Type': 'application/json' },

@@ -8,7 +8,7 @@ import {
 import { AppError } from '../erros';
 import { analisar, type ContextoOperacao, type Operacao } from './tipos';
 
-// Operações de anexos (UC19, RF11; docs/12, seção 12.8.3). O conteúdo em base64 e as URLs
+// Operações de arquivos: anexos (UC19, RF11) e documentos de crédito (UC07; docs/12, seção 12.8.3). O conteúdo em base64 e as URLs
 // assinadas nunca vão para log ou auditoria: a auditoria guarda só operação, resultado e duração.
 
 const CaminhoSchema = z
@@ -24,13 +24,18 @@ function armazenamento(ctx: ContextoOperacao) {
 
 const SchemaSalvar = z
   .object({
-    id_orcamento: z.number().int().positive(),
+    // Exatamente um: anexo de orçamento (UC19) ou documento de análise de crédito (UC07).
+    id_orcamento: z.number().int().positive().optional(),
+    id_analise_credito: z.number().int().positive().optional(),
     nome_arquivo: z.string().min(1).max(255),
     tipo_conteudo: z.string().min(1).max(100),
     // 10 MB decodificados = ~13,4 milhões de caracteres base64; o tamanho exato é conferido ao decodificar.
     conteudo_base64: z.string().min(1).max(14_000_000),
   })
-  .strict();
+  .strict()
+  .refine((p) => (p.id_orcamento === undefined) !== (p.id_analise_credito === undefined), {
+    message: 'informe exatamente um de id_orcamento e id_analise_credito',
+  });
 
 export const arquivoSalvar: Operacao = {
   id: 'arquivo.salvar',
@@ -43,6 +48,7 @@ export const arquivoSalvar: Operacao = {
       async executar() {
         const caminho = await armazenamento(ctx).salvar({
           idOrcamento: p.id_orcamento,
+          idAnaliseCredito: p.id_analise_credito,
           nomeArquivo: p.nome_arquivo,
           tipoConteudo: p.tipo_conteudo,
           conteudoBase64: p.conteudo_base64,

@@ -156,4 +156,42 @@ describe('arquivo.*', () => {
     await chamar('arquivo.salvar', arq(50), i);
     expect(JSON.stringify(auditoria)).not.toContain(arq(50).conteudo_base64);
   });
+
+  it('salva documento de crédito, assina e remove pelo prefixo analise-credito/', async () => {
+    const i = await integrante(ESCOPOS);
+    const { id_orcamento: _omitido, ...resto } = arq(100);
+    void _omitido;
+    const s = await chamar('arquivo.salvar', { ...resto, id_analise_credito: 9 }, i);
+    expect(s.status).toBe(200);
+    const caminho = s.corpo.dados.caminho as string;
+    expect(caminho).toMatch(/^analise-credito\/9\//);
+    expect(
+      storage.mock.calls.some(([u]) => String(u).includes('/object/documentos-credito/')),
+    ).toBe(true);
+    const a = await chamar('arquivo.assinar', { caminho }, i);
+    expect(a.status).toBe(200);
+    expect((await chamar('arquivo.remover', { caminho }, i)).corpo).toEqual({ ok: true });
+  });
+
+  it('exige exatamente um de id_orcamento e id_analise_credito', async () => {
+    const i = await integrante(ESCOPOS);
+    const { id_orcamento: _omitido, ...resto } = arq(10);
+    void _omitido;
+    for (const payload of [resto, { ...arq(10), id_analise_credito: 1 }]) {
+      const r = await chamar('arquivo.salvar', payload, i);
+      expect(r.status).toBe(400);
+      expect(r.corpo.erro.codigo).toBe('PAYLOAD_INVALIDO');
+    }
+  });
+
+  it('rejeita caminhos de crédito com .. ou separador invertido', async () => {
+    const i = await integrante(ESCOPOS);
+    for (const caminho of [
+      'analise-credito/../x',
+      'analise-credito' + String.fromCharCode(92) + '1',
+    ])
+      expect((await chamar('arquivo.assinar', { caminho }, i)).corpo.erro.codigo).toBe(
+        'PAYLOAD_INVALIDO',
+      );
+  });
 });
