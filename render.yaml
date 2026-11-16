@@ -66,4 +66,20 @@ services:
         sync: false
       - key: PROXY_SERVICE_TOKEN
         sync: false
+      # Dados da empresa emissora do orçamento (PDF, UC19). Obrigatórios fora de dev: sem elas o
+      # backend não sobe (backend/src/config.ts). Use os dados reais; valores de exemplo são recusados.
+      - key: EMPRESA_RAZAO_SOCIAL
+        sync: false
+      - key: EMPRESA_ENDERECO
+        sync: false
+      - key: EMPRESA_TELEFONE
+        sync: false
+      - key: EMPRESA_CNPJ
+        sync: false
+      - key: EMPRESA_INSCRICAO_ESTADUAL
+        sync: false
+      - key: EMPRESA_PIX
+        sync: false
+      - key: EMPRESA_DADOS_BANCARIOS
+        sync: false
       # RESEND_API_KEY: o backend ainda não lê essa variável (backend/src/config.ts). Acrescentar quando o e-mail for implementado.
