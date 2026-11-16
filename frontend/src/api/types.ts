@@ -11,7 +11,7 @@ export type DataHoraISO = string;
 
 // ---- Enumerações (valores literais do banco, docs/10 seção 10.4) ----
 export type Perfil =
-  'VENDEDOR' | 'OPERADOR' | 'OPERADOR_CHEFE' | 'FISCAL' | 'FINANCEIRO' | 'GESTOR';
+  'VENDEDOR' | 'OPERADOR' | 'OPERADOR_CHEFE' | 'FISCAL' | 'FINANCEIRO' | 'GESTOR' | 'ADMIN';
 export type StatusUsuario = 'ATIVO' | 'INATIVO';
 export type StatusCliente = 'ATIVO' | 'INATIVO' | 'BLOQUEADO';
 export type TipoUnidade = 'MATRIZ' | 'FILIAL';
@@ -464,7 +464,7 @@ export interface EntradaMercadoriaNova {
   numeroCotacaoCompra?: string;
   quantidadeComprada: number;
   quantidadeInformada: number;
-  /** Liberação de divergência por OPERADOR_CHEFE, com credenciais próprias (RF19). */
+  /** Liberação de divergência por OPERADOR_CHEFE ou ADMIN, com credenciais próprias (RF19). */
   liberacao?: { usuario: string; senha: string };
 }
 

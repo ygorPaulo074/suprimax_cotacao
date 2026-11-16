@@ -2,7 +2,7 @@ import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { RotaProtegida } from '@/auth/RotaProtegida';
 import { useAuth } from '@/auth/AuthContext';
-import { perfisDoModulo, rotaInicial } from '@/lib/perfis';
+import { PERFIS_CHEFE, perfisDoModulo, rotaInicial } from '@/lib/perfis';
 import AppShell from '@/layout/AppShell';
 import Login from '@/screens/Login';
 import RedefinirSenha from '@/screens/RedefinirSenha';
@@ -61,7 +61,7 @@ export default function App() {
           <Route element={<RotaProtegida perfis={perfisDoModulo('produtos')} />}>
             <Route path="/produtos" element={<Produtos />} />
           </Route>
-          <Route element={<RotaProtegida perfis={['OPERADOR_CHEFE']} />}>
+          <Route element={<RotaProtegida perfis={PERFIS_CHEFE} />}>
             <Route path="/estoque" element={<AjusteEstoque />} />
           </Route>
           <Route element={<RotaProtegida perfis={perfisDoModulo('entrada')} />}>

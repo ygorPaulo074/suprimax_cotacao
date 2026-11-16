@@ -14,7 +14,7 @@ import {
   Selecao,
 } from '@/components/ui';
 
-/** Tela 15 — UC04 – Entrada de mercadoria. Divergência bloqueia o Salvar até a liberação por operador chefe (RF19). */
+/** Tela 15 — UC04 – Entrada de mercadoria. Divergência bloqueia o Salvar até a liberação por operador chefe ou administrador (RF19). */
 export default function EntradaMercadoria() {
   const fornecedores = useQuery({ queryKey: ['fornecedores'], queryFn: fornecedoresApi.listar });
   const [idFornecedor, setIdFornecedor] = useState('');
@@ -194,7 +194,7 @@ export default function EntradaMercadoria() {
 
       {liberando && (
         <Modal
-          titulo="Liberação por operador chefe"
+          titulo="Liberação por operador chefe ou administrador"
           aoFechar={() => setLiberando(false)}
           acoes={
             <>
@@ -209,7 +209,8 @@ export default function EntradaMercadoria() {
           }
         >
           <p className="text-sm text-gray-600">
-            Informe o usuário e a senha do operador chefe que autoriza a divergência.
+            Informe o usuário e a senha do operador chefe ou administrador que autoriza a
+            divergência.
           </p>
           <Campo
             rotulo="Usuário"

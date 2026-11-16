@@ -173,7 +173,7 @@ function FormularioProduto({
       <Secao titulo="Variações">
         {!chefe && (
           <Alerta className="mb-3">
-            Faixas de preço e fardos só podem ser alterados pelo operador chefe.
+            Faixas de preço e fardos só podem ser alterados pelo operador chefe ou administrador.
           </Alerta>
         )}
         <div className="flex flex-col gap-3">
@@ -350,7 +350,7 @@ function FormularioProduto({
   );
 }
 
-/** Tela 13 — UC04 – Produtos: cadastro. O ajuste de estoque (tela 14) parte daqui, só para o operador chefe. */
+/** Tela 13 — UC04 – Produtos: cadastro. O ajuste de estoque (tela 14) parte daqui, só para o operador chefe e o administrador. */
 export default function Produtos() {
   const { sessao } = useAuth();
   const chefe = sessao ? ehOperadorChefe(sessao.perfil) : false;

@@ -44,8 +44,29 @@ export const MENU: (ItemMenu & { perfis: Perfil[] })[] = [
   { id: 'usuarios', rotulo: 'Usuários', caminho: '/usuarios', perfis: ['OPERADOR_CHEFE'] },
 ];
 
+/** ADMIN passa em qualquer checagem de perfil; os demais precisam estar na lista. */
+export function temPerfil(perfil: Perfil, permitidos: readonly Perfil[]): boolean {
+  return perfil === 'ADMIN' || permitidos.includes(perfil);
+}
+
+/** Rótulos dos perfis em português. */
+export const ROTULO_PERFIL: Record<Perfil, string> = {
+  VENDEDOR: 'Vendedor',
+  OPERADOR: 'Operador',
+  OPERADOR_CHEFE: 'Operador chefe',
+  FISCAL: 'Fiscal',
+  FINANCEIRO: 'Financeiro',
+  GESTOR: 'Gestor',
+  ADMIN: 'Administrador',
+};
+
+/** Perfis que um usuário logado pode atribuir (só ADMIN atribui ADMIN). */
+export function perfisAtribuiveis(logado: Perfil | undefined, todos: Perfil[]): Perfil[] {
+  return todos.filter((p) => p !== 'ADMIN' || logado === 'ADMIN');
+}
+
 export function itensDoMenu(perfil: Perfil): ItemMenu[] {
-  return MENU.filter((item) => item.perfis.includes(perfil)).map(({ id, rotulo, caminho }) => ({
+  return MENU.filter((item) => temPerfil(perfil, item.perfis)).map(({ id, rotulo, caminho }) => ({
     id,
     rotulo,
     caminho,
@@ -63,8 +84,12 @@ export function rotaInicial(perfil: Perfil): string {
 
 /** Perfis que podem abrir um módulo (usado nas rotas protegidas). */
 export function perfisDoModulo(id: ModuloId): Perfil[] {
-  return MENU.find((item) => item.id === id)?.perfis ?? [];
+  const perfis = MENU.find((item) => item.id === id)?.perfis ?? [];
+  return [...perfis, 'ADMIN'];
 }
 
-/** Ações exclusivas do operador chefe (docs/10, seção 10.2). */
-export const ehOperadorChefe = (perfil: Perfil): boolean => perfil === 'OPERADOR_CHEFE';
+/** Ações do operador chefe (docs/10, seção 10.2); ADMIN também as executa. */
+export const ehOperadorChefe = (perfil: Perfil): boolean => temPerfil(perfil, ['OPERADOR_CHEFE']);
+
+/** Perfis das ações do operador chefe (ADMIN incluso). */
+export const PERFIS_CHEFE: Perfil[] = ['OPERADOR_CHEFE', 'ADMIN'];
