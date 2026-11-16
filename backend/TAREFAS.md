@@ -18,16 +18,16 @@ As tarefas do módulo de cálculo estão em [`services/calculo/TAREFAS.md`](serv
 
 ## Entregas, em ordem
 
-- [ ] **1. Servidor base:** Express, configuração por variáveis de ambiente, `GET /saude`, tratamento de erros padronizado (`{ codigo, mensagem, detalhes? }`).
-- [ ] **2. Camada de acesso a dados:** cliente do proxy (`POST /executar` com os cabeçalhos do 12.3), seguindo o guia [`comunicacao-backend-proxy.md`](comunicacao-backend-proxy.md): novo `X-Timestamp` a cada chamada, conversão de `DECIMAL` para centavos e de `snake_case` para `camelCase` só nesta camada, e tradução dos erros do proxy. Nenhum outro módulo acessa o banco. Nos testes, use um dublê do cliente.
-- [ ] **3. Autenticação (UC13):** login, token de sessão, expiração por inatividade, bloqueio após 3 tentativas, recuperação de senha por e-mail (Resend), perfis e carteira do vendedor.
-- [ ] **4. Módulo de cálculo completo (11.6.3.1 a 11.6.3.6):** faturamento e crédito, frete, estoque, número e validade do orçamento e fechamento por item. Funções puras, em centavos, **cada uma com tabela de casos no Jest**. Atualize `VERSAO_REGRAS` e o `CHANGELOG.md` a cada mudança de regra.
-- [ ] **5. Cadastros:** clientes (UC02/UC03, LGPD), produtos com variações, faixas e fardos (UC04), fornecedores (UC22) e usuários (UC25).
-- [ ] **6. Pedidos e orçamento:** fila de pedidos e análise (UC10), montagem do rascunho com validação de estoque e recálculo a cada mudança (UC14 a UC18), emissão com chave de segurança, número e PDF (UC19, PDFKit ou pdfmake), cancelamento (UC06) e histórico.
-- [ ] **7. Respostas do cliente:** processar respostas pendentes (UC20), tratar e emitir nova versão (UC21).
-- [ ] **8. Demais módulos:** análise de crédito (UC07), dívidas (UC23), estoque e entrada de mercadoria (UC04/UC24), e dados agregados para o Sistema 3 (RF17).
-- [ ] **9. Jobs agendados:** expirações e avisos (seção 11.4), combinados com o responsável pelo banco.
-- [ ] **10. Integração com o frontend:** implementar as rotas de `docs/frontend-api.md` e validar fluxo a fluxo com as telas.
+- [x] **1. Servidor base:** Express, configuração por variáveis de ambiente, `GET /saude`, tratamento de erros padronizado (`{ codigo, mensagem, detalhes? }`).
+- [x] **2. Camada de acesso a dados:** cliente do proxy (`POST /executar` com os cabeçalhos do 12.3), seguindo o guia [`comunicacao-backend-proxy.md`](comunicacao-backend-proxy.md): novo `X-Timestamp` a cada chamada, conversão de `DECIMAL` para centavos e de `snake_case` para `camelCase` só nesta camada, e tradução dos erros do proxy. Nenhum outro módulo acessa o banco. Nos testes, use um dublê do cliente.
+- [x] **3. Autenticação (UC13):** login, token de sessão, expiração por inatividade, bloqueio após 3 tentativas, recuperação de senha por e-mail (Resend), perfis e carteira do vendedor.
+- [x] **4. Módulo de cálculo completo (11.6.3.1 a 11.6.3.6):** faturamento e crédito, frete, estoque, número e validade do orçamento e fechamento por item. Funções puras, em centavos, **cada uma com tabela de casos no Jest**. Atualize `VERSAO_REGRAS` e o `CHANGELOG.md` a cada mudança de regra.
+- [x] **5. Cadastros:** clientes (UC02/UC03, LGPD), produtos com variações, faixas e fardos (UC04), fornecedores (UC22) e usuários (UC25).
+- [x] **6. Pedidos e orçamento:** fila de pedidos e análise (UC10), montagem do rascunho com validação de estoque e recálculo a cada mudança (UC14 a UC18), emissão com chave de segurança, número e PDF (UC19, PDFKit ou pdfmake), cancelamento (UC06) e histórico.
+- [x] **7. Respostas do cliente:** processar respostas pendentes (UC20), tratar e emitir nova versão (UC21).
+- [x] **8. Demais módulos:** análise de crédito (UC07), dívidas (UC23), estoque e entrada de mercadoria (UC04/UC24), e dados agregados para o Sistema 3 (RF17).
+- [x] **9. Jobs agendados:** expirações e avisos (seção 11.4), combinados com o responsável pelo banco. Entregue; ponto aberto: o job que apaga rascunho expirado falha por chave estrangeira em `historico_orcamento` (decidir `ON DELETE CASCADE` ou ampliar o escopo do proxy) e ninguém definiu ainda como disparar os jobs (cron externo em `POST /jobs/executar`).
+- [x] **10. Integração com o frontend:** implementar as rotas de `docs/frontend-api.md` e validar fluxo a fluxo com as telas. Entregue; falta no frontend a tela de redefinição de senha e abrir o anexo pela URL assinada. UC07 sem arquivo digital e UC08 só registra evento (sem e-mail).
 
 ## Definição de pronto de cada item
 
