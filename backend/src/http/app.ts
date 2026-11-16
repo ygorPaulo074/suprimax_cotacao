@@ -4,6 +4,7 @@ import express, { type Express } from 'express';
 import helmet from 'helmet';
 import type { Config } from '../config';
 import type { ClienteDeProxy } from '../dados';
+import type { ArmazenamentoDeArquivos } from '../dados/armazenamento';
 import type { Logger } from '../log';
 import {
   criarModuloDeAuth,
@@ -54,6 +55,8 @@ export interface DependenciasDoApp {
     DependenciasDoModuloDeAuth,
     'senhas' | 'limiteDeLogin' | 'limiteDeRecuperacao' | 'agora'
   >;
+  /** Armazenamento dos anexos de orçamento; por padrão, o Storage via proxy. */
+  readonly armazenamento?: ArmazenamentoDeArquivos;
   /** Envio do e-mail de definição de senha a usuário novo; por padrão, só registra em log. */
   readonly notificador?: NotificadorDeEmail;
   /** Envio do e-mail de recuperação de senha; por padrão, só registra em log. */
@@ -72,6 +75,7 @@ export function createApp({
   logger,
   proxy,
   sessoes,
+  armazenamento,
   auth,
   notificador,
   notificadorDeRecuperacao,
@@ -104,6 +108,7 @@ export function createApp({
   const orcamentos = criarModuloDeOrcamentos({
     ...comuns,
     agora,
+    armazenamento,
     empresaEmissora: config.empresaEmissora,
   });
   app.use(criarModuloDeClientes({ ...comuns, agora, orcamentos: orcamentos.servico }).rotas);

@@ -181,14 +181,6 @@ const esquemaDoAnexo = z.object({
 });
 export type AnexoDoOrcamento = z.infer<typeof esquemaDoAnexo>;
 
-/**
- * Valor fixo gravado em `anexo_orcamento.caminho_arquivo`: nenhum armazenamento de arquivos está
- * configurado neste projeto (docs/13-banco-de-dados.md, linha 187), então os bytes enviados nunca
- * são persistidos — apenas o upload é validado e seus metadados (nome, tamanho) são gravados.
- * Mesmo padrão de `credito/repositorio.ts` (`CAMINHO_ARQUIVO_SEM_UPLOAD`) para a mesma limitação.
- */
-export const CAMINHO_ARQUIVO_NAO_ARMAZENADO = '(upload recebido — bytes não armazenados)';
-
 const esquemaDoIdDoOrcamento = z.object({ idOrcamento: z.number().int() });
 
 /** Cabeçalho ainda não gravado de um orçamento novo (UC14) ou de uma nova versão (UC21). */
@@ -223,6 +215,8 @@ export interface ItemAInserir {
 export interface AnexoAInserir {
   readonly tipoAnexo: TipoDeAnexo;
   readonly nomeArquivo: string;
+  /** Caminho devolvido pelo armazenamento de arquivos; nunca sai na API nem nos logs. */
+  readonly caminhoArquivo: string;
   readonly tamanhoBytes: number | null;
 }
 
@@ -595,12 +589,8 @@ export class RepositorioDeOrcamentos {
   /**
    * Grava um anexo novo e devolve a linha gravada (UC19).
    *
-   * Nenhum armazenamento de arquivos está configurado neste projeto (docs/13-banco-de-dados.md,
-   * linha 187: o conteúdo de arquivos é "fora do banco", exigindo controle próprio no
-   * armazenamento). Por isso o upload é recebido e validado (nome e tamanho reais são gravados),
-   * mas os bytes não são persistidos em lugar nenhum — `caminho_arquivo` recebe o valor de
-   * {@link CAMINHO_ARQUIVO_NAO_ARMAZENADO}, no mesmo padrão já usado por
-   * `credito/repositorio.ts` (`CAMINHO_ARQUIVO_SEM_UPLOAD`) para o mesmo problema.
+   * Os bytes já devem estar no armazenamento de arquivos: `caminhoArquivo` é o caminho que ele
+   * devolveu (docs/13, linha 187: o conteúdo de arquivos fica "fora do banco").
    */
   async inserirAnexo(idOrcamento: number, anexo: AnexoAInserir): Promise<AnexoDoOrcamento> {
     const resposta = await this.proxy.executar<{ dados: unknown[] }>(
@@ -611,7 +601,7 @@ export class RepositorioDeOrcamentos {
           id_orcamento: idOrcamento,
           tipo_anexo: anexo.tipoAnexo,
           nome_arquivo: anexo.nomeArquivo,
-          caminho_arquivo: CAMINHO_ARQUIVO_NAO_ARMAZENADO,
+          caminho_arquivo: anexo.caminhoArquivo,
           tamanho_bytes: anexo.tamanhoBytes,
         },
         retornar: [

@@ -2,6 +2,10 @@
 // cancelamento. Implementa `MontadorDeOrcamentos` para o módulo de pedidos (UC10 → UC14).
 import { randomBytes } from 'node:crypto';
 import type { ClienteDeProxy } from '../../dados';
+import {
+  ErroDeArquivoNaoEncontrado,
+  type ArmazenamentoDeArquivos,
+} from '../../dados/armazenamento';
 import type { DadosDaEmpresaEmissora } from '../../config';
 import {
   ErroDeAnexoNaoEncontrado,
@@ -219,10 +223,20 @@ export interface DependenciasDoServicoDeOrcamentos {
   readonly produtos: RepositorioDeProdutos;
   readonly usuarios: RepositorioDeUsuarios;
   readonly proxy: ClienteDeProxy;
+  /** Guarda os bytes dos anexos (UC19, RF11). */
+  readonly armazenamento: ArmazenamentoDeArquivos;
   readonly logger: Logger;
   /** Cabeçalho/rodapé do PDF de orçamento (UC19, docs/09). */
   readonly empresaEmissora: DadosDaEmpresaEmissora;
   readonly agora?: () => Date;
+}
+
+/** Upload de anexo já recebido do multipart (UC19). */
+export interface DadosDoUploadDeAnexo {
+  readonly tipoAnexo: AnexoAInserir['tipoAnexo'];
+  readonly nomeArquivo: string;
+  readonly tipoConteudo: string;
+  readonly conteudo: Buffer;
 }
 
 /** Regras do orçamento (UC01, UC05, UC14-19). */
@@ -238,6 +252,7 @@ export class ServicoDeOrcamentos
   private readonly produtos: RepositorioDeProdutos;
   private readonly usuarios: RepositorioDeUsuarios;
   private readonly proxy: ClienteDeProxy;
+  private readonly armazenamento: ArmazenamentoDeArquivos;
   private readonly logger: Logger;
   private readonly empresaEmissora: DadosDaEmpresaEmissora;
   private readonly agora: () => Date;
@@ -249,6 +264,7 @@ export class ServicoDeOrcamentos
     this.produtos = dependencias.produtos;
     this.usuarios = dependencias.usuarios;
     this.proxy = dependencias.proxy;
+    this.armazenamento = dependencias.armazenamento;
     this.logger = dependencias.logger;
     this.empresaEmissora = dependencias.empresaEmissora;
     this.agora = dependencias.agora ?? (() => new Date());
@@ -476,12 +492,35 @@ export class ServicoDeOrcamentos
    */
   async anexar(
     idOrcamento: number,
-    dados: AnexoAInserir,
+    dados: DadosDoUploadDeAnexo,
     autor: Sessao,
   ): Promise<OrcamentoDetalhado> {
     const orcamento = await this.buscarOuFalhar(idOrcamento);
     this.exigirEditavel(orcamento);
-    await this.orcamentos.inserirAnexo(idOrcamento, dados);
+    // Primeiro o objeto, depois a linha: se salvar falhar, nada é gravado no banco.
+    const caminhoArquivo = await this.armazenamento.salvar({
+      idOrcamento,
+      nomeArquivo: dados.nomeArquivo,
+      tipoConteudo: dados.tipoConteudo,
+      conteudo: dados.conteudo,
+    });
+    try {
+      await this.orcamentos.inserirAnexo(idOrcamento, {
+        tipoAnexo: dados.tipoAnexo,
+        nomeArquivo: dados.nomeArquivo,
+        caminhoArquivo,
+        tamanhoBytes: dados.conteudo.length,
+      });
+    } catch (erro) {
+      // Compensação: sem linha, o objeto ficaria órfão. Falha ao compensar só vira log.
+      await this.armazenamento.remover(caminhoArquivo).catch((falha: unknown) => {
+        this.logger.warn(
+          { evento: 'orcamento_anexo_objeto_orfao', idOrcamento, err: falha },
+          'não foi possível remover o arquivo após falha ao gravar o anexo',
+        );
+      });
+      throw erro;
+    }
     this.logger.info({
       evento: 'orcamento_anexo_adicionado',
       idOrcamento,
@@ -504,8 +543,17 @@ export class ServicoDeOrcamentos
   ): Promise<OrcamentoDetalhado> {
     const orcamento = await this.buscarOuFalhar(idOrcamento);
     this.exigirEditavel(orcamento);
-    await this.buscarAnexoOuFalhar(idOrcamento, idAnexo);
+    const anexo = await this.buscarAnexoOuFalhar(idOrcamento, idAnexo);
     await this.orcamentos.removerAnexo(idAnexo);
+    // Remoção parcial: a linha é a fonte de verdade e já foi removida; se o objeto não puder ser
+    // removido agora, a requisição não falha (o anexo sumiu para o usuário) e o objeto órfão é
+    // registrado em log para limpeza posterior. Repetir a requisição daria 404.
+    await this.armazenamento.remover(anexo.caminhoArquivo).catch((falha: unknown) => {
+      this.logger.warn(
+        { evento: 'orcamento_anexo_objeto_orfao', idOrcamento, idAnexo, err: falha },
+        'anexo removido, mas o arquivo não pôde ser removido do armazenamento',
+      );
+    });
     this.logger.info({
       evento: 'orcamento_anexo_removido',
       idOrcamento,
@@ -513,6 +561,29 @@ export class ServicoDeOrcamentos
       idAutor: autor.idOperador,
     });
     return this.obter(idOrcamento);
+  }
+
+  /**
+   * URL assinada, de curta duração, para baixar o arquivo de um anexo (UC19, RF11).
+   *
+   * @throws {ErroDeOrcamentoNaoEncontrado} Se o orçamento não existir (404).
+   * @throws {ErroDeAnexoNaoEncontrado} Se o anexo não existir neste orçamento ou o arquivo faltar
+   * no armazenamento (404).
+   */
+  async obterUrlDoAnexo(
+    idOrcamento: number,
+    idAnexo: number,
+  ): Promise<{ url: string; expiraEm: string }> {
+    await this.buscarOuFalhar(idOrcamento);
+    const anexo = await this.buscarAnexoOuFalhar(idOrcamento, idAnexo);
+    try {
+      return await this.armazenamento.gerarUrlAssinada(anexo.caminhoArquivo);
+    } catch (erro) {
+      if (erro instanceof ErroDeArquivoNaoEncontrado) {
+        throw new ErroDeAnexoNaoEncontrado();
+      }
+      throw erro;
+    }
   }
 
   /**

@@ -2,6 +2,7 @@
 // e log capturado em memória.
 import type { Express } from 'express';
 import type { Config } from '../config';
+import { ArmazenamentoEmMemoria } from '../dados/armazenamento';
 import { createApp, type DependenciasDoApp } from '../http/app';
 import { criarLogger } from '../log';
 import { ServicoDeSenha } from '../modulos/auth/senha';
@@ -49,6 +50,8 @@ export interface AppDeTeste {
   readonly app: Express;
   readonly proxy: ProxyClienteFalso;
   readonly sessoes: RepositorioDeSessoesEmMemoria;
+  /** Armazenamento de anexos em memória. */
+  readonly armazenamento: ArmazenamentoEmMemoria;
   readonly senhas: ServicoDeSenha;
   /** Linhas de log emitidas, já convertidas de JSON. */
   readonly linhas: Record<string, unknown>[];
@@ -67,14 +70,24 @@ export function montarAppDeTeste(opcoes: OpcoesDoAppDeTeste = {}): AppDeTeste {
     inatividadeMs: config.sessaoInatividadeMs,
     agora: opcoes.agora,
   });
+  const armazenamento = new ArmazenamentoEmMemoria();
   const dependencias: DependenciasDoApp = {
     config,
     logger: criarLogger({ nivel: config.nivelLog, destino }),
     proxy,
     sessoes,
+    armazenamento,
     auth: { senhas, agora: opcoes.agora, ...opcoes.auth },
     notificador: opcoes.notificador,
     notificadorDeRecuperacao: opcoes.notificadorDeRecuperacao,
   };
-  return { app: createApp(dependencias), proxy, sessoes, senhas, linhas, dependencias };
+  return {
+    app: createApp(dependencias),
+    proxy,
+    sessoes,
+    armazenamento,
+    senhas,
+    linhas,
+    dependencias,
+  };
 }

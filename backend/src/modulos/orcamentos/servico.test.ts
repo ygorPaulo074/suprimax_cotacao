@@ -26,6 +26,13 @@ import { ServicoDeOrcamentos } from './servico';
 const LOGGER_SILENCIOSO = criarLogger({ nivel: 'silent', destino: { write: () => undefined } });
 let contador = 0;
 
+const UPLOAD_DE_FICHA = {
+  tipoAnexo: 'DESCRITIVO_TECNICO',
+  nomeArquivo: 'ficha.pdf',
+  tipoConteudo: 'application/pdf',
+  conteudo: Buffer.from('conteúdo da ficha'),
+} as const;
+
 function sessaoDoOperador(idOperador: number, usuario = 'operador'): Sessao {
   return {
     idOperador,
@@ -43,6 +50,7 @@ function montarServico(cenario: CenarioDeCadastros): ServicoDeOrcamentos {
     produtos: new RepositorioDeProdutos(cenario.proxy),
     usuarios: new RepositorioDeUsuarios(cenario.proxy),
     proxy: cenario.proxy,
+    armazenamento: cenario.armazenamento,
     logger: LOGGER_SILENCIOSO,
     empresaEmissora: CONFIG_DE_TESTE.empresaEmissora,
   });
@@ -253,11 +261,7 @@ describe('ServicoDeOrcamentos', () => {
         sessao,
       );
 
-      const comAnexo = await servico.anexar(
-        idOrcamento,
-        { tipoAnexo: 'DESCRITIVO_TECNICO', nomeArquivo: 'ficha.pdf', tamanhoBytes: 2048 },
-        sessao,
-      );
+      const comAnexo = await servico.anexar(idOrcamento, { ...UPLOAD_DE_FICHA }, sessao);
 
       expect(comAnexo.anexos).toEqual([
         expect.objectContaining({ tipoAnexo: 'DESCRITIVO_TECNICO', nomeArquivo: 'ficha.pdf' }),
@@ -269,6 +273,117 @@ describe('ServicoDeOrcamentos', () => {
 
       const semAnexo = await servico.removerAnexo(idOrcamento, idAnexo, sessao);
       expect(semAnexo.anexos).toEqual([]);
+    });
+
+    async function prepararOrcamento(cenario: CenarioDeCadastros) {
+      const servico = montarServico(cenario);
+      const idOperador = cenario.semearUsuario('OPERADOR', 'quem-anexa');
+      const idCliente = semearCliente(cenario);
+      const sessao = sessaoDoOperador(idOperador, 'quem-anexa');
+      const { idOrcamento } = await servico.criar(
+        { idCliente, numeroSolicitacaoCompra: null, contatoSolicitacao: null },
+        sessao,
+      );
+      return { servico, sessao, idOrcamento };
+    }
+
+    it('grava os bytes no armazenamento e o caminho real na linha', async () => {
+      const cenario = montarCenarioDeCadastros();
+      const { servico, sessao, idOrcamento } = await prepararOrcamento(cenario);
+
+      await servico.anexar(idOrcamento, UPLOAD_DE_FICHA, sessao);
+
+      const [linha] = cenario.banco.linhas('anexo_orcamento');
+      const caminho = linha?.caminho_arquivo as string;
+      expect(cenario.armazenamento.objetos.get(caminho)?.conteudo).toEqual(
+        UPLOAD_DE_FICHA.conteudo,
+      );
+      expect(linha?.tamanho_bytes).toBe(UPLOAD_DE_FICHA.conteudo.length);
+    });
+
+    it('não grava a linha quando salvar o arquivo falha', async () => {
+      const cenario = montarCenarioDeCadastros();
+      const { servico, sessao, idOrcamento } = await prepararOrcamento(cenario);
+      cenario.armazenamento.falharAoSalvar = true;
+
+      await expect(servico.anexar(idOrcamento, UPLOAD_DE_FICHA, sessao)).rejects.toMatchObject({
+        status: 503,
+      });
+
+      expect(cenario.banco.linhas('anexo_orcamento')).toEqual([]);
+      expect(cenario.armazenamento.objetos.size).toBe(0);
+    });
+
+    it('remove o objeto quando gravar a linha falha (compensação)', async () => {
+      const cenario = montarCenarioDeCadastros();
+      const { servico, sessao, idOrcamento } = await prepararOrcamento(cenario);
+      const espiao = jest
+        .spyOn(RepositorioDeOrcamentos.prototype, 'inserirAnexo')
+        .mockRejectedValueOnce(new Error('banco fora'));
+
+      await expect(servico.anexar(idOrcamento, UPLOAD_DE_FICHA, sessao)).rejects.toThrow(
+        'banco fora',
+      );
+
+      espiao.mockRestore();
+      expect(cenario.armazenamento.objetos.size).toBe(0);
+    });
+
+    it('mantém o erro original quando a compensação também falha', async () => {
+      const cenario = montarCenarioDeCadastros();
+      const { servico, sessao, idOrcamento } = await prepararOrcamento(cenario);
+      const espiao = jest
+        .spyOn(RepositorioDeOrcamentos.prototype, 'inserirAnexo')
+        .mockRejectedValueOnce(new Error('banco fora'));
+      cenario.armazenamento.falharAoRemover = true;
+
+      await expect(servico.anexar(idOrcamento, UPLOAD_DE_FICHA, sessao)).rejects.toThrow(
+        'banco fora',
+      );
+
+      espiao.mockRestore();
+    });
+
+    it('remove a linha e o objeto ao remover o anexo', async () => {
+      const cenario = montarCenarioDeCadastros();
+      const { servico, sessao, idOrcamento } = await prepararOrcamento(cenario);
+      const comAnexo = await servico.anexar(idOrcamento, UPLOAD_DE_FICHA, sessao);
+
+      await servico.removerAnexo(idOrcamento, comAnexo.anexos[0]?.idAnexo as number, sessao);
+
+      expect(cenario.armazenamento.objetos.size).toBe(0);
+      expect(cenario.banco.linhas('anexo_orcamento')).toEqual([]);
+    });
+
+    it('não falha se o objeto não puder ser removido depois da linha', async () => {
+      const cenario = montarCenarioDeCadastros();
+      const { servico, sessao, idOrcamento } = await prepararOrcamento(cenario);
+      const comAnexo = await servico.anexar(idOrcamento, UPLOAD_DE_FICHA, sessao);
+      cenario.armazenamento.falharAoRemover = true;
+
+      const semAnexo = await servico.removerAnexo(
+        idOrcamento,
+        comAnexo.anexos[0]?.idAnexo as number,
+        sessao,
+      );
+
+      expect(semAnexo.anexos).toEqual([]);
+      expect(cenario.armazenamento.objetos.size).toBe(1);
+    });
+
+    it('gera a URL assinada do anexo e rejeita anexo de outro orçamento', async () => {
+      const cenario = montarCenarioDeCadastros();
+      const { servico, sessao, idOrcamento } = await prepararOrcamento(cenario);
+      const comAnexo = await servico.anexar(idOrcamento, UPLOAD_DE_FICHA, sessao);
+      const idAnexo = comAnexo.anexos[0]?.idAnexo as number;
+
+      const assinada = await servico.obterUrlDoAnexo(idOrcamento, idAnexo);
+
+      expect(assinada.url).toContain('https://');
+      expect(Number.isNaN(Date.parse(assinada.expiraEm))).toBe(false);
+      await expect(servico.obterUrlDoAnexo(idOrcamento, 999)).rejects.toBeInstanceOf(
+        ErroDeAnexoNaoEncontrado,
+      );
     });
 
     it('rejeita anexar quando o orçamento não está mais editável', async () => {
@@ -297,7 +412,7 @@ describe('ServicoDeOrcamentos', () => {
       await expect(
         servico.anexar(
           idOrcamento,
-          { tipoAnexo: 'MATERIAL_APOIO', nomeArquivo: 'catalogo.pdf', tamanhoBytes: 1024 },
+          { ...UPLOAD_DE_FICHA, tipoAnexo: 'MATERIAL_APOIO', nomeArquivo: 'catalogo.pdf' },
           sessao,
         ),
       ).rejects.toBeInstanceOf(ErroDeOrcamentoNaoEditavel);

@@ -41,6 +41,7 @@ function montarServicos(cenario: CenarioDeCadastros): {
     produtos: new RepositorioDeProdutos(cenario.proxy),
     usuarios: new RepositorioDeUsuarios(cenario.proxy),
     proxy: cenario.proxy,
+    armazenamento: cenario.armazenamento,
     logger: LOGGER_SILENCIOSO,
     empresaEmissora: CONFIG_DE_TESTE.empresaEmissora,
   });

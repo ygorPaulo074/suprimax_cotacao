@@ -70,6 +70,10 @@ async function montar() {
     request(cenario.app)
       .delete(`/orcamentos/${idOrcamento}/anexos/${idAnexo}`)
       .set('Authorization', autorizacao);
+  const baixarAnexo = (idAnexo: number, autorizacao = operador.autorizacao) =>
+    request(cenario.app)
+      .get(`/orcamentos/${idOrcamento}/anexos/${idAnexo}`)
+      .set('Authorization', autorizacao);
   const baixarPdf = (id: number = idOrcamento, autorizacao = operador.autorizacao) =>
     request(cenario.app).get(`/orcamentos/${id}/pdf`).set('Authorization', autorizacao);
   const enviarOrcamento = (id: number = idOrcamento, autorizacao = operador.autorizacao) =>
@@ -94,6 +98,7 @@ async function montar() {
     idOrcamento,
     anexar,
     remover,
+    baixarAnexo,
     baixarPdf,
     enviarOrcamento,
     emitir,
@@ -182,6 +187,76 @@ describe('DELETE /orcamentos/:id/anexos/:idAnexo (UC19)', () => {
     const resposta = await remover(999);
 
     expect(resposta.status).toBe(404);
+  });
+});
+
+describe('armazenamento dos anexos (UC19, RF11)', () => {
+  it('guarda os bytes enviados e grava o caminho devolvido pelo armazenamento', async () => {
+    const { anexar, armazenamento, banco } = await montar();
+
+    const resposta = await anexar('DESCRITIVO_TECNICO', 'bytes do arquivo', 'ficha.pdf');
+
+    expect(resposta.status).toBe(200);
+    const [linha] = banco.linhas('anexo_orcamento');
+    const objeto = armazenamento.objetos.get(linha?.caminho_arquivo as string);
+    expect(objeto?.conteudo.toString()).toBe('bytes do arquivo');
+    expect(JSON.stringify(resposta.body)).not.toContain(linha?.caminho_arquivo as string);
+  });
+
+  it('responde 503 e não grava a linha se o armazenamento estiver fora do ar', async () => {
+    const { anexar, armazenamento, banco } = await montar();
+    armazenamento.falharAoSalvar = true;
+
+    const resposta = await anexar('DESCRITIVO_TECNICO', 'bytes', 'ficha.pdf');
+
+    expect(resposta.status).toBe(503);
+    expect(banco.linhas('anexo_orcamento')).toEqual([]);
+  });
+
+  it('remove o objeto ao remover o anexo', async () => {
+    const { anexar, remover, armazenamento } = await montar();
+    const { body } = await anexar('MATERIAL_APOIO', 'bytes', 'catalogo.pdf');
+
+    await remover(body.anexos[0].idAnexo as number);
+
+    expect(armazenamento.objetos.size).toBe(0);
+  });
+});
+
+describe('GET /orcamentos/:id/anexos/:idAnexo (UC19, RF11)', () => {
+  it('responde 200 com a URL assinada e a expiração, sem expor o caminho', async () => {
+    const { anexar, baixarAnexo, banco } = await montar();
+    const { body } = await anexar('DESCRITIVO_TECNICO', 'bytes', 'ficha.pdf');
+
+    const resposta = await baixarAnexo(body.anexos[0].idAnexo as number);
+
+    expect(resposta.status).toBe(200);
+    expect(resposta.body).toEqual({
+      url: expect.stringContaining('https://'),
+      expiraEm: expect.any(String),
+    });
+    const [linha] = banco.linhas('anexo_orcamento');
+    expect(Object.keys(resposta.body)).toEqual(['url', 'expiraEm']);
+    expect(linha?.caminho_arquivo).toEqual(expect.any(String));
+  });
+
+  it('responde 404 para um anexo que não é deste orçamento', async () => {
+    const { baixarAnexo } = await montar();
+
+    const resposta = await baixarAnexo(999);
+
+    expect(resposta.status).toBe(404);
+    expect(resposta.body.codigo).toBe('ANEXO_NAO_ENCONTRADO');
+  });
+
+  it('responde 403 para quem não é OPERADOR/OPERADOR_CHEFE', async () => {
+    const { anexar, baixarAnexo, entrarComo } = await montar();
+    const { body } = await anexar('DESCRITIVO_TECNICO', 'bytes', 'ficha.pdf');
+    const financeiro = await entrarComo('FINANCEIRO');
+
+    const resposta = await baixarAnexo(body.anexos[0].idAnexo as number, financeiro.autorizacao);
+
+    expect(resposta.status).toBe(403);
   });
 });
 

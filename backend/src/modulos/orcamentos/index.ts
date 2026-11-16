@@ -2,6 +2,7 @@
 import type { Router } from 'express';
 import type { DadosDaEmpresaEmissora } from '../../config';
 import type { ClienteDeProxy } from '../../dados';
+import { ArmazenamentoViaProxy, type ArmazenamentoDeArquivos } from '../../dados/armazenamento';
 import type { Logger } from '../../log';
 import type { RepositorioDeSessoes } from '../auth/sessoes';
 import { RepositorioDeClientes } from '../clientes/repositorio';
@@ -20,6 +21,8 @@ export interface DependenciasDoModuloDeOrcamentos {
   readonly proxy: ClienteDeProxy;
   readonly sessoes: RepositorioDeSessoes;
   readonly logger: Logger;
+  /** Guarda os bytes dos anexos (UC19, RF11); por padrão, o Storage via proxy. */
+  readonly armazenamento?: ArmazenamentoDeArquivos;
   /** Cabeçalho/rodapé do PDF de orçamento (UC19, docs/09). */
   readonly empresaEmissora: DadosDaEmpresaEmissora;
   readonly agora?: () => Date;
@@ -41,6 +44,7 @@ export function criarModuloDeOrcamentos(
     produtos: new RepositorioDeProdutos(dependencias.proxy),
     usuarios: new RepositorioDeUsuarios(dependencias.proxy),
     proxy: dependencias.proxy,
+    armazenamento: dependencias.armazenamento ?? new ArmazenamentoViaProxy(dependencias.proxy),
     logger: dependencias.logger,
     empresaEmissora: dependencias.empresaEmissora,
     agora: dependencias.agora,

@@ -42,9 +42,9 @@ const esquemaDeParametrosDoItem = esquemaDeParametroId.extend({ idItem: esquemaD
 const esquemaDeParametrosDoAnexo = esquemaDeParametroId.extend({ idAnexo: esquemaDeIdNaRota });
 
 /**
- * Recebe o anexo em memória (nenhum armazenamento de arquivos está configurado neste projeto,
- * ver `repositorio.ts`/`CAMINHO_ARQUIVO_NAO_ARMAZENADO`) e converte qualquer erro do multer (ex.:
- * arquivo grande demais) em `AppError`, para o `tratamentoDeErros` central responder certo.
+ * Recebe o anexo em memória (o serviço o envia ao armazenamento de arquivos, via proxy) e converte
+ * qualquer erro do multer (ex.: arquivo grande demais) em `AppError`, para o `tratamentoDeErros`
+ * central responder certo.
  */
 const receberAnexo = multer({
   storage: multer.memoryStorage(),
@@ -85,7 +85,8 @@ export interface DependenciasDasRotasDeOrcamentos {
  * - `POST /orcamentos/:id/emitir`: emissão (UC19), 422 com `detalhes.bloqueios` se houver
  *   pendência;
  * - `POST /orcamentos/:id/cancelar`: cancelamento, com justificativa opcional.
- * - `POST`/`DELETE` em `/anexos`: upload (multipart, campo `arquivo`) e remoção de anexos (UC19).
+ * - `POST`/`DELETE` em `/anexos`: upload (multipart, campo `arquivo`) e remoção de anexos (UC19);
+ *   `GET /anexos/:idAnexo`: URL assinada de curta duração para baixar o arquivo.
  * - `GET /orcamentos/:id/pdf`: PDF do orçamento (docs/09), como `application/pdf` binário.
  * - `POST /orcamentos/:id/enviar`: disponibiliza o orçamento ao vendedor (UC08).
  */
@@ -214,11 +215,21 @@ export function criarRotasDeOrcamentos({
           {
             tipoAnexo,
             nomeArquivo: req.file.originalname,
-            tamanhoBytes: req.file.size,
+            tipoConteudo: req.file.mimetype,
+            conteudo: req.file.buffer,
           },
           obterSessao(res),
         ),
       );
+    }),
+  );
+
+  rotas.get(
+    ROTAS_DE_ORCAMENTOS.ANEXO_DO_ORCAMENTO,
+    operador,
+    rotaAssincrona(async (req, res) => {
+      const { id, idAnexo } = validarEntrada(esquemaDeParametrosDoAnexo, req.params);
+      res.status(STATUS_HTTP.OK).json(await servico.obterUrlDoAnexo(id, idAnexo));
     }),
   );
 
