@@ -147,7 +147,7 @@ Onde uma restrição CHECK não alcança outra tabela, a regra é implementada p
 |---|---|
 | Numeração do orçamento | Sequence própria, crescente e sem limite superior (BIGINT), UNIQUE em numero_orcamento; o número é obtido na emissão e o campo é nulo em rascunho. Única e crescente, sem vínculo com a data; lacunas são admitidas, pois a sequence do banco não garante ausência de buracos. |
 | Disponibilidade de estoque | CHECK quantidade_estoque ≥ 0 em variacao_produto. Gatilho em reserva_estoque impede reservar mais do que o saldo disponível (físico − reservas vigentes) no momento da emissão; o rascunho não reserva. |
-| Divergência na entrada de mercadoria | CHECK em entrada_mercadoria: quantidade_comprada = quantidade_informada, ou id_operador_liberacao e data_liberacao preenchidos; gatilho confirma perfil OPERADOR_CHEFE do liberador. |
+| Divergência na entrada de mercadoria | CHECK em entrada_mercadoria: quantidade_comprada = quantidade_informada, ou id_operador_liberacao e data_liberacao preenchidos; gatilho confirma perfil OPERADOR_CHEFE ou ADMIN do liberador. |
 | Justificativa de cancelamento/recusa | A justificativa é opcional em orcamento e em resposta_orcamento (aceita nulo ou vazio); não há tamanho mínimo. |
 | Consentimento LGPD | aceite_lgpd NN com CHECK = TRUE e data_aceite_lgpd NN, em cliente. |
 | Integridade do endereço de entrega | Gatilho em orcamento valida, na emissão, que id_endereco_entrega pertence ao mesmo id_cliente do orçamento; caso contrário, a emissão é rejeitada. |

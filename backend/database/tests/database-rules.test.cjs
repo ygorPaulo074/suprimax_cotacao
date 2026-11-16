@@ -143,6 +143,33 @@ test('aceita o perfil ADMIN e continua recusando valores fora da lista', { skip:
   });
 });
 
+test('o ADMIN libera divergência na entrada de mercadoria; o FISCAL continua sem poder', { skip: !enabled }, async () => {
+  await withRollback(async () => {
+    const fixture = await createFixture();
+    const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const admin = await db.query(
+      `INSERT INTO operador(usuario,email,senha_hash,perfil) VALUES ($1,$2,'hash','ADMIN') RETURNING id_operador`,
+      [`adm-${suffix}`, `adm-${suffix}@example.test`],
+    );
+    const fiscal = await db.query(
+      `INSERT INTO operador(usuario,email,senha_hash,perfil) VALUES ($1,$2,'hash','FISCAL') RETURNING id_operador`,
+      [`fis-${suffix}`, `fis-${suffix}@example.test`],
+    );
+    const fornecedor = await db.query(
+      `INSERT INTO fornecedor(cnpj,razao_social) VALUES ($1,'Fornecedor de teste') RETURNING id_fornecedor`,
+      [String(Date.now()).padStart(14, '0').slice(-14)],
+    );
+    const entrada = (idLiberacao) =>
+      db.query(
+        `INSERT INTO entrada_mercadoria(id_variacao,id_fornecedor,id_operador,quantidade_comprada,quantidade_informada,id_operador_liberacao,data_liberacao)
+         VALUES ($1,$2,$3,10,9,$4,CURRENT_TIMESTAMP)`,
+        [fixture.variationId, fornecedor.rows[0].id_fornecedor, fixture.operatorId, idLiberacao],
+      );
+    await entrada(admin.rows[0].id_operador);
+    await assert.rejects(entrada(fiscal.rows[0].id_operador), /LIBERADOR_NAO_E_OPERADOR_CHEFE/);
+  });
+});
+
 test('rejeita quantidade de estoque negativa', { skip: !enabled }, async () => {
   await withRollback(async () => {
     const product = await db.query(`INSERT INTO produto(codigo_interno,descricao) VALUES ('TEST-NEG-STOCK','Teste') RETURNING id_produto`);
