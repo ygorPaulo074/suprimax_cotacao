@@ -37,6 +37,9 @@ export const orcamentosApi = {
     form.append('arquivo', arquivo);
     return api.upload<OrcamentoDetalhe>(`/orcamentos/${id}/anexos`, form);
   },
+  /** URL assinada (300 s) para abrir o anexo; 404 ANEXO_NAO_ENCONTRADO. */
+  urlDoAnexo: (id: number, idAnexo: number) =>
+    api.get<{ url: string; expiraEm: string }>(`/orcamentos/${id}/anexos/${idAnexo}`),
   removerAnexo: (id: number, idAnexo: number) =>
     api.delete<OrcamentoDetalhe>(`/orcamentos/${id}/anexos/${idAnexo}`),
 

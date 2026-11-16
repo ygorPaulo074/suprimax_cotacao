@@ -9,4 +9,7 @@ export const authApi = {
   logout: () => api.post<void>('/auth/logout'),
   /** Envia o link de recuperação ao e-mail corporativo; a resposta é sempre 204. */
   recuperarSenha: (email: string) => api.post<void>('/auth/recuperar-senha', { email }),
+  /** 204 | 422 TOKEN_RECUPERACAO_INVALIDO (inválido, expirado ou já usado). Encerra as sessões do operador. */
+  redefinirSenha: (token: string, novaSenha: string) =>
+    api.post<void>('/auth/redefinir-senha', { token, novaSenha }),
 };

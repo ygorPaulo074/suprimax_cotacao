@@ -23,7 +23,7 @@ Fonte do contrato (código): `frontend/src/api/types.ts` (tipos) e um arquivo po
 | 1 · UC13 Login | `POST /auth/login` | `{usuario, senha}` → `{token, usuario: Sessao}`; `401 CREDENCIAIS_INVALIDAS`; `403 USUARIO_INATIVO`; `423 CONTA_BLOQUEADA` (`detalhes.bloqueadoAte`, após 3 tentativas); `429 LIMITE_EXCEDIDO` (muitas falhas do mesmo IP) | todos |
 | | `GET /auth/me` · `POST /auth/logout` | `Sessao` · 204 | todos |
 | | `POST /auth/recuperar-senha` | `{email}` → 204 (sempre) | — |
-| | `POST /auth/redefinir-senha` | `{token, novaSenha}` → 204; `422 TOKEN_RECUPERACAO_INVALIDO` (inválido/expirado/já usado); encerra as sessões do operador. Rota nova do backend (UC13): o frontend ainda não tem a tela que a consome — ver "Pontos a confirmar". | — |
+| | `POST /auth/redefinir-senha` | `{token, novaSenha}` → 204; `422 TOKEN_RECUPERACAO_INVALIDO` (inválido/expirado/já usado); encerra as sessões do operador. Rota nova do backend (UC13): o frontend a consome na tela `/redefinir-senha`, que lê o `?token=` da URL (o backend ainda não monta o link do e-mail). | — |
 | 2 · UC10 Pedidos | `GET /pedidos?status=` | `{itens: PedidoResumo[], indicadores}` | Operador, Chefe |
 | | `POST /pedidos/:id/assumir` | `pedido.assumir` → `PedidoDetalhe`; `409 PEDIDO_JA_ASSUMIDO` | Operador, Chefe |
 | 3 · UC10 Análise | `GET /pedidos/:id` | `PedidoDetalhe` (itens com saldo, situação do cliente) | Operador, Chefe |

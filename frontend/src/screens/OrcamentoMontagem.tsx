@@ -35,6 +35,18 @@ import {
   SkeletonTabela,
 } from '@/components/ui';
 
+/** Mensagens claras para as falhas do envio de anexo (limite de 10 MB; proxy ou armazenamento fora do ar). */
+function mensagemDoUpload(erro: unknown): string {
+  if (erro instanceof ApiError) {
+    if (erro.status === 413) return 'O arquivo é maior que 10 MB. Envie um arquivo menor.';
+    if (erro.status === 503)
+      return 'O serviço de arquivos está indisponível no momento. Aguarde alguns instantes e tente novamente.';
+    if (erro.status >= 500)
+      return 'Não foi possível salvar o anexo por um erro interno. Tente novamente.';
+  }
+  return mensagemDeErro(erro);
+}
+
 function descricaoPrecos(v: VariacaoProduto): string {
   const faixas = [...v.faixasPreco].sort((a, b) => a.quantidadeMinima - b.quantidadeMinima);
   const partes = faixas.map((f, i) => {
@@ -197,6 +209,12 @@ export default function OrcamentoMontagem({ orcamento }: { orcamento: OrcamentoD
     mutationFn: (v: { tipo: TipoAnexo; arquivo: File }) =>
       orcamentosApi.anexar(id, v.tipo, v.arquivo),
     onSuccess: aplicar,
+  });
+  const abrirAnexo = useMutation({
+    mutationFn: (idAnexo: number) => orcamentosApi.urlDoAnexo(id, idAnexo),
+    onSuccess: ({ url }) => {
+      window.open(url, '_blank', 'noopener');
+    },
   });
   const removerAnexo = useMutation({
     mutationFn: (idAnexo: number) => orcamentosApi.removerAnexo(id, idAnexo),
@@ -517,6 +535,14 @@ export default function OrcamentoMontagem({ orcamento }: { orcamento: OrcamentoD
                   </span>
                   <button
                     type="button"
+                    className="mr-3 text-xs underline"
+                    disabled={abrirAnexo.isPending}
+                    onClick={() => abrirAnexo.mutate(a.idAnexo)}
+                  >
+                    Abrir
+                  </button>
+                  <button
+                    type="button"
                     className="text-xs underline"
                     onClick={() => removerAnexo.mutate(a.idAnexo)}
                   >
@@ -538,7 +564,10 @@ export default function OrcamentoMontagem({ orcamento }: { orcamento: OrcamentoD
                   />
                 </label>
               ))}
-              {anexar.isError && <Alerta className="mt-2">{mensagemDeErro(anexar.error)}</Alerta>}
+              {anexar.isError && <Alerta className="mt-2">{mensagemDoUpload(anexar.error)}</Alerta>}
+              {abrirAnexo.isError && (
+                <Alerta className="mt-2">{mensagemDeErro(abrirAnexo.error)}</Alerta>
+              )}
             </div>
 
             <Bloqueios bloqueios={c.bloqueios} />
