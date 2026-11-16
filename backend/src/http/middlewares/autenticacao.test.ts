@@ -96,7 +96,7 @@ describe('exigirSessao', () => {
 });
 
 describe('exigirPerfil', () => {
-  it.each(PERFIS.map((perfil) => [perfil, ['OPERADOR_CHEFE', 'GESTOR'].includes(perfil)]))(
+  it.each(PERFIS.map((perfil) => [perfil, ['OPERADOR_CHEFE', 'GESTOR', 'ADMIN'].includes(perfil)]))(
     'perfil %s: liberado = %s',
     async (perfil, liberado) => {
       const { app, token } = await montar({ ...SESSAO, perfil });

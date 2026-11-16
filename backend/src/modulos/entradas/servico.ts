@@ -17,8 +17,8 @@ import type { RepositorioDeFornecedores } from '../fornecedores/repositorio';
 import type { DadosDaEntradaNova } from './esquemas';
 import { OPERACOES_DE_ENTRADAS, type RepositorioDeEntradas } from './repositorio';
 
-/** Perfil exigido para liberar uma divergência (RF19). */
-const PERFIL_DE_LIBERACAO = 'OPERADOR_CHEFE';
+/** Perfis aceitos para liberar uma divergência (RF19). */
+const PERFIS_DE_LIBERACAO: readonly string[] = ['OPERADOR_CHEFE', 'ADMIN'];
 
 export interface DependenciasDoServicoDeEntradas {
   readonly entradas: RepositorioDeEntradas;
@@ -113,7 +113,7 @@ export class ServicoDeEntradas {
 
   /**
    * Confere as credenciais informadas na liberação: usuário existente, senha correta e perfil
-   * OPERADOR_CHEFE. Devolve o operador liberador, ou lança `ErroDeLiberacaoNegada`.
+   * OPERADOR_CHEFE ou ADMIN. Devolve o operador liberador, ou lança `ErroDeLiberacaoNegada`.
    */
   private async exigirLiberacao(dados: DadosDaEntradaNova): Promise<{ idOperador: number }> {
     if (!dados.liberacao) {
@@ -123,7 +123,7 @@ export class ServicoDeEntradas {
     if (
       !credenciais ||
       credenciais.status !== 'ATIVO' ||
-      credenciais.perfil !== PERFIL_DE_LIBERACAO
+      !PERFIS_DE_LIBERACAO.includes(credenciais.perfil)
     ) {
       await this.senhas.simularVerificacao(dados.liberacao.senha);
       throw new ErroDeLiberacaoNegada();

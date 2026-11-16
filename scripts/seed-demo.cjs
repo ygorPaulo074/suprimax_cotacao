@@ -33,6 +33,8 @@ const OPERADORES = [
   ['fiscal', 'FISCAL'],
   ['financeiro', 'FINANCEIRO'],
   ['gestor', 'GESTOR'],
+  // ADMIN: acesso total. Usa a mesma senha de demonstração (SENHA_DEMO); NUNCA reutilizar em produção.
+  ['adm', 'ADMIN'],
 ];
 
 // [cnpj, razão social, fantasia, contato, telefone, tipo_unidade, vendedor]
