@@ -130,6 +130,19 @@ test('rejeita perfil de operador fora da lista aprovada', { skip: !enabled }, as
   });
 });
 
+test('aceita o perfil ADMIN e continua recusando valores fora da lista', { skip: !enabled }, async () => {
+  await withRollback(async () => {
+    const admin = await db.query(
+      `INSERT INTO operador(usuario,email,senha_hash,perfil) VALUES ('admin-role','admin-role@example.test','hash','ADMIN') RETURNING perfil`,
+    );
+    assert.equal(admin.rows[0].perfil, 'ADMIN');
+    await assert.rejects(
+      db.query(`INSERT INTO operador(usuario,email,senha_hash,perfil) VALUES ('admin-minusculo','admin-minusculo@example.test','hash','admin')`),
+      (error) => error.code === '23514',
+    );
+  });
+});
+
 test('rejeita quantidade de estoque negativa', { skip: !enabled }, async () => {
   await withRollback(async () => {
     const product = await db.query(`INSERT INTO produto(codigo_interno,descricao) VALUES ('TEST-NEG-STOCK','Teste') RETURNING id_produto`);
