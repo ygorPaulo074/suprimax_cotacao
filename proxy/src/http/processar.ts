@@ -12,6 +12,7 @@ import {
 import type { RepositorioIntegrantes } from '../auth/integrantes';
 import { exigirEscopos } from '../auth/escopos';
 import { ErroBanco, type Executor } from '../banco/executor';
+import { Armazenamento } from '../armazenamento/armazenamento';
 import type { Config } from '../config';
 import { AppError, corpoDoErro } from '../erros';
 import type { Esquema } from '../esquema/esquema';
@@ -33,6 +34,8 @@ export interface DepsServidor {
   replay: CacheReplay;
   logger: Logger;
   agora: () => Date;
+  /** Storage de anexos; se ausente, é criado a partir da config (SUPABASE_URL e chave de serviço). */
+  armazenamento?: Armazenamento;
 }
 
 export interface Requisicao {
@@ -58,6 +61,18 @@ function normalizarErro(e: unknown): AppError {
     return new AppError('PAYLOAD_INVALIDO', undefined, e.message);
   }
   return new AppError('INTERNAL_ERROR', undefined, e instanceof Error ? e.message : String(e));
+}
+
+const ARMAZENAMENTOS = new WeakMap<DepsServidor, Armazenamento>();
+
+function armazenamentoDe(deps: DepsServidor): Armazenamento {
+  if (deps.armazenamento) return deps.armazenamento;
+  let a = ARMAZENAMENTOS.get(deps);
+  if (!a) {
+    a = new Armazenamento(deps.config.supabaseUrl, deps.config.supabaseServiceRoleKey);
+    ARMAZENAMENTOS.set(deps, a);
+  }
+  return a;
 }
 
 export async function processar(deps: DepsServidor, req: Requisicao): Promise<Resposta> {
@@ -100,6 +115,7 @@ export async function processar(deps: DepsServidor, req: Requisicao): Promise<Re
         agora: deps.agora,
       },
       credenciais: podeLerCredenciais(auth.escopos),
+      armazenamento: armazenamentoDe(deps),
       registrarRisco: (r) => {
         risco = r;
       },

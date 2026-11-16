@@ -4,6 +4,7 @@ import type { ContextoAutenticado } from '../auth/autenticacao';
 import type { RepositorioIntegrantes } from '../auth/integrantes';
 import type { ResultadoRisco } from '../auditoria/auditoria';
 import type { Executor } from '../banco/executor';
+import type { Armazenamento } from '../armazenamento/armazenamento';
 import type { Esquema } from '../esquema/esquema';
 
 export interface DepsOperacoes {
@@ -19,6 +20,8 @@ export interface ContextoOperacao {
   deps: DepsOperacoes;
   /** O integrante pode ler as colunas sensíveis (escopo operador.credenciais:consultar). */
   credenciais: boolean;
+  /** Storage de anexos (UC19); ausente só em testes que não o usam. */
+  armazenamento?: Armazenamento;
   registrarRisco(resultado: ResultadoRisco): void;
 }
 
