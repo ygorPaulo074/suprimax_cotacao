@@ -5,6 +5,20 @@ import { processar, type DepsServidor } from './processar';
 
 type RequisicaoComCorpo = Request & { corpoBruto?: string };
 
+const LIMITE_CORPO_PADRAO = 1024 * 1024;
+const LIMITE_CORPO_ARQUIVO = '14mb';
+
+/**
+ * Corpo acima de 1 MB só vale para arquivo.salvar. O token é autenticado depois da leitura do
+ * corpo (a assinatura cobre o corpo bruto), então um cliente sem credencial ainda pode forçar a
+ * leitura de até 14 MB; o rate limit por IP, aplicado antes, contém esse abuso.
+ */
+function conferirLimite(req: RequisicaoComCorpo): boolean {
+  const tamanho = Buffer.byteLength(req.corpoBruto ?? '', 'utf8');
+  if (tamanho <= LIMITE_CORPO_PADRAO) return true;
+  return (req.body as { operacao?: unknown } | null)?.operacao === 'arquivo.salvar';
+}
+
 export function criarApp(deps: DepsServidor): express.Express {
   const app = express();
   app.disable('x-powered-by');
@@ -30,12 +44,22 @@ export function criarApp(deps: DepsServidor): express.Express {
     '/executar',
     limitador,
     // O corpo bruto entra na chave anti-replay: cada requisição idêntica só vale uma vez.
+    // O limite de 14 MB existe só para arquivo.salvar (10 MB em base64); qualquer outra operação
+    // acima de 1 MB é recusada logo após a leitura do corpo (ver conferirLimite).
     express.json({
-      limit: '1mb',
+      limit: LIMITE_CORPO_ARQUIVO,
       verify: (req, _res, buf) => {
         (req as RequisicaoComCorpo).corpoBruto = buf.toString('utf8');
       },
     }),
+    (req: RequisicaoComCorpo, res: Response, next: NextFunction) => {
+      if (!conferirLimite(req)) {
+        const erro = new AppError('PAYLOAD_INVALIDO', undefined, 'corpo acima de 1 MB');
+        res.status(erro.status).json(corpoDoErro(erro));
+        return;
+      }
+      next();
+    },
     async (req: RequisicaoComCorpo, res: Response) => {
       const resposta = await processar(deps, {
         headers: req.headers,

@@ -23,6 +23,7 @@ Fonte do contrato (código): `frontend/src/api/types.ts` (tipos) e um arquivo po
 | 1 · UC13 Login | `POST /auth/login` | `{usuario, senha}` → `{token, usuario: Sessao}`; `401 CREDENCIAIS_INVALIDAS`; `403 USUARIO_INATIVO`; `423 CONTA_BLOQUEADA` (`detalhes.bloqueadoAte`, após 3 tentativas); `429 LIMITE_EXCEDIDO` (muitas falhas do mesmo IP) | todos |
 | | `GET /auth/me` · `POST /auth/logout` | `Sessao` · 204 | todos |
 | | `POST /auth/recuperar-senha` | `{email}` → 204 (sempre) | — |
+| | `POST /auth/redefinir-senha` | `{token, novaSenha}` → 204; `422 TOKEN_RECUPERACAO_INVALIDO` (inválido/expirado/já usado); encerra as sessões do operador. Rota nova do backend (UC13): o frontend ainda não tem a tela que a consome — ver "Pontos a confirmar". | — |
 | 2 · UC10 Pedidos | `GET /pedidos?status=` | `{itens: PedidoResumo[], indicadores}` | Operador, Chefe |
 | | `POST /pedidos/:id/assumir` | `pedido.assumir` → `PedidoDetalhe`; `409 PEDIDO_JA_ASSUMIDO` | Operador, Chefe |
 | 3 · UC10 Análise | `GET /pedidos/:id` | `PedidoDetalhe` (itens com saldo, situação do cliente) | Operador, Chefe |
@@ -38,6 +39,7 @@ Fonte do contrato (código): `frontend/src/api/types.ts` (tipos) e um arquivo po
 | | `PATCH` / `DELETE /orcamentos/:id/itens/:idItem` | `{quantidade}` / — | idem |
 | | `PUT /orcamentos/:id/condicoes` | `CondicoesAtualizar` | idem |
 | | `POST /orcamentos/:id/anexos` (multipart) · `DELETE …/anexos/:idAnexo` | `tipoAnexo`, `arquivo` | idem |
+| | `GET /orcamentos/:id/anexos/:idAnexo` | — → `{ url, expiraEm }` (URL assinada); `404 ANEXO_NAO_ENCONTRADO` | idem |
 | | `POST /orcamentos/:id/emitir` | `orcamento.emitir`; `422` com bloqueio (ex.: `ESTOQUE_INSUFICIENTE`) | idem |
 | | `GET /produtos/busca?q&marca&tamanhoEmbalagem&categoria&idCliente` | `Produto[]` com preço da tabela do cliente | idem |
 | 7 · UC03 Lista | `GET /orcamentos?status&cliente&cnpj&numero&de&ate` | `OrcamentoResumo[]` | Operador, Chefe |
@@ -51,6 +53,7 @@ Fonte do contrato (código): `frontend/src/api/types.ts` (tipos) e um arquivo po
 | | `POST …/documentos` · `POST …/resultado` | `{tipoDocumento, dataRecebimento}` · `{resultado}` | Fiscal |
 | 12 · UC23 Dívidas | `GET /dividas` · `POST /dividas` | `Divida[]` · `DividaNova` | Financeiro |
 | | `POST /dividas/:id/renegociar` | `{dataRenegociacao, valorPago}`; `422` se < 50% | Financeiro |
+| | `POST /dividas/:id/quitar` | → `Divida` com `status: 'QUITADA'`; `422` se já quitada. Rota do backend (UC23, passo 5), ainda não chamada pelo frontend. | Financeiro |
 | 13 · UC04 Produtos | `GET /produtos?q` · `GET /produtos/:id` | `Produto[]` · `Produto` | Operador, Chefe |
 | | `POST /produtos` · `PUT /produtos/:id` | `ProdutoSalvar`; faixas e fardos só do Chefe (`403`) | Operador, Chefe |
 | 14 · UC24 Estoque | `GET /estoque/variacoes?q` · `GET /estoque/variacoes/:id` | `SaldoEstoque[]` · `SaldoEstoque` | Chefe |
@@ -65,6 +68,7 @@ Fonte do contrato (código): `frontend/src/api/types.ts` (tipos) e um arquivo po
 - **Nomes das rotas:** a documentação não define as rotas REST do Sistema 2 (só as operações do proxy). Se o backend preferir outro desenho, basta ajustar os arquivos de `frontend/src/api/`.
 - **“Devolver à lista” (tela 3):** a documentação não prevê a transição EM_ANALISE → SOLICITADO. Hoje o botão só volta à lista, e o pedido continua EM_ANALISE com o operador.
 - **Protesto de dívida (tela 12):** a tabela tem `data_protesto` e o status PROTESTADA, mas o UC23 só descreve registrar dívida e renegociação. Não há ação de protestar na tela.
-- **Enviar orçamento (tela 8):** o frontend chama `POST /orcamentos/:id/enviar`; o efeito (e-mail, marcação para o vendedor) precisa ser definido no UC08.
+- **Enviar orçamento (tela 8) — resolvido:** `POST /orcamentos/:id/enviar` não envia e-mail nem grava uma coluna "enviado" (não existe uma no banco). Pelo texto de UC08 (variação A1) e pelo comentário do próprio frontend (`Disponibiliza o orçamento ao vendedor (UC08)`), o backend só confere a precondição — orçamento emitido (tem número) e sem pendência de análise de crédito, senão `422 ENVIO_NAO_PERMITIDO` — e registra um evento `ATUALIZACAO_FOLLOWUP` no histórico. O "✓ Enviado" da tela é só estado local do frontend; não precisa persistir.
+- **Anexos de orçamento (UC19, RF11):** `POST /orcamentos/:id/anexos` envia os bytes ao armazenamento de arquivos (sempre via proxy) e só então grava a linha em `anexo_orcamento` com o caminho devolvido; se o proxy estiver indisponível (hibernando, sem resposta ou limitando as requisições), responde `503 SERVICO_INDISPONIVEL`; se o próprio armazenamento falhar, o proxy devolve erro interno e a resposta é `500`. Nos dois casos nada é gravado. `DELETE …/anexos/:idAnexo` remove a linha e o arquivo (se só a remoção do arquivo falhar, a requisição ainda responde 200 e o objeto órfão é registrado em log). `GET /orcamentos/:id/anexos/:idAnexo` responde `{ url, expiraEm }` com URL assinada de curta duração (5 minutos) para baixar o arquivo; `404 ANEXO_NAO_ENCONTRADO` se o anexo não for do orçamento. O caminho do arquivo nunca é exposto pela API. O PDF do orçamento lista os anexos só por nome (a URL assinada expira). **Limitação conhecida (crédito):** os documentos da análise de crédito (`documento_analise_credito`) ainda não usam esse armazenamento: não há upload, e a análise só registra o documento como recebido em meio físico (`nome_arquivo` e `caminho_arquivo` gravam valores fixos, sem arquivo digital).
 - **Busca global:** hoje leva a `/orcamentos?cliente=<termo>`. Definir se deve buscar também por CNPJ, número e pedido.
 - **Token de sessão:** guardado em `sessionStorage` (por aba). Se o backend preferir cookie HttpOnly, mudar `AuthContext` e `client.ts`.

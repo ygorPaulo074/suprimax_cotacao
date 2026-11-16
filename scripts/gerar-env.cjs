@@ -119,6 +119,9 @@ function escoposPorSistema(tabelas) {
       'operacao:pedido.assumir',
       'operacao:orcamento.emitir',
       'operacao:resposta.processar',
+      'operacao:arquivo.salvar',
+      'operacao:arquivo.remover',
+      'operacao:arquivo.assinar',
       'rpc:*',
     ],
     'sistema1-backend': [

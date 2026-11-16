@@ -6,6 +6,7 @@ import {
   dadosLote,
   dadosRpc,
 } from './dados';
+import { arquivoAssinar, arquivoRemover, arquivoSalvar } from './arquivos';
 import { integranteCriar, integranteRevogar } from './integrantes';
 import { orcamentoEmitir, pedidoAssumir, respostaProcessar } from './nomeadas';
 import type { Operacao } from './tipos';
@@ -22,6 +23,9 @@ export const OPERACOES: ReadonlyMap<string, Operacao> = new Map(
     pedidoAssumir,
     orcamentoEmitir,
     respostaProcessar,
+    arquivoSalvar,
+    arquivoRemover,
+    arquivoAssinar,
     integranteCriar,
     integranteRevogar,
   ].map((o) => [o.id, o]),

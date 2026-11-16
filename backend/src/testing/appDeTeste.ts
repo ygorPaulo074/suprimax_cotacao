@@ -2,6 +2,7 @@
 // e log capturado em memória.
 import type { Express } from 'express';
 import type { Config } from '../config';
+import { ArmazenamentoEmMemoria } from '../dados/armazenamento';
 import { createApp, type DependenciasDoApp } from '../http/app';
 import { criarLogger } from '../log';
 import { ServicoDeSenha } from '../modulos/auth/senha';
@@ -21,6 +22,17 @@ export const CONFIG_DE_TESTE: Config = {
   corsOrigens: [ORIGEM_DE_TESTE],
   sessaoInatividadeMs: 30 * 60 * 1000,
   trustProxy: 0,
+  jobsAgendadosHabilitados: false,
+  jobsAgendadosIntervaloMs: 60 * 60 * 1000,
+  empresaEmissora: {
+    razaoSocial: 'SupriMax Distribuidora de Papéis Ltda.',
+    endereco: 'Rua de Teste, 123 — Centro — Cidade/UF — 00000-000',
+    telefone: '(00) 0000-0000',
+    cnpj: '00.000.000/0001-00',
+    inscricaoEstadual: '000.000.000.000',
+    pix: 'financeiro@suprimax-teste.com.br',
+    dadosBancarios: 'Banco de Teste — Agência 0001 — Conta 123456-7',
+  },
 };
 
 export interface OpcoesDoAppDeTeste {
@@ -28,14 +40,18 @@ export interface OpcoesDoAppDeTeste {
   readonly auth?: DependenciasDoApp['auth'];
   /** Relógio das sessões, do login e dos cadastros. */
   readonly agora?: () => Date;
-  /** Dublê do envio de e-mails. */
+  /** Dublê do envio de e-mails de definição de senha a usuário novo. */
   readonly notificador?: DependenciasDoApp['notificador'];
+  /** Dublê do envio de e-mails de recuperação de senha. */
+  readonly notificadorDeRecuperacao?: DependenciasDoApp['notificadorDeRecuperacao'];
 }
 
 export interface AppDeTeste {
   readonly app: Express;
   readonly proxy: ProxyClienteFalso;
   readonly sessoes: RepositorioDeSessoesEmMemoria;
+  /** Armazenamento de anexos em memória. */
+  readonly armazenamento: ArmazenamentoEmMemoria;
   readonly senhas: ServicoDeSenha;
   /** Linhas de log emitidas, já convertidas de JSON. */
   readonly linhas: Record<string, unknown>[];
@@ -54,13 +70,24 @@ export function montarAppDeTeste(opcoes: OpcoesDoAppDeTeste = {}): AppDeTeste {
     inatividadeMs: config.sessaoInatividadeMs,
     agora: opcoes.agora,
   });
+  const armazenamento = new ArmazenamentoEmMemoria();
   const dependencias: DependenciasDoApp = {
     config,
     logger: criarLogger({ nivel: config.nivelLog, destino }),
     proxy,
     sessoes,
+    armazenamento,
     auth: { senhas, agora: opcoes.agora, ...opcoes.auth },
     notificador: opcoes.notificador,
+    notificadorDeRecuperacao: opcoes.notificadorDeRecuperacao,
   };
-  return { app: createApp(dependencias), proxy, sessoes, senhas, linhas, dependencias };
+  return {
+    app: createApp(dependencias),
+    proxy,
+    sessoes,
+    armazenamento,
+    senhas,
+    linhas,
+    dependencias,
+  };
 }

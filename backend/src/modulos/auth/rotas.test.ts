@@ -187,6 +187,127 @@ describe('POST /auth/logout', () => {
   });
 });
 
+describe('POST /auth/recuperar-senha (item 10)', () => {
+  it('responde 204 quando o e-mail existe', async () => {
+    const { app } = montar();
+
+    const resposta = await request(app)
+      .post('/auth/recuperar-senha')
+      .send({ email: 'davi@suprimax.com.br' });
+
+    expect(resposta.status).toBe(204);
+    expect(resposta.text).toBe('');
+  });
+
+  it('responde 204 também quando o e-mail não existe (não revela quais contas existem)', async () => {
+    const { app } = montar();
+
+    const resposta = await request(app)
+      .post('/auth/recuperar-senha')
+      .send({ email: 'ninguem@suprimax.com.br' });
+
+    expect(resposta.status).toBe(204);
+  });
+
+  it('responde 400 VALIDATION_ERROR para e-mail em formato inválido', async () => {
+    const { app } = montar();
+
+    const resposta = await request(app)
+      .post('/auth/recuperar-senha')
+      .send({ email: 'não-é-email' });
+
+    expect(resposta.status).toBe(400);
+    expect(resposta.body.codigo).toBe('VALIDATION_ERROR');
+  });
+
+  it('responde 429 LIMITE_EXCEDIDO depois de muitos pedidos do mesmo IP', async () => {
+    const teste = montarAppDeTeste({
+      auth: { limiteDeRecuperacao: { maximoDePedidos: 2 } },
+    });
+    const pedir = () =>
+      request(teste.app).post('/auth/recuperar-senha').send({ email: 'ninguem@suprimax.com.br' });
+
+    await pedir();
+    await pedir();
+    const resposta = await pedir();
+
+    expect(resposta.status).toBe(429);
+    expect(resposta.body.codigo).toBe('LIMITE_EXCEDIDO');
+  });
+});
+
+describe('POST /auth/redefinir-senha (item 10)', () => {
+  /**
+   * O token não é devolvido pela rota (vai só por e-mail): este cenário usa um notificador
+   * espião para capturá-lo, igual a `cenarioDeCadastros.ts`.
+   */
+  function montarComNotificadorEspiao() {
+    const linhasDeRecuperacao: { token: string }[] = [];
+    const notificadorDeRecuperacao = {
+      enviarRecuperacaoDeSenha: (recuperacao: { token: string }) => {
+        linhasDeRecuperacao.push(recuperacao);
+        return Promise.resolve();
+      },
+    };
+    const teste = montarAppDeTeste({ notificadorDeRecuperacao });
+    new OperadorFalso(teste.proxy, { senhaHash });
+    return { ...teste, linhasDeRecuperacao };
+  }
+
+  it('redefine a senha com um token válido e permite login com a nova senha', async () => {
+    const { app, linhasDeRecuperacao } = montarComNotificadorEspiao();
+    await request(app).post('/auth/recuperar-senha').send({ email: 'davi@suprimax.com.br' });
+    const token = linhasDeRecuperacao[0]?.token;
+
+    const resposta = await request(app)
+      .post('/auth/redefinir-senha')
+      .send({ token, novaSenha: 'NovaSenha@123' });
+    expect(resposta.status).toBe(204);
+
+    const login = await request(app)
+      .post('/auth/login')
+      .send({ usuario: 'davi', senha: 'NovaSenha@123' });
+    expect(login.status).toBe(200);
+  });
+
+  it('o mesmo token não serve duas vezes', async () => {
+    const { app, linhasDeRecuperacao } = montarComNotificadorEspiao();
+    await request(app).post('/auth/recuperar-senha').send({ email: 'davi@suprimax.com.br' });
+    const token = linhasDeRecuperacao[0]?.token;
+    await request(app).post('/auth/redefinir-senha').send({ token, novaSenha: 'NovaSenha@123' });
+
+    const resposta = await request(app)
+      .post('/auth/redefinir-senha')
+      .send({ token, novaSenha: 'OutraSenha@456' });
+
+    expect(resposta.status).toBe(422);
+    expect(resposta.body.codigo).toBe('TOKEN_RECUPERACAO_INVALIDO');
+  });
+
+  it('responde 422 TOKEN_RECUPERACAO_INVALIDO para um token inexistente', async () => {
+    const { app } = montar();
+
+    const resposta = await request(app)
+      .post('/auth/redefinir-senha')
+      .send({ token: 'token-que-nao-existe', novaSenha: 'NovaSenha@123' });
+
+    expect(resposta.status).toBe(422);
+    expect(resposta.body.codigo).toBe('TOKEN_RECUPERACAO_INVALIDO');
+  });
+
+  it.each([
+    ['sem corpo', undefined],
+    ['senha curta demais', { token: 'abc', novaSenha: '1234567' }],
+  ])('responde 400 VALIDATION_ERROR: %s', async (_caso, corpo) => {
+    const { app } = montar();
+
+    const resposta = await request(app).post('/auth/redefinir-senha').send(corpo);
+
+    expect(resposta.status).toBe(400);
+    expect(resposta.body.codigo).toBe('VALIDATION_ERROR');
+  });
+});
+
 describe('proxy indisponível', () => {
   it('o login responde 500 genérico, sem detalhe do proxy', async () => {
     const { app, proxy } = montar();

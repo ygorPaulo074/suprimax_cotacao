@@ -42,14 +42,13 @@ export const CODIGOS_REPASSADOS_A_QUEM_CHAMOU: ReadonlySet<string> = new Set([
 
 /**
  * Códigos que sempre indicam defeito do backend ou da infraestrutura (escopo faltando, operação
- * errada, filtro perigoso, credencial vencida, excesso de requisições), em qualquer operação.
+ * errada, filtro perigoso, credencial vencida), em qualquer operação.
  */
 export const CODIGOS_DE_FALHA_INTERNA: ReadonlySet<string> = new Set([
   CODIGOS_DO_PROXY.TOKEN_INVALIDO,
   CODIGOS_DO_PROXY.ESCOPO_NEGADO,
   CODIGOS_DO_PROXY.OPERACAO_DESCONHECIDA,
   CODIGOS_DO_PROXY.RISCO_ESTRUTURAL,
-  CODIGOS_DO_PROXY.LIMITE_EXCEDIDO,
   CODIGOS_DO_PROXY.OPERACAO_NAO_IMPLEMENTADA,
   CODIGOS_DO_PROXY.INTERNAL_ERROR,
 ]);
@@ -81,7 +80,8 @@ export function proxyEmEspera(erro: ErroProxy): boolean {
 /**
  * Traduz um erro do proxy no erro de aplicação que vale para qualquer operação.
  *
- * Proxy em espera (ver proxyEmEspera) vira ErroDeServicoIndisponivel (503), e não erro interno.
+ * Proxy em espera (ver proxyEmEspera) ou com o limite de requisições excedido vira
+ * ErroDeServicoIndisponivel (503), e não erro interno.
  *
  * A mensagem e os detalhes do proxy nunca vão para o frontend: o AppError devolvido leva só a
  * mensagem do catálogo do backend, e o ErroProxy original fica em `cause`, para o log e para quem
@@ -94,6 +94,11 @@ export function proxyEmEspera(erro: ErroProxy): boolean {
 export function traduzirErroDeProxy(erro: ErroProxy): AppError | null {
   if (CODIGOS_REPASSADOS_A_QUEM_CHAMOU.has(erro.codigo)) {
     return null;
+  }
+  if (erro.codigo === CODIGOS_DO_PROXY.LIMITE_EXCEDIDO) {
+    // O proxy limita as requisições por janela de tempo: passa sozinho, então é indisponibilidade
+    // momentânea (503), não defeito do backend.
+    return new ErroDeServicoIndisponivel({ causa: erro });
   }
   if (erro.codigo === CODIGOS_DO_PROXY.PAYLOAD_INVALIDO) {
     return new ErroDeValidacao({ causa: erro });

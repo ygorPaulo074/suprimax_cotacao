@@ -6,7 +6,7 @@ import type { RepositorioDeSessoes } from '../auth/sessoes';
 import { RepositorioDeUsuarios } from '../usuarios/repositorio';
 import { RepositorioDeClientes } from './repositorio';
 import { criarRotasDeClientes } from './rotas';
-import { ServicoDeClientes } from './servico';
+import { ServicoDeClientes, type LeitorDeOrcamentosDoCliente } from './servico';
 
 export * from './esquemas';
 export * from './repositorio';
@@ -17,6 +17,8 @@ export interface DependenciasDoModuloDeClientes {
   readonly proxy: ClienteDeProxy;
   readonly sessoes: RepositorioDeSessoes;
   readonly logger: Logger;
+  /** Orçamentos em aberto e histórico de compras do cliente (RF04). */
+  readonly orcamentos: LeitorDeOrcamentosDoCliente;
   readonly agora?: () => Date;
 }
 
@@ -33,6 +35,7 @@ export function criarModuloDeClientes(
   const servico = new ServicoDeClientes({
     clientes: new RepositorioDeClientes(dependencias.proxy),
     usuarios: new RepositorioDeUsuarios(dependencias.proxy),
+    orcamentos: dependencias.orcamentos,
     logger: dependencias.logger,
     agora: dependencias.agora,
   });

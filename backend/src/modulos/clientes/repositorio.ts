@@ -152,6 +152,31 @@ export class RepositorioDeClientes {
     return { ...cliente, enderecos };
   }
 
+  /** Busca o cliente pelo identificador, com os endereços; `null` se não existir. */
+  async buscarPorId(idCliente: number): Promise<ClienteCadastrado | null> {
+    const [linha] = await consultar(
+      this.proxy,
+      {
+        tabela: TABELA_DE_CLIENTES,
+        campos: COLUNAS_DO_CLIENTE,
+        filtros: { e: [['id_cliente', '=', idCliente]] },
+        incluir: [TABELA_DE_ENDERECOS],
+        limite: 1,
+      },
+      OPERACOES_DE_CLIENTES.BUSCAR,
+    );
+    if (linha === undefined) {
+      return null;
+    }
+    const { enderecoCliente, ...cliente } = validarLinha(
+      esquemaDoCliente,
+      linha,
+      TABELA_DE_CLIENTES,
+    );
+    const enderecos = [...enderecoCliente].sort((a, b) => a.idEndereco - b.idEndereco);
+    return { ...cliente, enderecos };
+  }
+
   /**
    * Grava o cliente e seus endereços em uma única transação, com o aceite da cláusula LGPD.
    *

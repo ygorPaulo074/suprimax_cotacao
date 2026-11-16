@@ -1,6 +1,7 @@
 import {
   ErroDeContaBloqueada,
   ErroDeCredenciaisInvalidas,
+  ErroDeTokenDeRecuperacaoInvalido,
   ErroDeUsuarioInativo,
 } from '../../erros';
 import { criarLogger } from '../../log';
@@ -11,6 +12,7 @@ import {
   type LinhaDeOperador,
 } from '../../testing/operadorFalso';
 import { ProxyClienteFalso } from '../../testing/proxyClienteFalso';
+import type { NotificadorDeRecuperacaoDeSenha, RecuperacaoDeSenha } from './notificador';
 import { RepositorioDeOperadores } from './operadores';
 import { ServicoDeSenha } from './senha';
 import { ServicoDeAutenticacao } from './servico';
@@ -26,6 +28,20 @@ beforeAll(async () => {
   senhaHash = await senhas.gerarHash(SENHA);
 });
 
+/** Notificador espião: guarda o que seria enviado, para o teste conferir. */
+class NotificadorDeRecuperacaoEspiao implements NotificadorDeRecuperacaoDeSenha {
+  readonly pedidos: RecuperacaoDeSenha[] = [];
+  falha?: Error;
+
+  enviarRecuperacaoDeSenha(recuperacao: RecuperacaoDeSenha): Promise<void> {
+    if (this.falha) {
+      return Promise.reject(this.falha);
+    }
+    this.pedidos.push(recuperacao);
+    return Promise.resolve();
+  }
+}
+
 function montar(linha: Partial<LinhaDeOperador> = {}) {
   let agora = INICIO;
   const relogio = () => agora;
@@ -33,18 +49,20 @@ function montar(linha: Partial<LinhaDeOperador> = {}) {
   const proxy = new ProxyClienteFalso();
   const operador = new OperadorFalso(proxy, { senhaHash, ...linha }, relogio);
   const sessoes = new RepositorioDeSessoesEmMemoria({ inatividadeMs: 60_000, agora: relogio });
+  const notificador = new NotificadorDeRecuperacaoEspiao();
   const servico = new ServicoDeAutenticacao({
     operadores: new RepositorioDeOperadores(proxy),
     sessoes,
     senhas,
     logger: criarLogger({ nivel: 'info', destino: { write: (l) => void linhasDeLog.push(l) } }),
+    notificador,
     agora: relogio,
   });
   const avancar = (ms: number) => {
     agora = new Date(agora.getTime() + ms);
   };
   const entrar = (senha: string, usuario = 'davi') => servico.entrar({ usuario, senha }, 'req-1');
-  return { servico, sessoes, proxy, operador, linhasDeLog, avancar, entrar };
+  return { servico, sessoes, proxy, operador, notificador, linhasDeLog, avancar, entrar };
 }
 
 describe('ServicoDeAutenticacao.entrar', () => {
@@ -164,5 +182,117 @@ describe('ServicoDeAutenticacao.sair', () => {
     await servico.sair(token);
 
     expect(await sessoes.buscar(token)).toBeNull();
+  });
+});
+
+describe('ServicoDeAutenticacao.recuperarSenha (item 10)', () => {
+  it('grava o token e aciona o notificador quando o e-mail existe', async () => {
+    const { servico, operador, notificador } = montar();
+
+    await servico.recuperarSenha({ email: 'davi@suprimax.com.br' });
+
+    expect(operador.linha.tokenRecuperacaoSenha).toBeTruthy();
+    expect(operador.linha.validadeToken).toBeTruthy();
+    expect(notificador.pedidos).toHaveLength(1);
+    expect(notificador.pedidos[0]).toMatchObject({
+      idOperador: 7,
+      usuario: 'davi',
+      email: 'davi@suprimax.com.br',
+    });
+    expect(typeof notificador.pedidos[0]?.token).toBe('string');
+  });
+
+  it('não lança nem grava nada quando o e-mail não existe (não revela quais contas existem)', async () => {
+    const { servico, operador, notificador } = montar();
+
+    await expect(
+      servico.recuperarSenha({ email: 'ninguem@suprimax.com.br' }),
+    ).resolves.toBeUndefined();
+
+    expect(operador.linha.tokenRecuperacaoSenha).toBeUndefined();
+    expect(notificador.pedidos).toHaveLength(0);
+  });
+
+  it('não lança se o envio do e-mail falhar: o token já foi gravado e o pedido pode repetir', async () => {
+    const { servico, operador, notificador } = montar();
+    notificador.falha = new Error('Resend fora do ar');
+
+    await expect(
+      servico.recuperarSenha({ email: 'davi@suprimax.com.br' }),
+    ).resolves.toBeUndefined();
+
+    expect(operador.linha.tokenRecuperacaoSenha).toBeTruthy();
+  });
+
+  it('nunca registra o token em texto puro no log', async () => {
+    const { servico, notificador, linhasDeLog } = montar();
+
+    await servico.recuperarSenha({ email: 'davi@suprimax.com.br' });
+
+    expect(linhasDeLog.join()).not.toContain(notificador.pedidos[0]?.token);
+  });
+});
+
+describe('ServicoDeAutenticacao.redefinirSenha (item 10)', () => {
+  async function pedirRecuperacao(cenario: ReturnType<typeof montar>) {
+    await cenario.servico.recuperarSenha({ email: 'davi@suprimax.com.br' });
+    const token = cenario.notificador.pedidos[0]?.token;
+    if (!token) throw new Error('token não gerado no teste');
+    return token;
+  }
+
+  it('grava a nova senha, invalida o token e encerra as sessões abertas', async () => {
+    const cenario = montar();
+    const { servico, sessoes, operador, entrar } = cenario;
+    const { token: tokenDeSessao } = await entrar(SENHA);
+    const token = await pedirRecuperacao(cenario);
+
+    await servico.redefinirSenha({ token, novaSenha: 'NovaSenha@123' });
+
+    expect(operador.linha.tokenRecuperacaoSenha).toBeNull();
+    expect(operador.linha.validadeToken).toBeNull();
+    expect(operador.linha.senhaHash).not.toBe(senhaHash);
+    expect(await sessoes.buscar(tokenDeSessao)).toBeNull();
+  });
+
+  it('a nova senha permite o login seguinte', async () => {
+    const cenario = montar();
+    const token = await pedirRecuperacao(cenario);
+
+    await cenario.servico.redefinirSenha({ token, novaSenha: 'NovaSenha@123' });
+
+    const resultado = await cenario.servico.entrar(
+      { usuario: 'davi', senha: 'NovaSenha@123' },
+      'req-2',
+    );
+    expect(resultado.usuario.idOperador).toBe(7);
+  });
+
+  it('rejeita token inexistente', async () => {
+    const { servico } = montar();
+
+    await expect(
+      servico.redefinirSenha({ token: 'token-que-nunca-existiu', novaSenha: 'NovaSenha@123' }),
+    ).rejects.toBeInstanceOf(ErroDeTokenDeRecuperacaoInvalido);
+  });
+
+  it('rejeita token vencido', async () => {
+    const cenario = montar();
+    const token = await pedirRecuperacao(cenario);
+    cenario.avancar(2 * 60 * 60 * 1000); // o link vale 1 hora
+
+    await expect(
+      cenario.servico.redefinirSenha({ token, novaSenha: 'NovaSenha@123' }),
+    ).rejects.toBeInstanceOf(ErroDeTokenDeRecuperacaoInvalido);
+  });
+
+  it('rejeita o mesmo token usado duas vezes (uso único)', async () => {
+    const cenario = montar();
+    const token = await pedirRecuperacao(cenario);
+    await cenario.servico.redefinirSenha({ token, novaSenha: 'NovaSenha@123' });
+
+    await expect(
+      cenario.servico.redefinirSenha({ token, novaSenha: 'OutraSenha@456' }),
+    ).rejects.toBeInstanceOf(ErroDeTokenDeRecuperacaoInvalido);
   });
 });

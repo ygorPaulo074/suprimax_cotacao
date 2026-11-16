@@ -45,10 +45,44 @@ export interface VendedorOpcao {
   readonly nome: string;
 }
 
+/** Um orçamento em aberto do cliente, na forma resumida de `OrcamentoResumo` do frontend. */
+export interface OrcamentoEmAbertoDoCliente {
+  readonly idOrcamento: number;
+  readonly numeroOrcamento: number | null;
+  readonly idCliente: number;
+  readonly cliente: string;
+  readonly cnpj: string;
+  readonly dataEmissao: string | null;
+  readonly dataValidade: string | null;
+  readonly diasParaVencer: number | null;
+  readonly valorTotalProposta: number | null;
+  readonly status: string;
+}
+
+/** Uma compra fechada do cliente (orçamento ACEITO). É o tipo `HistoricoCompra` do frontend. */
+export interface HistoricoDeCompraDoCliente {
+  readonly idOrcamento: number;
+  readonly numeroOrcamento: number;
+  readonly dataEmissao: string;
+  readonly valorTotalAceito: number;
+}
+
+/**
+ * Leitura dos orçamentos do cliente, para a ficha (RF04). Definida aqui (e não no módulo de
+ * orçamentos) para `clientes` não precisar importar `orcamentos`; `app.ts` liga a implementação
+ * real (`ServicoDeOrcamentos`), do mesmo jeito que `pedidos` recebe o `MontadorDeOrcamentos`.
+ */
+export interface LeitorDeOrcamentosDoCliente {
+  listarEmAberto(idCliente: number): Promise<readonly OrcamentoEmAbertoDoCliente[]>;
+  listarHistoricoDeCompras(idCliente: number): Promise<readonly HistoricoDeCompraDoCliente[]>;
+}
+
 export interface DependenciasDoServicoDeClientes {
   readonly clientes: RepositorioDeClientes;
   /** Para conferir e listar os vendedores. */
   readonly usuarios: RepositorioDeUsuarios;
+  /** Orçamentos em aberto e histórico de compras do cliente (RF04); ver {@link LeitorDeOrcamentosDoCliente}. */
+  readonly orcamentos: LeitorDeOrcamentosDoCliente;
   readonly logger: Logger;
   /** Relógio; por padrão, a hora do sistema. */
   readonly agora?: () => Date;
@@ -58,12 +92,14 @@ export interface DependenciasDoServicoDeClientes {
 export class ServicoDeClientes {
   private readonly clientes: RepositorioDeClientes;
   private readonly usuarios: RepositorioDeUsuarios;
+  private readonly orcamentos: LeitorDeOrcamentosDoCliente;
   private readonly logger: Logger;
   private readonly agora: () => Date;
 
   constructor(dependencias: DependenciasDoServicoDeClientes) {
     this.clientes = dependencias.clientes;
     this.usuarios = dependencias.usuarios;
+    this.orcamentos = dependencias.orcamentos;
     this.logger = dependencias.logger;
     this.agora = dependencias.agora ?? (() => new Date());
   }
@@ -114,25 +150,20 @@ export class ServicoDeClientes {
     return vendedores.map(({ idOperador, usuario }) => ({ idOperador, nome: usuario }));
   }
 
-  /**
-   * Orçamentos em aberto do cliente (RF04).
-   *
-   * TODO item 6: a tabela `orcamento` só passa a ser lida na entrega de pedidos e orçamento. Até
-   * lá a lista vem sempre vazia, para a tela de clientes funcionar.
-   */
-  listarOrcamentosEmAberto(idCliente: number): Promise<never[]> {
-    void idCliente;
-    return Promise.resolve([]);
+  /** Orçamentos em aberto do cliente (RF04): ainda em elaboração ou aguardando o cliente. */
+  listarOrcamentosEmAberto(idCliente: number): Promise<readonly OrcamentoEmAbertoDoCliente[]> {
+    return this.orcamentos.listarEmAberto(idCliente);
   }
 
   /**
-   * Histórico de compras do cliente (RF04, RF07).
+   * Histórico de compras do cliente (RF04, RF07): orçamentos ACEITO.
    *
-   * TODO item 6: depende dos orçamentos aceitos; até lá a lista vem sempre vazia.
+   * TODO item 7: `valorTotalAceito` repete o valor total proposto, porque o valor efetivamente
+   * aceito item a item só existe a partir de `resposta_orcamento`/`item_resposta_orcamento`
+   * (UC20/21), que ainda não foram implementados.
    */
-  listarHistoricoDeCompras(idCliente: number): Promise<never[]> {
-    void idCliente;
-    return Promise.resolve([]);
+  listarHistoricoDeCompras(idCliente: number): Promise<readonly HistoricoDeCompraDoCliente[]> {
+    return this.orcamentos.listarHistoricoDeCompras(idCliente);
   }
 
   /**
