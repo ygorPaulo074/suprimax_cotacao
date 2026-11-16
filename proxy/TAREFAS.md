@@ -29,9 +29,9 @@ A parte que não depende do banco está implementada e testada (83 testes, com b
 
 ## Pendências
 
-- [ ] **Deploy no Render** (Web Service, Root Directory `proxy`, build `npm ci && npm run build`, start `npm start`, health check `/saude`) com as variáveis de ambiente; merge na `main` publica sozinho.
-- [ ] **Testes contra o Postgres real**, quando o banco tiver as tabelas: executor, repositórios, `incluir`, cursor, `UPDATE`/`DELETE` com alias e transações no pooler. Hoje só o texto do SQL foi verificado.
-- [ ] **Primeiro integrante:** rodar `integrante.criar` para o Sistema 2 (e depois o Sistema 1) e entregar `service_id` e token ao backend. Exige a tabela `integrantes_proxy`.
+- [x] **Deploy no Render** (Web Service, Root Directory `proxy`, build `npm ci && npm run build`, start `npm start`, health check `/saude`) com as variáveis de ambiente; merge na `main` publica sozinho.
+- [x] **Testes contra o Postgres real**, quando o banco tiver as tabelas: executor, repositórios, `incluir`, cursor, `UPDATE`/`DELETE` com alias e transações no pooler. Hoje só o texto do SQL foi verificado.
+- [x] **Primeiro integrante:** rodar `integrante.criar` para o Sistema 2 (e depois o Sistema 1) e entregar `service_id` e token ao backend. Exige a tabela `integrantes_proxy`.
 - [ ] **Teste de carga** em `tests-nfr/` (k6 ou Artillery): 10 operadores simultâneos sem perda de dados nem número de orçamento duplicado (RNF09). Exige o schema.
 - [ ] **Decisões em aberto** (detalhes no `README.md`):
   - atualizar a seção 12.3 da documentação com `DATABASE_URL`;
