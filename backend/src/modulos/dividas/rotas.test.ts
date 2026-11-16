@@ -116,6 +116,25 @@ describe('POST /dividas/:id/renegociar (UC23)', () => {
     expect(resposta.body.codigo).toBe('RENEGOCIACAO_ABAIXO_DO_MINIMO');
   });
 
+  it('arredonda o mínimo para cima quando a dívida tem valor ímpar (101 → 51)', async () => {
+    const { registrar, renegociar, dividaNova } = await montar();
+    const { body: divida } = await registrar(dividaNova({ valorDivida: 101 }));
+
+    const abaixo = await renegociar(divida.idDivida, {
+      dataRenegociacao: '2026-02-01',
+      valorPago: 50,
+    });
+    expect(abaixo.status).toBe(422);
+    expect(abaixo.body.codigo).toBe('RENEGOCIACAO_ABAIXO_DO_MINIMO');
+
+    const noMinimo = await renegociar(divida.idDivida, {
+      dataRenegociacao: '2026-02-01',
+      valorPago: 51,
+    });
+    expect(noMinimo.status).toBe(200);
+    expect(noMinimo.body).toMatchObject({ status: 'RENEGOCIADA', valorPagoRenegociacao: 51 });
+  });
+
   it('responde 404 para dívida inexistente', async () => {
     const { renegociar } = await montar();
 

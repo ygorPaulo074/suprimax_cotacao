@@ -17,8 +17,11 @@ import { ErroInterno } from '../../erros';
 export const STATUS_DA_DIVIDA = ['EM_ABERTO', 'RENEGOCIADA', 'QUITADA', 'PROTESTADA'] as const;
 export type StatusDaDivida = (typeof STATUS_DA_DIVIDA)[number];
 
-/** Mínimo exigido na renegociação: 50% do valor da dívida (CHECK do banco, RF25). */
-export const FRACAO_MINIMA_DA_RENEGOCIACAO = 0.5;
+/**
+ * Mínimo exigido na renegociação: 50% do valor da dívida (CHECK do banco, RF25), guardado como
+ * divisor inteiro (valor / 2) para não passar por multiplicação decimal em dinheiro.
+ */
+export const DIVISOR_DO_MINIMO_DA_RENEGOCIACAO = 2;
 
 /** Identificação de cada chamada na auditoria do proxy (X-Operation-Id). */
 export const OPERACOES_DE_DIVIDAS = {

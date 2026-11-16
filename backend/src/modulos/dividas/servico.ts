@@ -9,7 +9,7 @@ import type { RepositorioDeClientes } from '../clientes/repositorio';
 import type { Sessao } from '../auth/sessoes';
 import type { DadosDaDividaNova, DadosDaRenegociacao } from './esquemas';
 import {
-  FRACAO_MINIMA_DA_RENEGOCIACAO,
+  DIVISOR_DO_MINIMO_DA_RENEGOCIACAO,
   type Divida,
   type RepositorioDeDividas,
 } from './repositorio';
@@ -70,7 +70,7 @@ export class ServicoDeDividas {
     if (divida.status !== 'EM_ABERTO') {
       throw new ErroDeDividaNaoRenegociavel();
     }
-    const minimoEmCentavos = Math.ceil(divida.valorDivida * FRACAO_MINIMA_DA_RENEGOCIACAO);
+    const minimoEmCentavos = Math.ceil(divida.valorDivida / DIVISOR_DO_MINIMO_DA_RENEGOCIACAO);
     if (dados.valorPago < minimoEmCentavos) {
       throw new ErroDeRenegociacaoAbaixoDoMinimo(minimoEmCentavos);
     }

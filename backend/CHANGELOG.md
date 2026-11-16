@@ -4,6 +4,7 @@ Uma entrada por PR: data, descrição e UC de origem (ver docs/03-requisitos-nao
 
 ## [Não lançado]
 
+- 2026-11-16 — Renegociação de dívida (UC23): o mínimo de 50% passa a ser calculado só com inteiros (`Math.ceil(valorDivida / 2)`, constante `DIVISOR_DO_MINIMO_DA_RENEGOCIACAO`) em vez de multiplicar por 0,5, mantendo o dinheiro em centavos inteiros; teste com dívida de valor ímpar (101 → mínimo 51). Sem mudança de comportamento.
 - 2026-11-15 — Correções achadas ao rodar frontend, backend, proxy e banco juntos: (1) o detalhe do orçamento passa a bloquear a emissão com `CONDICOES_INCOMPLETAS` enquanto faltarem condição de pagamento e frete, e `orcamento.emitir` traduz `ORCAMENTO_NAO_EDITAVEL` do proxy em 422 em vez de 500 (UC18, UC19); (2) `LIMITE_EXCEDIDO` do proxy (429) vira `503 SERVICO_INDISPONIVEL` em vez de 500 (infra, docs/12; RNF06).
 - 2026-11-13 — Deploy e variáveis: `.env.example` próprio do serviço (substitui o da raiz), serviço no `render.yaml` da raiz e `src/testing/**` fora do build (`tsconfig.build.json`). Infra (docs/03, seção 3.2); sem UC.
 - 2026-11-13 — Proxy em espera: antes de operar, o cliente do proxy o acorda com `GET /saude` (espera de até 90 s; o Render gratuito hiberna), sem repetir quando houve contato há menos de 10 min e compartilhando um só aquecimento entre chamadas simultâneas; falha de rede, prazo esgotado e 502/503/504 passam a responder `503 SERVICO_INDISPONIVEL` em vez de `500`. Infra (docs/12, seção 12.1; RNF06); sem UC.
