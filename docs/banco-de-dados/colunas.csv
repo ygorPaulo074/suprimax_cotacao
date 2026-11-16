@@ -3,7 +3,7 @@ operador,1,id_operador,INTEGER,True,False,False,False,False,False,,Identificador
 operador,2,usuario,VARCHAR(50),False,False,True,True,False,False,,Nome de usuário usado no login.
 operador,3,email,VARCHAR(120),False,False,True,True,False,False,,E-mail do usuário; recebe o link de definição e de recuperação de senha.
 operador,4,senha_hash,VARCHAR(255),False,False,False,True,False,False,,Senha armazenada de forma criptografada (RNF01).
-operador,5,perfil,VARCHAR(20),False,False,False,True,True,False,,"VENDEDOR, OPERADOR, OPERADOR_CHEFE, FISCAL, FINANCEIRO ou GESTOR."
+operador,5,perfil,VARCHAR(20),False,False,False,True,True,False,,"VENDEDOR, OPERADOR, OPERADOR_CHEFE, FISCAL, FINANCEIRO, GESTOR ou ADMIN."
 operador,6,status,VARCHAR(7),False,False,False,True,True,False,,ATIVO ou INATIVO. Padrão: ATIVO.
 operador,7,tentativas_login_invalidas,SMALLINT,False,False,False,True,True,False,,Contador de tentativas de login inválidas consecutivas; 0 a 3. Padrão: 0.
 operador,8,bloqueado_ate,TIMESTAMP,False,False,False,False,False,True,,Momento até o qual o login fica bloqueado; nulo quando não há bloqueio ativo.

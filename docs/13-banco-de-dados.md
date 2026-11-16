@@ -169,7 +169,7 @@ Onde uma restrição CHECK não alcança outra tabela, a regra é implementada p
 | Versão do orçamento | id_orcamento_origem referencia orcamento (auto-relacionamento); ao emitir a nova versão, gatilho muda o original para SUBSTITUIDO e libera suas reservas. |
 | Resposta do cliente | tipo_resposta ITENS, RECUSA ou ALTERACAO; status_resposta PENDENTE, CONSOLIDADA, AGUARDA_OPERADOR ou TRATADA; motivo_tratamento (RECUSA, ALTERACAO, ITENS_NAO_APROVADOS ou ABAIXO_DO_MINIMO) preenchido quando AGUARDA_OPERADOR. Cada resposta traz todos os itens do orçamento (estado cumulativo), no máximo uma linha por item (`UNIQUE (id_resposta, id_item)`); a última resposta processada define a situação atual. item_resposta_orcamento.quantidade_aprovada entre 0 e a quantidade cotada. O orçamento muda para ACEITO somente quando todos os itens da resposta estão APROVADO e o faturamento mínimo é atendido. |
 | Itens do pedido | CHECK em item_pedido: id_fardo preenchido só quando granularidade = FARDO; quantidade_solicitada maior que zero. |
-| Perfis de usuário | CHECK em operador.perfil: VENDEDOR, OPERADOR, OPERADOR_CHEFE, FISCAL, FINANCEIRO ou GESTOR; gatilho impede inativar vendedor com clientes na carteira sem indicar novo responsável. |
+| Perfis de usuário | CHECK em operador.perfil: VENDEDOR, OPERADOR, OPERADOR_CHEFE, FISCAL, FINANCEIRO, GESTOR ou ADMIN; gatilho impede inativar vendedor com clientes na carteira sem indicar novo responsável. |
 | Movimentação de estoque | Gatilho em movimentacao_estoque atualiza variacao_produto.quantidade_estoque; CHECK: AJUSTE exige motivo; o estoque físico não pode ficar abaixo do total das reservas CONFIRMADA. |
 | Aprovação herdada | item_orcamento.aprovacao_herdada só pode ser TRUE quando o orçamento tem id_orcamento_origem; alterar a quantidade ou a variação do item em rascunho a redefine para FALSE. |
 | Pedido negado | CHECK em pedido: motivo_negativa obrigatório quando status = NEGADO. |
@@ -268,7 +268,7 @@ Usuário do sistema em qualquer perfil (vendedor, operador, operador chefe, fisc
 | usuario | VARCHAR(50) | NN, UK | Nome de usuário usado no login. |
 | email | VARCHAR(120) | NN, UK | E-mail do usuário; recebe o link de definição e de recuperação de senha. |
 | senha_hash | VARCHAR(255) | NN | Senha armazenada de forma criptografada (RNF01). |
-| perfil | VARCHAR(20) | NN, CK | VENDEDOR, OPERADOR, OPERADOR_CHEFE, FISCAL, FINANCEIRO ou GESTOR. |
+| perfil | VARCHAR(20) | NN, CK | VENDEDOR, OPERADOR, OPERADOR_CHEFE, FISCAL, FINANCEIRO, GESTOR ou ADMIN. |
 | status | VARCHAR(7) | NN, CK | ATIVO ou INATIVO. Padrão: ATIVO. |
 | tentativas_login_invalidas | SMALLINT | NN, CK | Contador de tentativas de login inválidas consecutivas; 0 a 3. Padrão: 0. |
 | bloqueado_ate | TIMESTAMP |  | Momento até o qual o login fica bloqueado; nulo quando não há bloqueio ativo. |
