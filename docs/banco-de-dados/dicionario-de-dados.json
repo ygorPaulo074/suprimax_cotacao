@@ -268,7 +268,7 @@
    "check": true,
    "nullable": false,
    "referencia_fk": null,
-   "descricao": "VENDEDOR, OPERADOR, OPERADOR_CHEFE, FISCAL, FINANCEIRO ou GESTOR."
+   "descricao": "VENDEDOR, OPERADOR, OPERADOR_CHEFE, FISCAL, FINANCEIRO, GESTOR ou ADMIN."
   },
   {
    "tabela": "operador",
