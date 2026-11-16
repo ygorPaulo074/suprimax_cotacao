@@ -143,6 +143,10 @@ export const CATALOGO_DE_ERROS = {
     status: STATUS_HTTP.NAO_ENCONTRADO,
     mensagem: 'Variação de produto não encontrada.',
   },
+  DOCUMENTO_CREDITO_NAO_ENCONTRADO: {
+    status: STATUS_HTTP.NAO_ENCONTRADO,
+    mensagem: 'Documento não encontrado nesta análise de crédito.',
+  },
   ANEXO_NAO_ENCONTRADO: {
     status: STATUS_HTTP.NAO_ENCONTRADO,
     mensagem: 'Anexo não encontrado neste orçamento.',
@@ -501,6 +505,13 @@ export class ErroDeVariacaoNaoEncontrada extends AppError {
 export class ErroDeAnexoNaoEncontrado extends AppError {
   constructor() {
     super('ANEXO_NAO_ENCONTRADO');
+  }
+}
+
+/** Documento inexistente na análise de crédito, ou sem arquivo digital (404, UC07). */
+export class ErroDeDocumentoDeCreditoNaoEncontrado extends AppError {
+  constructor() {
+    super('DOCUMENTO_CREDITO_NAO_ENCONTRADO');
   }
 }
 

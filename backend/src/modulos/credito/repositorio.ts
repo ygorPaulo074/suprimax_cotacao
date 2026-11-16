@@ -25,10 +25,9 @@ export const TIPOS_DE_DOCUMENTO_CREDITO = [
 export type TipoDeDocumentoCredito = (typeof TIPOS_DE_DOCUMENTO_CREDITO)[number];
 
 /**
- * A tela de crédito só confirma que o documento foi recebido (fisicamente ou por outro canal),
- * sem upload (`frontend/src/api/credito.ts`: `registrarDocumento` só envia tipo e data). As
- * colunas de arquivo são preenchidas com estes valores fixos até o item que tratar upload de
- * fato (mesma lacuna já registrada para os anexos de orçamento no item 6).
+ * Sem arquivo enviado, o documento só é marcado como recebido (fisicamente ou por outro canal):
+ * as colunas de arquivo, que são obrigatórias, recebem estes valores fixos. Com arquivo, elas
+ * guardam o nome real e o caminho devolvido pelo armazenamento (UC07).
  */
 const NOME_ARQUIVO_SEM_UPLOAD = 'recebido_sem_arquivo_digital';
 const CAMINHO_ARQUIVO_SEM_UPLOAD = '(documento físico — sem arquivo digital registrado)';
@@ -71,6 +70,14 @@ export interface AnaliseCredito {
 export interface DocumentoDeCreditoRegistrado {
   readonly tipoDocumento: TipoDeDocumentoCredito;
   readonly dataRecebimento: string;
+  /** Há arquivo digital guardado (e não só o registro de recebimento em meio físico). */
+  readonly temArquivo: boolean;
+}
+
+/** Arquivo digital de um documento, já guardado no armazenamento (via proxy). */
+export interface ArquivoDoDocumentoDeCredito {
+  readonly nomeArquivo: string;
+  readonly caminhoArquivo: string;
 }
 
 const esquemaDaAnalise = z.object({
@@ -86,6 +93,7 @@ const esquemaDaAnalise = z.object({
 const esquemaDoDocumento = z.object({
   tipoDocumento: z.enum(TIPOS_DE_DOCUMENTO_CREDITO),
   dataRecebimento: z.string(),
+  caminhoArquivo: z.string(),
 });
 
 const esquemaDoOrcamento = z.object({
@@ -219,28 +227,71 @@ export class RepositorioDeAnalisesDeCredito {
       this.proxy,
       {
         tabela: TABELA_DE_DOCUMENTOS,
-        campos: ['tipo_documento', 'data_recebimento'],
+        campos: ['tipo_documento', 'data_recebimento', 'caminho_arquivo'],
         filtros: { e: [['id_analise', '=', idAnalise]] },
       },
       OPERACOES_DE_CREDITO.LISTAR_DOCUMENTOS,
     );
-    return linhas.map((linha) => validarLinha(esquemaDoDocumento, linha, TABELA_DE_DOCUMENTOS));
+    return linhas.map((linha) => {
+      const { caminhoArquivo, ...resto } = validarLinha(
+        esquemaDoDocumento,
+        linha,
+        TABELA_DE_DOCUMENTOS,
+      );
+      return { ...resto, temArquivo: caminhoArquivo !== CAMINHO_ARQUIVO_SEM_UPLOAD };
+    });
+  }
+
+  /**
+   * Caminho do arquivo digital do documento (null se não há documento ou ele foi só marcado como
+   * recebido em meio físico). Uso interno: o caminho nunca sai pela API.
+   */
+  async buscarCaminhoDoArquivo(
+    idAnalise: number,
+    tipoDocumento: TipoDeDocumentoCredito,
+  ): Promise<string | null> {
+    const linhas = await consultar(
+      this.proxy,
+      {
+        tabela: TABELA_DE_DOCUMENTOS,
+        campos: ['caminho_arquivo'],
+        filtros: {
+          e: [
+            ['id_analise', '=', idAnalise],
+            ['tipo_documento', '=', tipoDocumento],
+          ],
+        },
+        limite: 1,
+      },
+      OPERACOES_DE_CREDITO.LISTAR_DOCUMENTOS,
+    );
+    const [linha] = validarLinha(
+      z.array(z.object({ caminhoArquivo: z.string() })),
+      linhas,
+      TABELA_DE_DOCUMENTOS,
+    );
+    return linha && linha.caminhoArquivo !== CAMINHO_ARQUIVO_SEM_UPLOAD
+      ? linha.caminhoArquivo
+      : null;
   }
 
   /**
    * Marca o tipo de documento como recebido. Idempotente por tipo: se o documento já estava
-   * marcado, apenas atualiza a data de recebimento.
+   * marcado, apenas atualiza a data de recebimento. Com `arquivo`, grava também o nome e o
+   * caminho do arquivo digital (um documento enviado de novo substitui o anterior). Devolve o
+   * caminho do arquivo digital que ficou substituído, se havia, para o serviço removê-lo.
    */
   async registrarDocumento(dados: {
     idAnalise: number;
     tipoDocumento: TipoDeDocumentoCredito;
     dataRecebimento: string;
-  }): Promise<void> {
+    arquivo?: ArquivoDoDocumentoDeCredito;
+  }): Promise<string | null> {
     const existentes = await consultar(
       this.proxy,
       {
         tabela: TABELA_DE_DOCUMENTOS,
-        campos: ['id_documento'],
+        campos: ['id_documento', 'caminho_arquivo'],
         filtros: {
           e: [
             ['id_analise', '=', dados.idAnalise],
@@ -252,7 +303,7 @@ export class RepositorioDeAnalisesDeCredito {
       OPERACOES_DE_CREDITO.LISTAR_DOCUMENTOS,
     );
     const [existente] = validarLinha(
-      z.array(z.object({ idDocumento: z.number().int() })),
+      z.array(z.object({ idDocumento: z.number().int(), caminhoArquivo: z.string() })),
       existentes,
       TABELA_DE_DOCUMENTOS,
     );
@@ -262,11 +313,19 @@ export class RepositorioDeAnalisesDeCredito {
         {
           tabela: TABELA_DE_DOCUMENTOS,
           filtros: { e: [['id_documento', '=', existente.idDocumento]] },
-          valores: { data_recebimento: dados.dataRecebimento },
+          valores: {
+            data_recebimento: dados.dataRecebimento,
+            ...(dados.arquivo && {
+              nome_arquivo: dados.arquivo.nomeArquivo,
+              caminho_arquivo: dados.arquivo.caminhoArquivo,
+            }),
+          },
         },
         OPERACOES_DE_CREDITO.REGISTRAR_DOCUMENTO,
       );
-      return;
+      return dados.arquivo && existente.caminhoArquivo !== CAMINHO_ARQUIVO_SEM_UPLOAD
+        ? existente.caminhoArquivo
+        : null;
     }
     await this.proxy.executar(
       'dados.inserir',
@@ -275,12 +334,13 @@ export class RepositorioDeAnalisesDeCredito {
         valores: {
           id_analise: dados.idAnalise,
           tipo_documento: dados.tipoDocumento,
-          nome_arquivo: NOME_ARQUIVO_SEM_UPLOAD,
-          caminho_arquivo: CAMINHO_ARQUIVO_SEM_UPLOAD,
+          nome_arquivo: dados.arquivo?.nomeArquivo ?? NOME_ARQUIVO_SEM_UPLOAD,
+          caminho_arquivo: dados.arquivo?.caminhoArquivo ?? CAMINHO_ARQUIVO_SEM_UPLOAD,
           data_recebimento: dados.dataRecebimento,
         },
       },
       OPERACOES_DE_CREDITO.REGISTRAR_DOCUMENTO,
     );
+    return null;
   }
 }

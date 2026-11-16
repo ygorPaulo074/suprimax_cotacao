@@ -120,7 +120,12 @@ export function createApp({
   // entrar em PENDENTE_CREDITO, e a análise devolve o orçamento a RASCUNHO ao sair. Como
   // orçamentos é montado primeiro, a ligação orçamentos → crédito só é possível depois daqui
   // (`definirGestorDeAnaliseCredito`); a ligação crédito → orçamentos entra no construtor.
-  const credito = criarModuloDeCredito({ ...comuns, agora, gestorDeOrcamento: orcamentos.servico });
+  const credito = criarModuloDeCredito({
+    ...comuns,
+    agora,
+    armazenamento,
+    gestorDeOrcamento: orcamentos.servico,
+  });
   orcamentos.servico.definirGestorDeAnaliseCredito(credito.servico);
   app.use(credito.rotas);
   // Entrada de mercadoria compartilha a mesma instância de ServicoDeSenha do login (RF19: a

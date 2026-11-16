@@ -23,8 +23,14 @@ export class ErroDeArquivoNaoEncontrado extends Error {
   }
 }
 
+/**
+ * Informe exatamente um dono: `idOrcamento` (anexo, bucket de anexos) ou `idAnaliseCredito`
+ * (documento de análise de crédito, UC07, bucket privado separado). O proxy escolhe o bucket e
+ * monta o caminho; as demais operações o deduzem do prefixo do caminho devolvido.
+ */
 export interface ArquivoASalvar {
-  readonly idOrcamento: number;
+  readonly idOrcamento?: number;
+  readonly idAnaliseCredito?: number;
   readonly nomeArquivo: string;
   readonly tipoConteudo: string;
   readonly conteudo: Buffer;
@@ -80,7 +86,10 @@ export class ArmazenamentoViaProxy implements ArmazenamentoDeArquivos {
       const resposta = await this.proxy.executar<{ dados?: unknown }>(
         'arquivo.salvar',
         {
-          id_orcamento: arquivo.idOrcamento,
+          ...(arquivo.idOrcamento !== undefined && { id_orcamento: arquivo.idOrcamento }),
+          ...(arquivo.idAnaliseCredito !== undefined && {
+            id_analise_credito: arquivo.idAnaliseCredito,
+          }),
           nome_arquivo: arquivo.nomeArquivo,
           tipo_conteudo: arquivo.tipoConteudo,
           conteudo_base64: arquivo.conteudo.toString('base64'),
@@ -138,7 +147,11 @@ export class ArmazenamentoEmMemoria implements ArmazenamentoDeArquivos {
       return Promise.reject(new ErroDeServicoIndisponivel());
     }
     this.sequencia += 1;
-    const caminho = `orcamentos/${arquivo.idOrcamento}/${this.sequencia}-${arquivo.nomeArquivo}`;
+    const dono =
+      arquivo.idAnaliseCredito === undefined
+        ? `orcamentos/${arquivo.idOrcamento}`
+        : `analise-credito/${arquivo.idAnaliseCredito}`;
+    const caminho = `${dono}/${this.sequencia}-${arquivo.nomeArquivo}`;
     this.objetos.set(caminho, { conteudo: arquivo.conteudo, tipoConteudo: arquivo.tipoConteudo });
     return Promise.resolve(caminho);
   }

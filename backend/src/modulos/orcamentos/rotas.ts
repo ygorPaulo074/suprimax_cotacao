@@ -1,12 +1,12 @@
 // UC01, UC14-19 — rotas de orçamentos (docs/frontend-api.md).
 import { Router } from 'express';
-import multer, { MulterError } from 'multer';
-import { AppError, ErroDeValidacao, STATUS_HTTP } from '../../erros';
+import { ErroDeValidacao, STATUS_HTTP } from '../../erros';
 import { exigirPerfil, exigirSessao, obterSessao } from '../../http/middlewares/autenticacao';
 import { rotaAssincrona } from '../../http/rotaAssincrona';
 import { validarEntrada } from '../../http/validacao';
 import type { RepositorioDeSessoes } from '../auth/sessoes';
 import { esquemaDeIdNaRota, esquemaDeParametroId } from '../comum/campos';
+import { MENSAGEM_DE_ARQUIVO_AUSENTE, processarUploadDeArquivo } from '../comum/uploadDeArquivo';
 import {
   esquemaDeAnexoNovo,
   esquemaDeCabecalhoAtualizar,
@@ -33,41 +33,8 @@ export const ROTAS_DE_ORCAMENTOS = {
   ENVIAR: '/orcamentos/:id/enviar',
 } as const;
 
-/** Nenhum anexo de orçamento precisa ser maior que isto (UC19; limite escolhido nesta entrega). */
-const TAMANHO_MAXIMO_DO_ANEXO_EM_BYTES = 10 * 1024 * 1024;
-const CAMPO_DO_ARQUIVO_NO_MULTIPART = 'arquivo';
-const MENSAGEM_DE_ARQUIVO_AUSENTE = 'Envie o arquivo no campo "arquivo" do multipart.';
-
 const esquemaDeParametrosDoItem = esquemaDeParametroId.extend({ idItem: esquemaDeIdNaRota });
 const esquemaDeParametrosDoAnexo = esquemaDeParametroId.extend({ idAnexo: esquemaDeIdNaRota });
-
-/**
- * Recebe o anexo em memória (o serviço o envia ao armazenamento de arquivos, via proxy) e converte
- * qualquer erro do multer (ex.: arquivo grande demais) em `AppError`, para o `tratamentoDeErros`
- * central responder certo.
- */
-const receberAnexo = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: TAMANHO_MAXIMO_DO_ANEXO_EM_BYTES },
-}).single(CAMPO_DO_ARQUIVO_NO_MULTIPART);
-
-function processarUploadDeAnexo(
-  req: Parameters<typeof receberAnexo>[0],
-  res: Parameters<typeof receberAnexo>[1],
-  proximo: (erro?: unknown) => void,
-): void {
-  receberAnexo(req, res, (erro: unknown) => {
-    if (!erro) {
-      proximo();
-      return;
-    }
-    if (erro instanceof MulterError && erro.code === 'LIMIT_FILE_SIZE') {
-      proximo(new AppError('PAYLOAD_TOO_LARGE', { causa: erro }));
-      return;
-    }
-    proximo(new ErroDeValidacao({ mensagem: MENSAGEM_DE_ARQUIVO_AUSENTE, causa: erro }));
-  });
-}
 
 export interface DependenciasDasRotasDeOrcamentos {
   readonly servico: ServicoDeOrcamentos;
@@ -202,7 +169,7 @@ export function criarRotasDeOrcamentos({
   rotas.post(
     ROTAS_DE_ORCAMENTOS.ANEXOS,
     operador,
-    processarUploadDeAnexo,
+    processarUploadDeArquivo,
     rotaAssincrona(async (req, res) => {
       const { id } = validarEntrada(esquemaDeParametroId, req.params);
       const { tipoAnexo } = validarEntrada(esquemaDeAnexoNovo, req.body);
