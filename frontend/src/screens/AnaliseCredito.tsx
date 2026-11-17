@@ -1,6 +1,12 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { creditoApi, type AnaliseCreditoDetalhe, type TipoDocumentoCredito } from '@/api';
+import {
+  ApiError,
+  creditoApi,
+  validarArquivoDeCredito,
+  type AnaliseCreditoDetalhe,
+  type TipoDocumentoCredito,
+} from '@/api';
 import { formatarBRL } from '@/lib/dinheiro';
 import { formatarCnpj, formatarData, formatarNumeroOrcamento } from '@/lib/datas';
 import { DataState } from '@/components/DataState';
@@ -28,6 +34,15 @@ const ROTULO_DOCUMENTO: Record<TipoDocumentoCredito, string> = {
   REFERENCIA_COMERCIAL: 'Referências comerciais',
 };
 
+/** Mensagens das falhas do envio do documento (413 acima de 10 MB; 422 tipo não aceito). */
+function mensagemDoUpload(erro: unknown): string {
+  if (erro instanceof ApiError) {
+    if (erro.status === 413) return 'O arquivo é maior que 10 MB. Envie um arquivo menor.';
+    if (erro.status === 422) return erro.message || 'Formato não aceito. Envie PDF, JPEG ou PNG.';
+  }
+  return mensagemDeErro(erro);
+}
+
 function LinhaDocumento({
   analise,
   tipo,
@@ -38,18 +53,37 @@ function LinhaDocumento({
   const queryClient = useQueryClient();
   const doc = analise.documentos.find((d) => d.tipoDocumento === tipo);
   const [data, setData] = useState('');
+  const [arquivo, setArquivo] = useState<File | null>(null);
+  const [erroArquivo, setErroArquivo] = useState<string | null>(null);
   const registrar = useMutation({
-    mutationFn: () => creditoApi.registrarDocumento(analise.idAnalise, tipo, data),
+    mutationFn: () => creditoApi.registrarDocumento(analise.idAnalise, tipo, data, arquivo),
     onSuccess: (nova) => queryClient.setQueryData(['credito', analise.idAnalise], nova),
   });
+  const abrir = useMutation({
+    mutationFn: () => creditoApi.urlDoDocumento(analise.idAnalise, tipo),
+    onSuccess: ({ url }) => {
+      window.open(url, '_blank', 'noopener');
+    },
+  });
+  function escolherArquivo(f: File | null) {
+    const erro = f ? validarArquivoDeCredito(f) : null;
+    setErroArquivo(erro);
+    setArquivo(erro ? null : f);
+  }
   return (
     <tr>
       <Td>{ROTULO_DOCUMENTO[tipo]}</Td>
       <Td>{doc?.recebido ? '✓ Recebido' : '○ Pendente'}</Td>
       <Td>{formatarData(doc?.dataRecebimento)}</Td>
       <Td>
+        {doc?.temArquivo && (
+          <BotaoSecundario disabled={abrir.isPending} onClick={() => abrir.mutate()}>
+            Abrir
+          </BotaoSecundario>
+        )}
+        {abrir.isError && <Alerta className="mt-2">{mensagemDeErro(abrir.error)}</Alerta>}
         {!doc?.recebido && (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <input
               type="date"
               aria-label={`Data de recebimento — ${ROTULO_DOCUMENTO[tipo]}`}
@@ -57,12 +91,23 @@ function LinhaDocumento({
               onChange={(e) => setData(e.target.value)}
               className="rounded-md border border-gray-300 px-2 py-1 text-sm"
             />
+            <input
+              type="file"
+              accept="application/pdf,image/jpeg,image/png"
+              aria-label={`Arquivo (opcional) — ${ROTULO_DOCUMENTO[tipo]}`}
+              onChange={(e) => escolherArquivo(e.target.files?.[0] ?? null)}
+              className="max-w-52 text-sm"
+            />
             <BotaoSecundario
               disabled={!data || registrar.isPending}
               onClick={() => registrar.mutate()}
             >
-              Registrar
+              {registrar.isPending ? 'Enviando…' : 'Registrar'}
             </BotaoSecundario>
+            {erroArquivo && <Alerta className="basis-full">{erroArquivo}</Alerta>}
+            {registrar.isError && (
+              <Alerta className="basis-full">{mensagemDoUpload(registrar.error)}</Alerta>
+            )}
           </div>
         )}
       </Td>

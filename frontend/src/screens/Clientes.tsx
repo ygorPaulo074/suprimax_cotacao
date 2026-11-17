@@ -37,9 +37,11 @@ function NovoOrcamento({ cliente }: { cliente: ClienteFicha }) {
   const motivo =
     cliente.status === 'INATIVO'
       ? 'Cliente inativo: não é possível criar orçamento.'
-      : cliente.dividaEmAberto > 0
-        ? 'Dívida em aberto: novo orçamento bloqueado.'
-        : null;
+      : cliente.status === 'BLOQUEADO'
+        ? 'Cliente bloqueado: não é possível criar orçamento.'
+        : cliente.dividaEmAberto > 0
+          ? 'Dívida em aberto: novo orçamento bloqueado.'
+          : null;
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-3">

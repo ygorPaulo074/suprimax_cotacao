@@ -151,7 +151,7 @@ Consulta de cliente por CNPJ. A ficha mostra razão social, nome do contato, tel
 
 - Dívida em aberto: alerta laranja informando que novo orçamento está bloqueado.
 - CNPJ não encontrado: estado vazio com o botão Cadastrar cliente.
-- Botão Novo orçamento (UC14): cria o rascunho direto da ficha (`POST /orcamentos`) e abre `/orcamentos/:id`. Aparece só para Operador, Operador chefe e Administrador. Fica desabilitado, com o motivo ao lado, se o cliente tem dívida em aberto ou está inativo; durante a chamada mostra "Criando…" e, em caso de erro, um alerta com a mensagem da API.
+- Botão Novo orçamento (UC14): cria o rascunho direto da ficha (`POST /orcamentos`) e abre `/orcamentos/:id`. Aparece só para Operador, Operador chefe e Administrador. Fica desabilitado, com o motivo ao lado, se o cliente tem dívida em aberto, está inativo ("Cliente inativo: não é possível criar orçamento.") ou está bloqueado ("Cliente bloqueado: não é possível criar orçamento."); durante a chamada mostra "Criando…" e, em caso de erro, um alerta com a mensagem da API.
 
 ![fig08.png](assets/fig08.png)
 

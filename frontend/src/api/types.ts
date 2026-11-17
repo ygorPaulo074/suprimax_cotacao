@@ -419,6 +419,8 @@ export interface DocumentoCredito {
   tipoDocumento: TipoDocumentoCredito;
   recebido: boolean;
   dataRecebimento: DataISO | null;
+  /** true quando há arquivo digital (senão o documento foi recebido só em meio físico). */
+  temArquivo: boolean;
 }
 export interface AnaliseCreditoResumo {
   idAnalise: number;
