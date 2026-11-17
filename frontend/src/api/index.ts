@@ -10,3 +10,14 @@ export { dividasApi } from './dividas';
 export { produtosApi } from './produtos';
 export { fornecedoresApi } from './fornecedores';
 export { usuariosApi } from './usuarios';
+export {
+  assinarFila,
+  configurarFila,
+  itensPendentes,
+  limparFila,
+  processarFila,
+  quantidadePendente,
+  versaoDaFila,
+  type ItemFila,
+} from './filaOffline';
+export { lerOrcamentoAberto, limparCacheLocal, salvarOrcamentoAberto } from './cacheLocal';

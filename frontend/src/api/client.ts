@@ -1,21 +1,9 @@
 import { API_URL } from '../config';
+import { ApiError } from './errors';
+import { configurarFila, enfileirar, processarFila, quantidadePendente } from './filaOffline';
 import type { ErroApi } from './types';
 
-/** Erro devolvido pelo backend (corpo JSON { codigo, mensagem, detalhes? }) ou falha de rede. */
-export class ApiError extends Error {
-  constructor(
-    public readonly status: number,
-    public readonly codigo: string,
-    mensagem: string,
-    public readonly detalhes?: Record<string, unknown>,
-  ) {
-    super(mensagem);
-    this.name = 'ApiError';
-  }
-  get semConexao(): boolean {
-    return this.status === 0;
-  }
-}
+export { ApiError };
 
 let token: string | null = null;
 let aoNaoAutorizado: (() => void) | null = null;
@@ -39,6 +27,25 @@ export interface OpcoesRequisicao {
   /** FormData para upload (anexos, documentos); não define Content-Type. */
   formData?: FormData;
   signal?: AbortSignal;
+  /** Idempotency-Key já definida (reenvio da fila). Sem ela, mutações de /orcamentos geram uma. */
+  chave?: string;
+  /** Reenvio da fila: não enfileira de novo. */
+  semFila?: boolean;
+}
+
+const MUTACAO = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
+const ROTA_ORCAMENTO = /^\/orcamentos(\/|$)/;
+/** Rotas de orçamento com mutação JSON (o upload de anexo não aceita a chave). */
+function mutacaoDeOrcamento(metodo: string, caminho: string, opcoes: OpcoesRequisicao): boolean {
+  return MUTACAO.has(metodo) && ROTA_ORCAMENTO.test(caminho) && !opcoes.formData;
+}
+/** Só quem já tem um orçamento (id na rota) pode esperar na fila: criar precisa da resposta. */
+function enfileiravel(caminho: string): boolean {
+  return /^\/orcamentos\/\d+(\/|$)/.test(caminho);
+}
+
+function novaChave(): string {
+  return globalThis.crypto.randomUUID();
 }
 
 export function montarUrl(caminho: string, query?: Query): string {
@@ -64,6 +71,22 @@ async function requisitar(
     body = JSON.stringify(opcoes.body);
   }
 
+  const comChave = mutacaoDeOrcamento(metodo, caminho, opcoes);
+  const chave = comChave ? (opcoes.chave ?? novaChave()) : undefined;
+  if (chave) headers['Idempotency-Key'] = chave;
+  const guardavel = comChave && !opcoes.semFila && enfileiravel(caminho);
+  const guardar = (): never => {
+    enfileirar({ chave: chave!, metodo, caminho, body: opcoes.body, criadoEm: Date.now() });
+    void processarFila();
+    throw new ApiError(
+      0,
+      'ENFILEIRADA',
+      'Sem conexão. A alteração foi guardada neste aparelho e será enviada quando a conexão voltar.',
+    );
+  };
+  // Já há alterações esperando: esta entra atrás delas para manter a ordem.
+  if (guardavel && quantidadePendente() > 0) guardar();
+
   let resposta: Response;
   try {
     resposta = await fetch(montarUrl(caminho, opcoes.query), {
@@ -74,6 +97,7 @@ async function requisitar(
     });
   } catch (e) {
     if (e instanceof DOMException && e.name === 'AbortError') throw e;
+    if (guardavel) guardar();
     throw new ApiError(0, 'SEM_CONEXAO', 'Sem conexão com o servidor. Tente novamente.');
   }
 
@@ -109,3 +133,12 @@ export const api = {
   /** Baixa um arquivo (PDF do orçamento). */
   baixar: async (caminho: string): Promise<Blob> => (await requisitar('GET', caminho)).blob(),
 };
+
+/** Reenvio da fila: mesma chave, sem enfileirar de novo. */
+configurarFila({
+  enviar: (item) =>
+    json(item.metodo, item.caminho, { body: item.body, chave: item.chave, semFila: true }),
+  reler: () => undefined, // o AppShell troca por quem invalida o TanStack Query
+  descartado: () => undefined,
+  autenticado: () => token !== null,
+});

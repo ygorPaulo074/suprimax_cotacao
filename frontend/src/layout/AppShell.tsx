@@ -2,6 +2,7 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { respostasApi } from '@/api';
 import { useAuth } from '@/auth/AuthContext';
+import AlteracoesPendentes from '@/components/AlteracoesPendentes';
 import { itensDoMenu, ROTULO_PERFIL } from '@/lib/perfis';
 
 function Logo() {
@@ -61,6 +62,7 @@ export default function AppShell() {
           />
         </form>
         <div className="ml-auto flex items-center gap-4">
+          <AlteracoesPendentes />
           <div className="flex items-center gap-2 text-white">
             <span className="flex h-[30px] w-[30px] items-center justify-center rounded-full bg-white/20 text-sm font-bold">
               {iniciais}

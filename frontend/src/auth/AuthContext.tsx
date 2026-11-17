@@ -12,6 +12,8 @@ import {
   aoReceberNaoAutorizado,
   authApi,
   definirToken,
+  limparCacheLocal,
+  limparFila,
   type LoginRequest,
   type Sessao,
 } from '@/api';
@@ -53,6 +55,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const limpar = useCallback(() => {
     definirToken(null);
     salvarToken(null);
+    limparFila(); // RNF06: nada de alterações nem de dados em cache de quem saiu
+    limparCacheLocal();
     setSessao(null);
     queryClient.clear();
   }, [queryClient]);
