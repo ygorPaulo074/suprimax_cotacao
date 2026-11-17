@@ -1,4 +1,10 @@
-import { Armazenamento, BUCKET_ANEXOS, caminhoValido, sanearNome } from './armazenamento';
+import {
+  Armazenamento,
+  BUCKET_ANEXOS,
+  BUCKET_DOCUMENTOS_CREDITO,
+  caminhoValido,
+  sanearNome,
+} from './armazenamento';
 
 interface Chamada {
   url: string;
@@ -51,6 +57,11 @@ describe('sanearNome / caminhoValido', () => {
     expect(caminhoValido('orcamento/1/a.pdf')).toBe(true);
     expect(caminhoValido('orcamento/../x')).toBe(false);
     expect(caminhoValido('outro/1/a.pdf')).toBe(false);
+  });
+  it('aceita também caminhos de analise-credito/ sem ..', () => {
+    expect(caminhoValido('analise-credito/1/a.pdf')).toBe(true);
+    expect(caminhoValido('analise-credito/../x')).toBe(false);
+    expect(caminhoValido('analise-credito' + String.fromCharCode(92) + '1')).toBe(false);
   });
 });
 
@@ -111,5 +122,68 @@ describe('Armazenamento', () => {
     await a.remover('orcamento/1/a.pdf');
     const del = chamadas.find((c) => c.method === 'DELETE');
     expect(JSON.parse(String(del?.body))).toEqual({ prefixes: ['orcamento/1/a.pdf'] });
+  });
+
+  describe('documentos de crédito (UC07)', () => {
+    const salvarCredito = (a: Armazenamento, nome = 'contrato.pdf') =>
+      a.salvar({
+        idAnaliseCredito: 4,
+        nomeArquivo: nome,
+        tipoConteudo: 'application/pdf',
+        conteudoBase64: b64(10),
+      });
+
+    it('guarda em bucket privado separado, com caminho analise-credito/<id>/', async () => {
+      const { a, chamadas } = criar();
+      const caminho = await salvarCredito(a, '../x.pdf');
+      expect(caminho).toMatch(/^analise-credito\/4\/[0-9a-f-]{36}-_x\.pdf$/);
+      expect(JSON.parse(String(criacoes(chamadas)[0]?.body))).toEqual({
+        id: BUCKET_DOCUMENTOS_CREDITO,
+        name: BUCKET_DOCUMENTOS_CREDITO,
+        public: false,
+      });
+      expect(chamadas[chamadas.length - 1]?.url).toContain(
+        `/object/${BUCKET_DOCUMENTOS_CREDITO}/analise-credito/4/`,
+      );
+    });
+
+    it('cria cada bucket uma vez e separadamente', async () => {
+      const { a, chamadas } = criar();
+      await salvarCredito(a);
+      await salvarCredito(a);
+      await salvar(a);
+      expect(criacoes(chamadas)).toHaveLength(2);
+    });
+
+    it('exige exatamente um dono (orçamento ou análise)', async () => {
+      const { a } = criar();
+      const base = {
+        nomeArquivo: 'a.pdf',
+        tipoConteudo: 'application/pdf',
+        conteudoBase64: b64(1),
+      };
+      await expect(a.salvar(base)).rejects.toMatchObject({ codigo: 'PAYLOAD_INVALIDO' });
+      await expect(
+        a.salvar({ ...base, idOrcamento: 1, idAnaliseCredito: 1 }),
+      ).rejects.toMatchObject({ codigo: 'PAYLOAD_INVALIDO' });
+    });
+
+    it('escolhe o bucket pelo prefixo ao assinar e remover', async () => {
+      const { a, chamadas } = criar({ bucketExiste: true });
+      await a.assinar('analise-credito/4/a.pdf', 60);
+      await a.remover('analise-credito/4/a.pdf');
+      await a.remover('orcamento/1/a.pdf');
+      expect(chamadas.find((c) => c.url.includes('/object/sign/'))?.url).toContain(
+        `/object/sign/${BUCKET_DOCUMENTOS_CREDITO}/analise-credito/4/a.pdf`,
+      );
+      const dels = chamadas.filter((c) => c.method === 'DELETE').map((c) => c.url);
+      expect(dels[0]).toMatch(new RegExp(`/object/${BUCKET_DOCUMENTOS_CREDITO}$`));
+      expect(dels[1]).toMatch(new RegExp(`/object/${BUCKET_ANEXOS}$`));
+    });
+
+    it('recusa caminho fora dos prefixos conhecidos', async () => {
+      const { a } = criar({ bucketExiste: true });
+      await expect(a.remover('outro/1/a')).rejects.toMatchObject({ codigo: 'PAYLOAD_INVALIDO' });
+    });
   });
 });

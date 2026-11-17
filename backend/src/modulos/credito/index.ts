@@ -1,6 +1,7 @@
 // UC07 — montagem do módulo de análise de crédito.
 import type { Router } from 'express';
 import type { ClienteDeProxy } from '../../dados';
+import { ArmazenamentoViaProxy, type ArmazenamentoDeArquivos } from '../../dados/armazenamento';
 import type { Logger } from '../../log';
 import { RepositorioDeClientes } from '../clientes/repositorio';
 import type { RepositorioDeSessoes } from '../auth/sessoes';
@@ -18,6 +19,8 @@ export interface DependenciasDoModuloDeCredito {
   readonly sessoes: RepositorioDeSessoes;
   readonly logger: Logger;
   readonly agora?: () => Date;
+  /** Armazenamento dos documentos digitais; padrão: via proxy. */
+  readonly armazenamento?: ArmazenamentoDeArquivos;
   /** `ServicoDeOrcamentos`, montado antes deste módulo (ver `app.ts`). */
   readonly gestorDeOrcamento: GestorDeOrcamentoParaCredito;
 }
@@ -38,6 +41,7 @@ export function criarModuloDeCredito(dependencias: DependenciasDoModuloDeCredito
     analises: new RepositorioDeAnalisesDeCredito(dependencias.proxy),
     clientes: new RepositorioDeClientes(dependencias.proxy),
     gestorDeOrcamento: dependencias.gestorDeOrcamento,
+    armazenamento: dependencias.armazenamento ?? new ArmazenamentoViaProxy(dependencias.proxy),
     logger: dependencias.logger,
     agora: dependencias.agora,
   });

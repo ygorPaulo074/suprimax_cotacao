@@ -1,6 +1,11 @@
 // UC07 — regras da análise de crédito: abertura automática (pedida pelo orçamento), checklist de
 // documentos e registro do resultado pelo fiscal (devolvendo o orçamento a RASCUNHO).
-import { ErroDeAnaliseCreditoJaConcluida, ErroDeAnaliseCreditoNaoEncontrada } from '../../erros';
+import { ArmazenamentoDeArquivos, ErroDeArquivoNaoEncontrado } from '../../dados/armazenamento';
+import {
+  ErroDeAnaliseCreditoJaConcluida,
+  ErroDeAnaliseCreditoNaoEncontrada,
+  ErroDeDocumentoDeCreditoNaoEncontrado,
+} from '../../erros';
 import type { Logger } from '../../log';
 import type { Sessao } from '../auth/sessoes';
 import type { RepositorioDeClientes } from '../clientes/repositorio';
@@ -19,6 +24,8 @@ export interface DocumentoCredito {
   readonly tipoDocumento: TipoDeDocumentoCredito;
   readonly recebido: boolean;
   readonly dataRecebimento: string | null;
+  /** Há arquivo digital (baixável pela URL assinada); falso = recebido em meio físico. */
+  readonly temArquivo: boolean;
 }
 
 /** Análise como a tela lista (`AnaliseCreditoResumo` do frontend). */
@@ -50,8 +57,16 @@ export interface DependenciasDoServicoDeAnaliseCredito {
   readonly analises: RepositorioDeAnalisesDeCredito;
   readonly clientes: RepositorioDeClientes;
   readonly gestorDeOrcamento: GestorDeOrcamentoParaCredito;
+  readonly armazenamento: ArmazenamentoDeArquivos;
   readonly logger: Logger;
   readonly agora?: () => Date;
+}
+
+/** Arquivo enviado junto com o documento (multipart, campo `arquivo`). */
+export interface ArquivoDoUploadDeCredito {
+  readonly nomeArquivo: string;
+  readonly tipoConteudo: string;
+  readonly conteudo: Buffer;
 }
 
 /** Regras de negócio da análise de crédito (UC07). */
@@ -59,6 +74,7 @@ export class ServicoDeAnaliseCredito {
   private readonly analises: RepositorioDeAnalisesDeCredito;
   private readonly clientes: RepositorioDeClientes;
   private readonly gestorDeOrcamento: GestorDeOrcamentoParaCredito;
+  private readonly armazenamento: ArmazenamentoDeArquivos;
   private readonly logger: Logger;
   private readonly agora: () => Date;
 
@@ -66,6 +82,7 @@ export class ServicoDeAnaliseCredito {
     this.analises = dependencias.analises;
     this.clientes = dependencias.clientes;
     this.gestorDeOrcamento = dependencias.gestorDeOrcamento;
+    this.armazenamento = dependencias.armazenamento;
     this.logger = dependencias.logger;
     this.agora = dependencias.agora ?? (() => new Date());
   }
@@ -108,26 +125,94 @@ export class ServicoDeAnaliseCredito {
   }
 
   /**
-   * Marca um tipo de documento do checklist como recebido (UC07; sem upload de arquivo — ver
-   * `frontend/src/api/credito.ts`'s `registrarDocumento`).
+   * Marca um tipo de documento do checklist como recebido (UC07). Com `arquivo`, guarda também o
+   * arquivo digital (dado sensível, LGPD) no armazenamento privado, via proxy: primeiro o objeto,
+   * depois a linha; se gravar a linha falhar, o objeto é removido (compensação). Sem `arquivo`, só
+   * registra o recebimento em meio físico (comportamento anterior).
    *
    * @throws {ErroDeAnaliseCreditoNaoEncontrada} Se a análise não existir (404).
    */
   async registrarDocumento(
     idAnalise: number,
     dados: DadosDoDocumentoRecebido,
+    arquivo?: ArquivoDoUploadDeCredito,
   ): Promise<AnaliseCreditoDetalhe> {
     await this.buscarOuFalhar(idAnalise);
-    await this.analises.registrarDocumento({
-      idAnalise,
-      tipoDocumento: dados.tipoDocumento,
-      dataRecebimento: dados.dataRecebimento,
-    });
+    let caminhoNovo: string | undefined;
+    if (arquivo) {
+      caminhoNovo = await this.armazenamento.salvar({
+        idAnaliseCredito: idAnalise,
+        nomeArquivo: arquivo.nomeArquivo,
+        tipoConteudo: arquivo.tipoConteudo,
+        conteudo: arquivo.conteudo,
+      });
+    }
+    let substituido: string | null;
+    try {
+      substituido = await this.analises.registrarDocumento({
+        idAnalise,
+        tipoDocumento: dados.tipoDocumento,
+        dataRecebimento: dados.dataRecebimento,
+        ...(arquivo &&
+          caminhoNovo !== undefined && {
+            arquivo: { nomeArquivo: arquivo.nomeArquivo, caminhoArquivo: caminhoNovo },
+          }),
+      });
+    } catch (erro) {
+      if (caminhoNovo !== undefined) {
+        await this.removerObjetoOrfao(idAnalise, caminhoNovo);
+      }
+      throw erro;
+    }
+    if (substituido !== null) {
+      await this.removerObjetoOrfao(idAnalise, substituido);
+    }
     this.logger.info(
-      { evento: 'documento_credito_registrado', idAnalise, tipo: dados.tipoDocumento },
+      {
+        evento: 'documento_credito_registrado',
+        idAnalise,
+        tipo: dados.tipoDocumento,
+        comArquivo: arquivo !== undefined,
+      },
       'Documento do checklist de crédito marcado como recebido.',
     );
     return this.obter(idAnalise);
+  }
+
+  /**
+   * URL assinada de curta duração para baixar o arquivo digital do documento (UC07, fiscal).
+   *
+   * @throws {ErroDeAnaliseCreditoNaoEncontrada} Se a análise não existir (404).
+   * @throws {ErroDeDocumentoDeCreditoNaoEncontrado} Se a análise não tiver esse documento com
+   * arquivo digital, ou o arquivo faltar no armazenamento (404).
+   */
+  async obterUrlDoDocumento(
+    idAnalise: number,
+    tipoDocumento: TipoDeDocumentoCredito,
+  ): Promise<{ url: string; expiraEm: string }> {
+    await this.buscarOuFalhar(idAnalise);
+    const caminho = await this.analises.buscarCaminhoDoArquivo(idAnalise, tipoDocumento);
+    if (caminho === null) {
+      throw new ErroDeDocumentoDeCreditoNaoEncontrado();
+    }
+    try {
+      return await this.armazenamento.gerarUrlAssinada(caminho);
+    } catch (erro) {
+      if (erro instanceof ErroDeArquivoNaoEncontrado) {
+        throw new ErroDeDocumentoDeCreditoNaoEncontrado();
+      }
+      throw erro;
+    }
+  }
+
+  /** Remove um objeto que ficou sem linha (ou foi substituído); falhar aqui só vira log. */
+  private async removerObjetoOrfao(idAnalise: number, caminho: string): Promise<void> {
+    await this.armazenamento.remover(caminho).catch((falha: unknown) => {
+      this.logger.warn(
+        { evento: 'documento_credito_objeto_orfao', idAnalise, err: falha },
+        'não foi possível remover o arquivo do documento de crédito do armazenamento',
+      );
+    });
   }
 
   /**
@@ -187,6 +272,7 @@ export class ServicoDeAnaliseCredito {
         tipoDocumento,
         recebido: recebido !== undefined,
         dataRecebimento: recebido?.dataRecebimento ?? null,
+        temArquivo: recebido?.temArquivo ?? false,
       };
     });
   }

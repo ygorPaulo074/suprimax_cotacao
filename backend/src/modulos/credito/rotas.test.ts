@@ -3,6 +3,7 @@
 // fiscal lista, marca documentos e registra o resultado, e o orçamento volta a RASCUNHO (UC07).
 import request from 'supertest';
 import { montarCenarioDeCadastros } from '../../testing/cenarioDeCadastros';
+import { RepositorioDeAnalisesDeCredito } from './repositorio';
 
 async function montarCenario() {
   const cenario = montarCenarioDeCadastros();
@@ -199,5 +200,189 @@ describe('análise de crédito (UC07) — fluxo completo pelas rotas HTTP', () =
     const resposta = await request(app).get('/analises-credito').set(cabecalhoOperador);
 
     expect(resposta.status).toBe(403);
+  });
+});
+
+describe('documentos de crédito com arquivo digital (UC07, LGPD)', () => {
+  async function comAnalise() {
+    const cenario = await montarCenario();
+    await cenario.pedirBoleto();
+    const [analise] = (
+      await request(cenario.app).get('/analises-credito').set(cenario.cabecalhoFiscal)
+    ).body;
+    const idAnalise = analise.idAnalise as number;
+    const enviar = (
+      conteudo = 'contrato social',
+      nome = 'contrato.pdf',
+      cabecalho = cenario.cabecalhoFiscal,
+    ) =>
+      request(cenario.app)
+        .post(`/analises-credito/${idAnalise}/documentos`)
+        .set(cabecalho)
+        .field('tipoDocumento', 'CONTRATO_SOCIAL')
+        .field('dataRecebimento', '2026-01-10')
+        .attach('arquivo', Buffer.from(conteudo), nome);
+    const baixar = (id = idAnalise, cabecalho = cenario.cabecalhoFiscal) =>
+      request(cenario.app)
+        .get(`/analises-credito/${id}/documentos/CONTRATO_SOCIAL/arquivo`)
+        .set(cabecalho);
+    return { ...cenario, idAnalise, enviar, baixar };
+  }
+
+  it('com arquivo: guarda o objeto, grava nome e caminho reais e não expõe o caminho', async () => {
+    const { enviar, armazenamento, banco, linhas } = await comAnalise();
+
+    const resposta = await enviar();
+
+    expect(resposta.status).toBe(200);
+    expect(resposta.body.documentos).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          tipoDocumento: 'CONTRATO_SOCIAL',
+          recebido: true,
+          temArquivo: true,
+        }),
+      ]),
+    );
+    const [linha] = banco.linhas('documento_analise_credito');
+    expect(linha?.nome_arquivo).toBe('contrato.pdf');
+    expect([...armazenamento.objetos.keys()]).toEqual([linha?.caminho_arquivo]);
+    expect(String(linha?.caminho_arquivo)).toMatch(/^analise-credito\//);
+    expect(JSON.stringify(resposta.body)).not.toContain('analise-credito/');
+    expect(JSON.stringify(linhas)).not.toContain(String(linha?.caminho_arquivo));
+  });
+
+  it('sem arquivo: segue como documento físico, sem tocar no armazenamento', async () => {
+    const { app, cabecalhoFiscal, idAnalise, armazenamento, baixar, banco } = await comAnalise();
+
+    const resposta = await request(app)
+      .post(`/analises-credito/${idAnalise}/documentos`)
+      .set(cabecalhoFiscal)
+      .send({ tipoDocumento: 'CONTRATO_SOCIAL', dataRecebimento: '2026-01-10' });
+
+    expect(resposta.status).toBe(200);
+    expect(resposta.body.documentos).toEqual(
+      expect.arrayContaining([expect.objectContaining({ recebido: true, temArquivo: false })]),
+    );
+    expect(armazenamento.objetos.size).toBe(0);
+    expect(banco.linhas('documento_analise_credito')[0]?.nome_arquivo).toBe(
+      'recebido_sem_arquivo_digital',
+    );
+    const url = await baixar();
+    expect(url.status).toBe(404);
+    expect(url.body.codigo).toBe('DOCUMENTO_CREDITO_NAO_ENCONTRADO');
+  });
+
+  it('não grava a linha quando salvar o arquivo falha', async () => {
+    const { enviar, armazenamento, banco } = await comAnalise();
+    armazenamento.falharAoSalvar = true;
+
+    const resposta = await enviar();
+
+    expect(resposta.status).toBe(503);
+    expect(banco.linhas('documento_analise_credito')).toEqual([]);
+    expect(armazenamento.objetos.size).toBe(0);
+  });
+
+  it('remove o objeto quando gravar a linha falha (compensação)', async () => {
+    const { enviar, armazenamento } = await comAnalise();
+    const espiao = jest
+      .spyOn(RepositorioDeAnalisesDeCredito.prototype, 'registrarDocumento')
+      .mockRejectedValueOnce(new Error('banco fora'));
+
+    const resposta = await enviar();
+    espiao.mockRestore();
+
+    expect(resposta.status).toBe(500);
+    expect(armazenamento.objetos.size).toBe(0);
+  });
+
+  it('reenviar o documento substitui o arquivo e remove o objeto anterior', async () => {
+    const { enviar, armazenamento, banco } = await comAnalise();
+
+    await enviar('versao 1', 'v1.pdf');
+    const resposta = await enviar('versao 2', 'v2.pdf');
+
+    expect(resposta.status).toBe(200);
+    expect(banco.linhas('documento_analise_credito')).toHaveLength(1);
+    expect(banco.linhas('documento_analise_credito')[0]?.nome_arquivo).toBe('v2.pdf');
+    expect(armazenamento.objetos.size).toBe(1);
+  });
+
+  it('GET devolve a URL assinada do arquivo, sem o caminho', async () => {
+    const { enviar, baixar } = await comAnalise();
+    await enviar();
+
+    const resposta = await baixar();
+
+    expect(resposta.status).toBe(200);
+    expect(resposta.body).toEqual({ url: expect.any(String), expiraEm: expect.any(String) });
+  });
+
+  it('GET responde 404 para documento de outra análise e para análise inexistente', async () => {
+    const { enviar, baixar, banco, idCliente } = await comAnalise();
+    await enviar();
+    const [outra] = banco.semear('analise_credito', {
+      id_cliente: idCliente,
+      data_solicitacao: '2026-01-02',
+    });
+
+    const deOutra = await baixar(outra?.id_analise as number);
+    const inexistente = await baixar(99999);
+
+    expect(deOutra.status).toBe(404);
+    expect(deOutra.body.codigo).toBe('DOCUMENTO_CREDITO_NAO_ENCONTRADO');
+    expect(inexistente.status).toBe(404);
+    expect(inexistente.body.codigo).toBe('ANALISE_CREDITO_NAO_ENCONTRADA');
+  });
+
+  it('responde 403 a quem não é fiscal, no upload e no GET', async () => {
+    const { enviar, baixar, cabecalhoOperador, armazenamento } = await comAnalise();
+
+    expect((await enviar('x', 'a.pdf', cabecalhoOperador)).status).toBe(403);
+    expect((await baixar(undefined, cabecalhoOperador)).status).toBe(403);
+    expect(armazenamento.objetos.size).toBe(0);
+  });
+
+  it('responde 413 para arquivo acima de 10 MB', async () => {
+    const { enviar, armazenamento } = await comAnalise();
+
+    const resposta = await enviar('x'.repeat(10 * 1024 * 1024 + 1));
+
+    expect(resposta.status).toBe(413);
+    expect(armazenamento.objetos.size).toBe(0);
+  });
+
+  it.each([['contrato.pdf'], ['foto.jpg'], ['foto.png']])(
+    'aceita o tipo de conteúdo de %s',
+    async (nome) => {
+      const { enviar, armazenamento } = await comAnalise();
+
+      const resposta = await enviar('conteudo', nome);
+
+      expect(resposta.status).toBe(200);
+      expect(armazenamento.objetos.size).toBe(1);
+    },
+  );
+
+  it('recusa tipo de conteúdo fora de PDF/JPEG/PNG com 422, sem enviar ao armazenamento', async () => {
+    const { enviar, armazenamento } = await comAnalise();
+
+    const resposta = await enviar('conteudo', 'planilha.txt');
+
+    expect(resposta.status).toBe(422);
+    expect(armazenamento.objetos.size).toBe(0);
+  });
+
+  it('aceita nome com 255 caracteres e recusa 256 com 422, sem enviar ao armazenamento', async () => {
+    const { enviar, armazenamento } = await comAnalise();
+
+    const aceito = await enviar('x', `${'a'.repeat(251)}.pdf`);
+    expect(aceito.status).toBe(200);
+    expect(armazenamento.objetos.size).toBe(1);
+
+    const recusado = await enviar('x', `${'a'.repeat(252)}.pdf`);
+    expect(recusado.status).toBe(422);
+    expect(armazenamento.objetos.size).toBe(1);
   });
 });
