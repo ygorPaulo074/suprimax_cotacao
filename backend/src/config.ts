@@ -33,6 +33,8 @@ const MS_POR_MINUTO = 60_000;
 export const JOBS_AGENDADOS_HABILITADOS_PADRAO = false;
 export const JOBS_AGENDADOS_INTERVALO_PADRAO_MINUTOS = 60;
 export const JOBS_AGENDADOS_INTERVALO_MAXIMO_MINUTOS = 1440;
+/** Tamanho mínimo do JOBS_TOKEN (segredo de máquina de `POST /jobs/executar`): use um valor aleatório longo. */
+export const JOBS_TOKEN_TAMANHO_MINIMO = 16;
 
 /** Variáveis de acesso ao proxy: opcionais em dev, obrigatórias nos demais ambientes. */
 export const VARIAVEIS_DO_PROXY = ['PROXY_URL', 'PROXY_SERVICE_ID', 'PROXY_SERVICE_TOKEN'] as const;
@@ -87,6 +89,7 @@ export const NOMES_DAS_VARIAVEIS = [
   'TRUST_PROXY',
   'JOBS_AGENDADOS_HABILITADOS',
   'JOBS_AGENDADOS_INTERVALO_MINUTOS',
+  'JOBS_TOKEN',
   ...VARIAVEIS_DA_EMPRESA_EMISSORA,
 ] as const;
 export type NomeDaVariavel = (typeof NOMES_DAS_VARIAVEIS)[number];
@@ -120,6 +123,7 @@ export const VARIAVEIS_SEM_VALOR_DE_EXEMPLO_EM_PRODUCAO: readonly NomeDaVariavel
   'PROXY_URL',
   'PROXY_SERVICE_ID',
   'PROXY_SERVICE_TOKEN',
+  'JOBS_TOKEN',
 ];
 
 /** O que cada variável aceita. Vai para a mensagem de erro no lugar do valor recebido. */
@@ -136,6 +140,7 @@ const FORMATO_ESPERADO: Readonly<Record<NomeDaVariavel, string>> = {
   TRUST_PROXY: `deve ser um inteiro entre 0 e ${TRUST_PROXY_MAXIMO}`,
   JOBS_AGENDADOS_HABILITADOS: 'deve ser true ou false',
   JOBS_AGENDADOS_INTERVALO_MINUTOS: `deve ser um inteiro entre 1 e ${JOBS_AGENDADOS_INTERVALO_MAXIMO_MINUTOS}`,
+  JOBS_TOKEN: `deve ser um texto sem espaços com pelo menos ${JOBS_TOKEN_TAMANHO_MINIMO} caracteres`,
   EMPRESA_RAZAO_SOCIAL: 'deve ser um texto não vazio',
   EMPRESA_ENDERECO: 'deve ser um texto não vazio',
   EMPRESA_TELEFONE: 'deve ser um texto não vazio',
@@ -170,6 +175,11 @@ export interface Config {
   readonly jobsAgendadosHabilitados: boolean;
   /** Intervalo entre rodadas do agendador in-process, em milissegundos. */
   readonly jobsAgendadosIntervaloMs: number;
+  /**
+   * Segredo de máquina de `POST /jobs/executar` (UC20; cron externo). Opcional: sem ele, a via por
+   * token fica desligada e só a sessão de GESTOR/ADMIN dispara os jobs. Nunca registre em log.
+   */
+  readonly jobsToken?: string;
   /** Cabeçalho/rodapé do PDF de orçamento (docs/09). Sempre presente: ver {@link DadosDaEmpresaEmissora}. */
   readonly empresaEmissora: DadosDaEmpresaEmissora;
 }
@@ -243,6 +253,7 @@ const esquemaDasVariaveis = z.object({
     1,
     JOBS_AGENDADOS_INTERVALO_MAXIMO_MINUTOS,
   ).optional(),
+  JOBS_TOKEN: z.string().regex(PADRAO_TEXTO_SEM_ESPACOS).min(JOBS_TOKEN_TAMANHO_MINIMO).optional(),
   EMPRESA_RAZAO_SOCIAL: z.string().trim().min(1).optional(),
   EMPRESA_ENDERECO: z.string().trim().min(1).optional(),
   EMPRESA_TELEFONE: z.string().trim().min(1).optional(),
@@ -384,6 +395,7 @@ export function carregarConfig(env: NodeJS.ProcessEnv = process.env): Config {
     jobsAgendadosIntervaloMs:
       (dados.JOBS_AGENDADOS_INTERVALO_MINUTOS ?? JOBS_AGENDADOS_INTERVALO_PADRAO_MINUTOS) *
       MS_POR_MINUTO,
+    ...(dados.JOBS_TOKEN !== undefined && { jobsToken: dados.JOBS_TOKEN }),
     empresaEmissora: Object.freeze({
       razaoSocial:
         dados.EMPRESA_RAZAO_SOCIAL ?? PLACEHOLDER_DA_EMPRESA_EMISSORA.EMPRESA_RAZAO_SOCIAL,
