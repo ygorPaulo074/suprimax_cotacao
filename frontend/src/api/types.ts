@@ -369,6 +369,14 @@ export interface CondicoesAtualizar {
   /** Valor cotado com a transportadora (FOB, origem SUPRIMAX); ausente = frete provisório. */
   valorFrete?: Centavos;
 }
+/** Corpo de `POST /orcamentos` (UC14): rascunho criado direto da ficha do cliente. */
+export interface OrcamentoNovo {
+  idCliente: number;
+  idEnderecoEntrega?: number | null;
+  numeroSolicitacaoCompra?: string;
+  contatoSolicitacao?: string;
+  prazoEntregaDias?: number | null;
+}
 export interface ItemAdicionar {
   idVariacao: number;
   granularidade: Granularidade;
