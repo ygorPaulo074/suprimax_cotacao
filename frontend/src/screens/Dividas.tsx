@@ -79,6 +79,37 @@ function ModalRenegociar({ divida, aoFechar }: { divida: Divida; aoFechar: () =>
   );
 }
 
+function ModalQuitar({ divida, aoFechar }: { divida: Divida; aoFechar: () => void }) {
+  const queryClient = useQueryClient();
+  const quitar = useMutation({
+    mutationFn: () => dividasApi.quitar(divida.idDivida),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['dividas'] });
+      aoFechar();
+    },
+  });
+  return (
+    <Modal
+      titulo={`Quitar dívida — ${divida.cliente}`}
+      aoFechar={aoFechar}
+      acoes={
+        <>
+          <BotaoSecundario onClick={aoFechar}>Voltar</BotaoSecundario>
+          <BotaoPrimario disabled={quitar.isPending} onClick={() => quitar.mutate()}>
+            Confirmar quitação
+          </BotaoPrimario>
+        </>
+      }
+    >
+      <p className="text-sm text-gray-600">
+        Confirma a quitação da dívida de {formatarBRL(divida.valorDivida)} com vencimento original
+        em {formatarData(divida.dataVencimentoOriginal)}?
+      </p>
+      {quitar.isError && <Alerta>{mensagemDeErro(quitar.error)}</Alerta>}
+    </Modal>
+  );
+}
+
 /** Tela 12 — UC23 – Dívidas (perfil FINANCEIRO). */
 export default function Dividas() {
   const queryClient = useQueryClient();
@@ -87,6 +118,7 @@ export default function Dividas() {
   const [valor, setValor] = useState('');
   const [vencimento, setVencimento] = useState('');
   const [renegociando, setRenegociando] = useState<Divida | null>(null);
+  const [quitando, setQuitando] = useState<Divida | null>(null);
 
   const cliente = useQuery({
     queryKey: ['clientes', 'cnpj', cnpj.replace(/\D/g, '')],
@@ -196,10 +228,15 @@ export default function Dividas() {
                       </Td>
                       <Td>{formatarData(d.dataProtesto)}</Td>
                       <Td>
-                        {d.status === 'EM_ABERTO' && (
-                          <BotaoSecundario onClick={() => setRenegociando(d)}>
-                            Renegociar
-                          </BotaoSecundario>
+                        {(d.status === 'EM_ABERTO' || d.status === 'RENEGOCIADA') && (
+                          <div className="flex gap-2">
+                            {d.status === 'EM_ABERTO' && (
+                              <BotaoSecundario onClick={() => setRenegociando(d)}>
+                                Renegociar
+                              </BotaoSecundario>
+                            )}
+                            <BotaoSecundario onClick={() => setQuitando(d)}>Quitar</BotaoSecundario>
+                          </div>
                         )}
                       </Td>
                     </tr>
@@ -213,6 +250,7 @@ export default function Dividas() {
       {renegociando && (
         <ModalRenegociar divida={renegociando} aoFechar={() => setRenegociando(null)} />
       )}
+      {quitando && <ModalQuitar divida={quitando} aoFechar={() => setQuitando(null)} />}
     </Pagina>
   );
 }

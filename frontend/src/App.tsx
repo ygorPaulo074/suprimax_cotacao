@@ -5,6 +5,8 @@ import { useAuth } from '@/auth/AuthContext';
 import { perfisDoModulo, rotaInicial } from '@/lib/perfis';
 import AppShell from '@/layout/AppShell';
 import Login from '@/screens/Login';
+import RedefinirSenha from '@/screens/RedefinirSenha';
+import NaoEncontrada from '@/screens/NaoEncontrada';
 import SemAcesso from '@/screens/SemAcesso';
 import Pedidos from '@/screens/Pedidos';
 import AnalisePedido from '@/screens/AnalisePedido';
@@ -36,6 +38,7 @@ export default function App() {
     <Routes>
       <Route path="/" element={<Raiz />} />
       <Route path="/login" element={<Login />} />
+      <Route path="/redefinir-senha" element={<RedefinirSenha />} />
       <Route element={<RotaProtegida />}>
         <Route path="/sem-acesso" element={<SemAcesso />} />
         <Route element={<AppShell />}>
@@ -88,7 +91,7 @@ export default function App() {
           )}
         </Route>
       </Route>
-      <Route path="*" element={<Raiz />} />
+      <Route path="*" element={<NaoEncontrada />} />
     </Routes>
   );
 }
