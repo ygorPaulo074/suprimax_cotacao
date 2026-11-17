@@ -422,16 +422,40 @@ Os limites de R$ 500 e R$ 1.500 são comparados com a soma dos totais das linhas
 | **Retorno** | { <br> itens: Array<{ idItem: number; situacao: 'APROVADO' \| 'NAO_APROVADO'; quantidadeAprovada: number; <br> idFaixaPrecoAceita: number \| null; precoUnitarioAceito: Centavos \| null; <br> valorLinha: Centavos; imposto: Centavos; totalItem: Centavos }>; <br> valorTotalItensAprovado: Centavos;   // soma dos totalItem dos itens aprovados <br> valorTotalImpostoAprovado: Centavos; <br> todosAprovados: boolean; <br> fechamento: null   // enquanto houver item não aprovado <br> \| { ok: true; frete: ResultadoFrete; valorTotalAceito: Centavos }   // itens aprovados + frete <br> \| { ok: false; motivo: 'ABAIXO_DO_MINIMO' }; <br> } <br> ResultadoFrete é o retorno de calcularFrete. Erros: CALC_ENTRADA_INVALIDA, CALC_FAIXA_NAO_ENCONTRADA, CALC_GRANULARIDADE_INVALIDA. |
 
 
+**Calcular quanto falta para o faturamento mínimo**
+
+
+| **Nome da Função** | calcularFaltaParaFaturamentoMinimo |
+|---|---|
+| **Descrição** | Informa, em centavos, quanto falta para o total atingir o faturamento mínimo, para o alerta “Abaixo do faturamento mínimo de R$ 500,00 – faltam R$ X” (docs/10, tela 6). |
+| **Fórmula/Regra aplicada** | Primeira compra: 0 (sem mínimo). Demais compras: max(0, FATURAMENTO_MINIMO − valorTotalItens); o limite é inclusivo (exatamente R$ 500,00 atende). |
+| **Parâmetros de entrada** | { <br> valorTotalItens: Centavos; <br> primeiraCompra: boolean; <br> } |
+| **Retorno** | Centavos (0 quando atende). Erros: CALC_ENTRADA_INVALIDA. |
+
+
+**Listar condições de pagamento permitidas**
+
+
+| **Nome da Função** | listarCondicoesPermitidas |
+|---|---|
+| **Descrição** | Lista as condições de pagamento que o orçamento pode usar, para o backend oferecer e validar a escolha do operador. |
+| **Fórmula/Regra aplicada** | Primeira compra: só ADIANTADO_100. Crédito reprovado: ADIANTADO_100 e ADIANTADO_50_50. Demais casos: ADIANTADO_100; BOLETO a partir de R$ 500,00; PARCELADO a partir de R$ 1.500,00 (limites inclusivos). Total 0 (orçamento sem itens) não restringe por valor. |
+| **Parâmetros de entrada** | { <br> valorTotalItens: Centavos; <br> primeiraCompra: boolean; <br> resultadoCredito: ResultadoCredito; <br> } |
+| **Retorno** | CondicaoPagamento[]. Erros: CALC_ENTRADA_INVALIDA. |
+
+
 ### 11.6.4 Resumo das funções
 
 
-O módulo expõe oito funções, todas puras, especificadas na seção 11.6.3.
+O módulo expõe dez funções, todas puras, especificadas na seção 11.6.3.
 
 
 | **Função** | **Domínio (seção)** |
 |---|---|
 | **validarCondicaoFaturamento** | Faturamento e crédito (11.6.3.1) |
 | **calcularCondicaoCreditoReprovado** | Faturamento e crédito (11.6.3.1) |
+| **calcularFaltaParaFaturamentoMinimo** | Faturamento e crédito (11.6.3.1) |
+| **listarCondicoesPermitidas** | Faturamento e crédito (11.6.3.1) |
 | **calcularFrete** | Frete (11.6.3.2) |
 | **calcularImpostoItem** | Imposto (11.6.3.3) |
 | **validarDisponibilidadeEstoque** | Estoque (11.6.3.4) |
