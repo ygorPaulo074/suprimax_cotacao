@@ -25,7 +25,8 @@ export interface DependenciasDasRotasDeRespostas {
 
 /**
  * Rotas de respostas pendentes (UC21), para OPERADOR e OPERADOR_CHEFE:
- * - `GET /respostas-pendentes`: lista as que aguardam tratamento, com os filtros da tela (RF27);
+ * - `GET /respostas-pendentes`: processa as respostas PENDENTE (UC20) e lista as que aguardam
+ *   tratamento, com os filtros da tela (RF27);
  * - `GET /respostas-pendentes/contador`: contador do menu;
  * - `GET /respostas-pendentes/:id`: abre o tratamento, criando ou retomando o rascunho da nova
  *   versão;
@@ -46,6 +47,9 @@ export function criarRotasDeRespostas({
     operador,
     rotaAssincrona(async (req, res) => {
       const filtro = validarEntrada(esquemaDeFiltroDeRespostas, req.query);
+      // UC20: ao abrir a tela, processa antes as respostas PENDENTE (cada uma isolada; falha
+      // numa não derruba a lista).
+      await servico.processarPendentes();
       res.status(STATUS_HTTP.OK).json(await servico.listarPendentes(filtro));
     }),
   );

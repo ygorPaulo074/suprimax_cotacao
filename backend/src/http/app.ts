@@ -63,6 +63,9 @@ export interface DependenciasDoApp {
   readonly notificadorDeRecuperacao?: NotificadorDeRecuperacaoDeSenha;
 }
 
+/** Chave de `app.locals` onde `createApp` deixa o `AgendadorDeJobs` para o `index.ts` ligar. */
+export const CHAVE_LOCAL_AGENDADOR_DE_JOBS = 'agendadorDeJobs';
+
 /**
  * Monta a aplicação Express com os middlewares globais, as rotas e o tratamento de erros.
  *
@@ -132,16 +135,32 @@ export function createApp({
   // liberação de divergência confere usuário e senha do operador chefe).
   app.use(criarModuloDeEntradas({ ...comuns, senhas, agora }).rotas);
   app.use(criarModuloDeIndicadores({ ...comuns, agora }).rotas);
+  // Respostas (UC20, UC21) delega a criação/emissão de nova versão ao serviço de orçamentos
+  // (`GestorDeVersoesDeOrcamento`), pelo mesmo padrão de injeção usado acima. É montado antes dos
+  // jobs porque a rodada dos jobs também processa as respostas PENDENTE (UC20).
+  const respostas = criarModuloDeRespostas({
+    ...comuns,
+    agora,
+    gestorDeVersoes: orcamentos.servico,
+  });
   // O agendador deste módulo não é ligado aqui (createApp não decide o que roda em segundo
   // plano) — só a rota de disparo manual/externo (item 9, `POST /jobs/executar`). Quem liga o
-  // agendador in-process é `index.ts` (`principal`), por `JOBS_AGENDADOS_HABILITADOS`.
-  app.use(criarModuloDeJobs({ ...comuns, agora, jobsToken: config.jobsToken }).rotas);
+  // agendador in-process é `index.ts` (`principal`), por `JOBS_AGENDADOS_HABILITADOS`, usando
+  // o agendador exposto em `app.locals` (a mesma instância da rota, que impede rodadas
+  // simultâneas).
+  const jobs = criarModuloDeJobs({
+    ...comuns,
+    agora,
+    jobsToken: config.jobsToken,
+    intervaloDoAgendadorMs: config.jobsAgendadosIntervaloMs,
+    processarRespostasPendentes: () => respostas.servico.processarPendentes(),
+  });
+  app.locals[CHAVE_LOCAL_AGENDADOR_DE_JOBS] = jobs.agendador;
+  app.use(jobs.rotas);
   app.use(criarModuloDeUsuarios({ ...comuns, senhas, agora, notificador }).rotas);
   app.use(orcamentos.rotas);
   app.use(criarModuloDePedidos({ ...comuns, agora, orcamentos: orcamentos.servico }).rotas);
-  // Respostas (UC20, UC21) delega a criação/emissão de nova versão ao serviço de orçamentos
-  // (`GestorDeVersoesDeOrcamento`), pelo mesmo padrão de injeção usado acima.
-  app.use(criarModuloDeRespostas({ ...comuns, agora, gestorDeVersoes: orcamentos.servico }).rotas);
+  app.use(respostas.rotas);
 
   app.use(rotaNaoEncontrada());
   app.use(tratamentoDeErros(logger));

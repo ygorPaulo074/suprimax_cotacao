@@ -1,13 +1,12 @@
 // Teste de ponta a ponta (item 7 do backend/TAREFAS.md): as rotas de UC21 (`/respostas-pendentes`)
 // pelas rotas HTTP reais, com o módulo de respostas ligado como em produção (via `app.ts`), e não
-// por chamada direta ao serviço. O processamento automático da resposta (UC20) não tem rota HTTP
-// nesta entrega (fica para o job do item 9 do TAREFAS.md) — por isso a resposta é semeada direto
-// no banco já em AGUARDA_OPERADOR, como o UC20 a deixaria; o que este teste cobre é a montagem
-// real do módulo de respostas e a delegação para `ServicoDeOrcamentos` (nova versão, substituição).
+// por chamada direta ao serviço. Os testes de UC21 semeiam a resposta já em AGUARDA_OPERADOR, como
+// o UC20 a deixaria; a última seção parte de uma resposta PENDENTE (como o Sistema 1 a grava) e
+// prova que o UC20 dispara sozinho, por `POST /jobs/executar` e ao abrir `GET /respostas-pendentes`.
 import request from 'supertest';
 import { montarCenarioDeCadastros } from '../testing/cenarioDeCadastros';
 
-async function montarCenario() {
+async function montarCenario(statusDaResposta = 'AGUARDA_OPERADOR') {
   const cenario = montarCenarioDeCadastros();
   const operador = await cenario.entrarComo('OPERADOR');
   const idVendedor = cenario.semearUsuario('VENDEDOR', 'vera');
@@ -54,12 +53,13 @@ async function montarCenario() {
     .send({ condicaoPagamento: 'ADIANTADO_100', origemTransportadora: 'SUPRIMAX' });
   await request(cenario.app).post(`/orcamentos/${idOrcamento}/emitir`).set(cabecalho);
 
-  // Resposta já em AGUARDA_OPERADOR, como o UC20 a deixaria para um item não aprovado.
+  // AGUARDA_OPERADOR é como o UC20 deixaria a resposta de um item não aprovado; PENDENTE é como o
+  // Sistema 1 a grava, antes do processamento automático.
   const [resposta] = cenario.banco.semear('resposta_orcamento', {
     id_orcamento: idOrcamento,
     tipo_resposta: 'ITENS',
-    status_resposta: 'AGUARDA_OPERADOR',
-    motivo_tratamento: 'ITENS_NAO_APROVADOS',
+    status_resposta: statusDaResposta,
+    motivo_tratamento: statusDaResposta === 'PENDENTE' ? null : 'ITENS_NAO_APROVADOS',
     id_operador_vendedor: idVendedor,
     data_resposta: new Date().toISOString(),
   });
@@ -147,3 +147,40 @@ describe('fluxo completo: UC21 — respostas pendentes pelas rotas HTTP', () => 
     expect(original.body.status).toBe('ABERTO');
   });
 });
+
+describe('fluxo completo: UC20 — resposta PENDENTE processada sozinha', () => {
+  it('POST /jobs/executar leva a resposta PENDENTE a aguardar o operador', async () => {
+    const { app, cenarioGestor, idResposta, banco } = await montarComGestor();
+
+    const execucao = await request(app)
+      .post('/jobs/executar')
+      .set('Authorization', cenarioGestor.autorizacao);
+
+    expect(execucao.status).toBe(200);
+    expect(execucao.body.resumo).toContainEqual(
+      expect.objectContaining({ job: 'processar_respostas_pendentes', processados: 1 }),
+    );
+    const resposta = banco.linhas('resposta_orcamento').find((l) => l.id_resposta === idResposta);
+    expect(resposta?.status_resposta).toBe('AGUARDA_OPERADOR');
+    expect(resposta?.motivo_tratamento).toBe('ITENS_NAO_APROVADOS');
+  });
+
+  it('GET /respostas-pendentes processa a PENDENTE antes de listar', async () => {
+    const { app, cabecalho, idResposta, banco } = await montarCenario('PENDENTE');
+
+    const lista = await request(app).get('/respostas-pendentes').set(cabecalho);
+
+    expect(lista.status).toBe(200);
+    expect(lista.body).toEqual([
+      expect.objectContaining({ idResposta, tipo: 'ITENS_NAO_APROVADOS' }),
+    ]);
+    const resposta = banco.linhas('resposta_orcamento').find((l) => l.id_resposta === idResposta);
+    expect(resposta?.status_resposta).toBe('AGUARDA_OPERADOR');
+  });
+});
+
+async function montarComGestor() {
+  const cenario = await montarCenario('PENDENTE');
+  const cenarioGestor = await cenario.entrarComo('GESTOR');
+  return { ...cenario, cenarioGestor };
+}

@@ -154,7 +154,7 @@ describe('ServicoDeJobsAgendados (item 9)', () => {
   });
 
   describe('apagarRascunhosExpirados (job 2, RN25)', () => {
-    it('apaga itens, anexos e o rascunho quando não há histórico vinculado', async () => {
+    it('apaga o rascunho com itens, anexos e histórico (cascata do banco) pela função do banco', async () => {
       const cenario = montarCenarioDeCadastros({ agora: () => AGORA_DO_TESTE });
       const { idCliente, idOperador } = semearCliente(cenario);
       const idExpirado = semearOrcamento(cenario, idCliente, idOperador, {
@@ -169,6 +169,12 @@ describe('ServicoDeJobsAgendados (item 9)', () => {
         nome_arquivo: 'catalogo.pdf',
         caminho_arquivo: '/anexos/catalogo.pdf',
       });
+      cenario.banco.semear('historico_orcamento', {
+        id_orcamento: idExpirado,
+        id_operador: null,
+        tipo_evento: 'MUDANCA_STATUS',
+        status_novo: 'RASCUNHO',
+      });
       const servico = montarServico(cenario);
 
       const apagados = await servico.apagarRascunhosExpirados();
@@ -179,6 +185,7 @@ describe('ServicoDeJobsAgendados (item 9)', () => {
       );
       expect(cenario.banco.linhas('item_orcamento')).toHaveLength(0);
       expect(cenario.banco.linhas('anexo_orcamento')).toHaveLength(0);
+      expect(cenario.banco.linhas('historico_orcamento')).toHaveLength(0);
     });
 
     it('não apaga quem expirou há menos de 30 dias', async () => {
@@ -209,34 +216,28 @@ describe('ServicoDeJobsAgendados (item 9)', () => {
       expect(cenario.banco.linhas('orcamento')).toHaveLength(1);
     });
 
-    it(
-      'não apaga (e propaga o erro) quando o histórico do orçamento ainda o referencia — ' +
-        'é o ponto a combinar com o responsável pelo banco citado no briefing do item 9: todo ' +
-        'rascunho tem histórico desde a criação (UC14), e o escopo de exclusão do Sistema 2 não ' +
-        'inclui historico_orcamento (docs/12, seção 12.8.3)',
-      async () => {
-        const cenario = montarCenarioDeCadastros({ agora: () => AGORA_DO_TESTE });
-        const { idCliente, idOperador } = semearCliente(cenario);
-        const idExpirado = semearOrcamento(cenario, idCliente, idOperador, {
-          status: 'EXPIRADO',
-          motivo_expiracao: 'RASCUNHO',
-          data_encerramento: isoHaDias(DIAS_PARA_APAGAR_RASCUNHO_EXPIRADO + 1),
-        });
-        cenario.banco.semear('historico_orcamento', {
-          id_orcamento: idExpirado,
-          id_operador: null,
-          tipo_evento: 'MUDANCA_STATUS',
-          status_novo: 'RASCUNHO',
-        });
-        const servico = montarServico(cenario);
+    it('o DELETE direto continua recusado quando há histórico (só a função do banco apaga)', async () => {
+      const cenario = montarCenarioDeCadastros({ agora: () => AGORA_DO_TESTE });
+      const { idCliente, idOperador } = semearCliente(cenario);
+      const idExpirado = semearOrcamento(cenario, idCliente, idOperador, {
+        status: 'EXPIRADO',
+        motivo_expiracao: 'RASCUNHO',
+        data_encerramento: isoHaDias(DIAS_PARA_APAGAR_RASCUNHO_EXPIRADO + 1),
+      });
+      cenario.banco.semear('historico_orcamento', {
+        id_orcamento: idExpirado,
+        id_operador: null,
+        tipo_evento: 'MUDANCA_STATUS',
+        status_novo: 'RASCUNHO',
+      });
 
-        await expect(servico.apagarRascunhosExpirados()).rejects.toThrow();
-
-        expect(cenario.banco.linhas('orcamento').some((l) => l.id_orcamento === idExpirado)).toBe(
-          true,
-        );
-      },
-    );
+      expect(() =>
+        cenario.banco.executar('dados.excluir', {
+          tabela: 'orcamento',
+          filtros: { e: [['id_orcamento', '=', idExpirado]] },
+        }),
+      ).toThrow();
+    });
   });
 
   describe('expirarOrcamentosEmitidos (job 3, RF16)', () => {
@@ -396,7 +397,7 @@ describe('ServicoDeJobsAgendados (item 9)', () => {
         status: 'RASCUNHO',
         data_ultima_edicao: isoHaDias(DIAS_PARA_EXPIRAR_RASCUNHO + 1),
       });
-      // Job 2 tem um candidato que vai falhar: histórico ainda o referencia.
+      // Candidato do job 2, com histórico: a função do banco apaga em cascata.
       const idParaApagar = semearOrcamento(cenario, idCliente, idOperador, {
         status: 'EXPIRADO',
         motivo_expiracao: 'RASCUNHO',
@@ -417,10 +418,32 @@ describe('ServicoDeJobsAgendados (item 9)', () => {
       expect(porJob.get('expirar_rascunhos_e_pendentes_de_credito')).toMatchObject({
         processados: 1,
       });
-      expect(porJob.get('apagar_rascunhos_expirados')?.erro).toBeDefined();
+      expect(porJob.get('apagar_rascunhos_expirados')).toMatchObject({ processados: 1 });
       expect(porJob.get('expirar_orcamentos_emitidos')).toMatchObject({ processados: 0 });
       expect(porJob.get('expirar_reservas')).toMatchObject({ processados: 0 });
       expect(porJob.get('marcar_protesto_de_dividas')).toMatchObject({ processados: 0 });
+    });
+  });
+
+  describe('executarTodos com o processamento de respostas (UC20)', () => {
+    it('inclui o sexto passo, e a falha dele não derruba os outros jobs', async () => {
+      const cenario = montarCenarioDeCadastros({ agora: () => AGORA_DO_TESTE });
+      const processar = jest.fn().mockResolvedValueOnce(2).mockRejectedValueOnce(new Error('boom'));
+      const servico = new ServicoDeJobsAgendados({
+        jobs: new RepositorioDeJobs(cenario.proxy),
+        logger: LOGGER_SILENCIOSO,
+        agora: () => AGORA_DO_TESTE,
+        processarRespostasPendentes: processar,
+      });
+
+      const primeira = await servico.executarTodos();
+      const segunda = await servico.executarTodos();
+
+      expect(primeira).toHaveLength(6);
+      expect(primeira[5]).toEqual({ job: 'processar_respostas_pendentes', processados: 2 });
+      expect(segunda).toHaveLength(6);
+      expect(segunda[5]).toMatchObject({ job: 'processar_respostas_pendentes', erro: 'boom' });
+      expect(segunda[0]).toMatchObject({ processados: 0 });
     });
   });
 });

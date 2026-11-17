@@ -8,7 +8,7 @@ const AGORA_DO_TESTE = new Date('2026-05-10T09:00:00.000Z');
 const JOBS_TOKEN_DO_TESTE = 'token-de-maquina-do-teste-0123456789';
 
 describe('POST /jobs/executar (item 9)', () => {
-  it('responde 200 com o resumo dos cinco jobs, mesmo sem nenhum candidato', async () => {
+  it('responde 200 com o resumo dos cinco jobs e do processamento das respostas (UC20), mesmo sem nenhum candidato', async () => {
     const cenario = montarCenarioDeCadastros({ agora: () => AGORA_DO_TESTE });
     const gestor = await cenario.entrarComo('GESTOR');
 
@@ -27,9 +27,10 @@ describe('POST /jobs/executar (item 9)', () => {
         expect.objectContaining({ job: 'expirar_orcamentos_emitidos', processados: 0 }),
         expect.objectContaining({ job: 'expirar_reservas', processados: 0 }),
         expect.objectContaining({ job: 'marcar_protesto_de_dividas', processados: 0 }),
+        expect.objectContaining({ job: 'processar_respostas_pendentes', processados: 0 }),
       ]),
     );
-    expect(resposta.body.resumo).toHaveLength(5);
+    expect(resposta.body.resumo).toHaveLength(6);
   });
 
   it('expira um rascunho sem edição há 30 dias e devolve isso no resumo', async () => {
@@ -119,7 +120,7 @@ describe('POST /jobs/executar com JOBS_TOKEN (UC20, autenticação de máquina)'
       .set('Authorization', `Bearer ${JOBS_TOKEN_DO_TESTE}`);
 
     expect(resposta.status).toBe(200);
-    expect(resposta.body.resumo).toHaveLength(5);
+    expect(resposta.body.resumo).toHaveLength(6);
   });
 
   it('responde 401 sem cabeçalho', async () => {
