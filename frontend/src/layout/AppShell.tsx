@@ -2,16 +2,7 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { respostasApi } from '@/api';
 import { useAuth } from '@/auth/AuthContext';
-import { itensDoMenu } from '@/lib/perfis';
-
-const ROTULO_PERFIL: Record<string, string> = {
-  OPERADOR: 'Operador',
-  OPERADOR_CHEFE: 'Operador chefe',
-  FISCAL: 'Fiscal',
-  FINANCEIRO: 'Financeiro',
-  VENDEDOR: 'Vendedor',
-  GESTOR: 'Gestor',
-};
+import { itensDoMenu, ROTULO_PERFIL } from '@/lib/perfis';
 
 function Logo() {
   return (

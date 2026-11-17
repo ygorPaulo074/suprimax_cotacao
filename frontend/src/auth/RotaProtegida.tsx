@@ -1,6 +1,6 @@
 import { Navigate, Outlet } from 'react-router-dom';
 import type { Perfil } from '@/api';
-import { rotaInicial } from '@/lib/perfis';
+import { rotaInicial, temPerfil } from '@/lib/perfis';
 import { useAuth } from './AuthContext';
 import { Skeleton } from '@/components/ui';
 
@@ -15,7 +15,7 @@ export function RotaProtegida({ perfis }: { perfis?: Perfil[] }) {
     );
   }
   if (!sessao) return <Navigate to="/login" replace />;
-  if (perfis && !perfis.includes(sessao.perfil))
+  if (perfis && !temPerfil(sessao.perfil, perfis))
     return <Navigate to={rotaInicial(sessao.perfil)} replace />;
   return <Outlet />;
 }
