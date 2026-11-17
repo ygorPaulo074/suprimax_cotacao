@@ -674,6 +674,20 @@ export class RepositorioDeProdutos {
     );
   }
 
+  /**
+   * Unidades por fardo, por `idFardo`, dos fardos das variações (para converter o saldo em
+   * unidades no saldo em fardos). Uma leitura só, qualquer que seja o número de variações.
+   */
+  async buscarUnidadesDosFardos(idsDasVariacoes: readonly number[]): Promise<Map<number, number>> {
+    if (idsDasVariacoes.length === 0) {
+      return new Map();
+    }
+    const porVariacao = await this.listarFardos(idsDasVariacoes, OPERACOES_DE_PRODUTOS.BUSCAR);
+    return new Map(
+      [...porVariacao.values()].flat().map((fardo) => [fardo.idFardo, fardo.quantidadeUnidades]),
+    );
+  }
+
   private async listarFardos(
     idsDasVariacoes: readonly number[],
     operationId: string,

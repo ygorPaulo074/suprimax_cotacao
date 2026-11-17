@@ -2,6 +2,8 @@
 // rotas HTTP.
 import {
   ErroDeAnexoNaoEncontrado,
+  ErroDeClienteBloqueado,
+  ErroDeClienteNaoEncontrado,
   ErroDeEmissaoBloqueada,
   ErroDeEnvioNaoPermitido,
   ErroDeEstoqueIndisponivel,
@@ -57,7 +59,7 @@ function montarServico(cenario: CenarioDeCadastros): ServicoDeOrcamentos {
 }
 
 /** Semeia um cliente (ativo, sem dívida) e devolve o id; `primeiraCompra` controla o histórico. */
-function semearCliente(cenario: CenarioDeCadastros): number {
+function semearCliente(cenario: CenarioDeCadastros, status?: string): number {
   contador += 1;
   const idVendedor = cenario.semearUsuario('VENDEDOR', `vendedor-${contador}`);
   const [cliente] = cenario.banco.semear('cliente', {
@@ -68,8 +70,34 @@ function semearCliente(cenario: CenarioDeCadastros): number {
     id_operador_vendedor: idVendedor,
     aceite_lgpd: true,
     data_aceite_lgpd: new Date().toISOString(),
+    ...(status === undefined ? {} : { status }),
   });
   return cliente?.id_cliente as number;
+}
+
+/** Registra uma dívida do cliente com o status informado (UC14-E2, RN06). */
+function semearDivida(cenario: CenarioDeCadastros, idCliente: number, status: string): void {
+  const idOperador = cenario.semearUsuario('FINANCEIRO', `financeiro-${(contador += 1)}`);
+  cenario.banco.semear('divida_inadimplencia', {
+    id_cliente: idCliente,
+    id_operador_registro: idOperador,
+    valor_divida: '1000.00',
+    status,
+    data_vencimento_original: '2026-09-30',
+  });
+}
+
+/** Uma compra já aceita antes: o cliente deixa de ser "primeira compra" (mínimo e crédito valem). */
+function semearCompraAnterior(
+  cenario: CenarioDeCadastros,
+  idCliente: number,
+  idOperador: number,
+): void {
+  cenario.banco.semear('orcamento', {
+    id_cliente: idCliente,
+    id_operador: idOperador,
+    status: 'ACEITO',
+  });
 }
 
 /** Semeia um produto com uma variação, uma faixa de preço (AVULSO) e um fardo. */
@@ -126,6 +154,67 @@ describe('ServicoDeOrcamentos', () => {
         expect.objectContaining({ codigo: 'SEM_ITENS' }),
         expect.objectContaining({ codigo: 'CONDICOES_INCOMPLETAS' }),
       ]);
+    });
+  });
+
+  describe('criar: cliente que não pode comprar (UC14-E1/E2, RN06)', () => {
+    async function tentarCriar(
+      prepararCliente: (cenario: CenarioDeCadastros) => number,
+    ): Promise<{ cenario: CenarioDeCadastros; erro: unknown }> {
+      const cenario = montarCenarioDeCadastros();
+      const servico = montarServico(cenario);
+      const idOperador = cenario.semearUsuario('OPERADOR', 'quem-cria');
+      const idCliente = prepararCliente(cenario);
+      const erro = await servico
+        .criar(
+          { idCliente, numeroSolicitacaoCompra: null, contatoSolicitacao: null },
+          sessaoDoOperador(idOperador, 'quem-cria'),
+        )
+        .then(
+          () => null,
+          (falha: unknown) => falha,
+        );
+      return { cenario, erro };
+    }
+
+    it.each([
+      ['INATIVO', /inativo/],
+      ['BLOQUEADO', /bloqueado/],
+    ])('recusa cliente %s sem gravar o orçamento', async (status, texto) => {
+      const { cenario, erro } = await tentarCriar((c) => semearCliente(c, status));
+
+      expect(erro).toBeInstanceOf(ErroDeClienteBloqueado);
+      expect((erro as Error).message).toMatch(texto);
+      expect(cenario.banco.linhas('orcamento')).toHaveLength(0);
+    });
+
+    it.each(['EM_ABERTO', 'PROTESTADA'])('recusa cliente com dívida %s', async (statusDaDivida) => {
+      const { cenario, erro } = await tentarCriar((c) => {
+        const idCliente = semearCliente(c);
+        semearDivida(c, idCliente, statusDaDivida);
+        return idCliente;
+      });
+
+      expect(erro).toBeInstanceOf(ErroDeClienteBloqueado);
+      expect((erro as Error).message).toMatch(/dívida em aberto/);
+      expect(cenario.banco.linhas('orcamento')).toHaveLength(0);
+    });
+
+    it.each(['RENEGOCIADA', 'QUITADA'])('aceita cliente com dívida %s', async (statusDaDivida) => {
+      const { cenario, erro } = await tentarCriar((c) => {
+        const idCliente = semearCliente(c);
+        semearDivida(c, idCliente, statusDaDivida);
+        return idCliente;
+      });
+
+      expect(erro).toBeNull();
+      expect(cenario.banco.linhas('orcamento')).toHaveLength(1);
+    });
+
+    it('responde cliente não encontrado quando o cliente não existe', async () => {
+      const { erro } = await tentarCriar(() => 99999);
+
+      expect(erro).toBeInstanceOf(ErroDeClienteNaoEncontrado);
     });
   });
 
@@ -404,7 +493,7 @@ describe('ServicoDeOrcamentos', () => {
       );
       await servico.atualizarCondicoes(
         idOrcamento,
-        { condicaoPagamento: 'ADIANTADO_100', origemTransportadora: 'SUPRIMAX' },
+        { condicaoPagamento: 'ADIANTADO_100', origemTransportadora: 'SUPRIMAX', valorFrete: 2000 },
         sessao,
       );
       await servico.emitir(idOrcamento, sessao);
@@ -454,7 +543,7 @@ describe('ServicoDeOrcamentos', () => {
       );
       await servico.atualizarCondicoes(
         idOrcamento,
-        { condicaoPagamento: 'ADIANTADO_100', origemTransportadora: 'SUPRIMAX' },
+        { condicaoPagamento: 'ADIANTADO_100', origemTransportadora: 'SUPRIMAX', valorFrete: 2000 },
         sessao,
       );
       await servico.emitir(idOrcamento, sessao);
@@ -507,7 +596,7 @@ describe('ServicoDeOrcamentos', () => {
       );
       await servico.atualizarCondicoes(
         idOrcamento,
-        { condicaoPagamento: 'ADIANTADO_100', origemTransportadora: 'SUPRIMAX' },
+        { condicaoPagamento: 'ADIANTADO_100', origemTransportadora: 'SUPRIMAX', valorFrete: 2000 },
         sessao,
       );
       await servico.emitir(idOrcamento, sessao);
@@ -613,7 +702,7 @@ describe('ServicoDeOrcamentos', () => {
       );
       await servico.atualizarCondicoes(
         idOrcamento,
-        { condicaoPagamento: 'ADIANTADO_100', origemTransportadora: 'SUPRIMAX' },
+        { condicaoPagamento: 'ADIANTADO_100', origemTransportadora: 'SUPRIMAX', valorFrete: 2000 },
         sessao,
       );
       await servico.emitir(idOrcamento, sessao);
@@ -645,7 +734,7 @@ describe('ServicoDeOrcamentos', () => {
 
       await servico.atualizarCondicoes(
         idOrcamento,
-        { condicaoPagamento: 'ADIANTADO_100', origemTransportadora: 'SUPRIMAX' },
+        { condicaoPagamento: 'ADIANTADO_100', origemTransportadora: 'SUPRIMAX', valorFrete: 2000 },
         sessao,
       );
       const emitido = await servico.emitir(idOrcamento, sessao);
@@ -713,7 +802,7 @@ describe('ServicoDeOrcamentos', () => {
       const original = await criar();
       await servico.atualizarCondicoes(
         original,
-        { condicaoPagamento: 'ADIANTADO_100', origemTransportadora: 'SUPRIMAX' },
+        { condicaoPagamento: 'ADIANTADO_100', origemTransportadora: 'SUPRIMAX', valorFrete: 2000 },
         sessao,
       );
       await servico.emitir(original, sessao);
@@ -726,7 +815,7 @@ describe('ServicoDeOrcamentos', () => {
 
       await servico.atualizarCondicoes(
         novaVersao,
-        { condicaoPagamento: 'ADIANTADO_100', origemTransportadora: 'SUPRIMAX' },
+        { condicaoPagamento: 'ADIANTADO_100', origemTransportadora: 'SUPRIMAX', valorFrete: 2000 },
         sessao,
       );
       await servico.emitir(novaVersao, sessao);
@@ -747,6 +836,178 @@ describe('ServicoDeOrcamentos', () => {
       await expect(
         servico.emitir(999, sessaoDoOperador(idOperador, 'quem-emite')),
       ).rejects.toBeInstanceOf(ErroDeOrcamentoNaoEncontrado);
+    });
+  });
+
+  describe('bloqueios e condições (UC18, UC19; módulo de cálculo)', () => {
+    /** Orçamento de segunda compra com um item AVULSO de `precoUnitario` centavos (1 unidade). */
+    async function montarSegundaCompra(precoUnitario: number, quantidadeEstoque = 1000) {
+      const cenario = montarCenarioDeCadastros();
+      const servico = montarServico(cenario);
+      const idOperador = cenario.semearUsuario('OPERADOR', 'quem-calcula');
+      const sessao = sessaoDoOperador(idOperador, 'quem-calcula');
+      const idCliente = semearCliente(cenario);
+      semearCompraAnterior(cenario, idCliente, idOperador);
+      const { idVariacao } = semearVariacao(cenario, { precoUnitario, quantidadeEstoque });
+      const { idOrcamento } = await servico.criar(
+        { idCliente, numeroSolicitacaoCompra: null, contatoSolicitacao: null },
+        sessao,
+      );
+      await servico.adicionarItem(
+        idOrcamento,
+        { idVariacao, granularidade: 'AVULSO', quantidade: 1 },
+        sessao,
+      );
+      return { cenario, servico, sessao, idOrcamento, idVariacao };
+    }
+
+    it('abaixo do mínimo: texto da documentação com quanto falta (docs/10, tela 6)', async () => {
+      // 30000 + 5400 de imposto = 35400; faltam 14600.
+      const { servico, idOrcamento } = await montarSegundaCompra(30000);
+
+      const { condicoes } = await servico.obter(idOrcamento);
+
+      expect(condicoes.valorTotalItens).toBe(35400);
+      expect(condicoes.bloqueios).toContainEqual({
+        codigo: 'ABAIXO_DO_MINIMO',
+        mensagem: 'Abaixo do faturamento mínimo de R$ 500,00 – faltam R$ 146,00',
+      });
+    });
+
+    it('exatamente R$ 500,00 atende o mínimo (limite inclusivo)', async () => {
+      // 42373 + 7627 de imposto = 50000.
+      const { servico, idOrcamento } = await montarSegundaCompra(42373);
+
+      const { condicoes } = await servico.obter(idOrcamento);
+
+      expect(condicoes.valorTotalItens).toBe(50000);
+      expect(condicoes.bloqueios.map((b) => b.codigo)).not.toContain('ABAIXO_DO_MINIMO');
+    });
+
+    it('a primeira compra não tem mínimo', async () => {
+      const cenario = montarCenarioDeCadastros();
+      const servico = montarServico(cenario);
+      const idOperador = cenario.semearUsuario('OPERADOR', 'quem-calcula');
+      const sessao = sessaoDoOperador(idOperador, 'quem-calcula');
+      const idCliente = semearCliente(cenario);
+      const { idVariacao } = semearVariacao(cenario, { precoUnitario: 1000 });
+      const { idOrcamento } = await servico.criar(
+        { idCliente, numeroSolicitacaoCompra: null, contatoSolicitacao: null },
+        sessao,
+      );
+      await servico.adicionarItem(
+        idOrcamento,
+        { idVariacao, granularidade: 'AVULSO', quantidade: 1 },
+        sessao,
+      );
+
+      const { condicoes } = await servico.obter(idOrcamento);
+
+      expect(condicoes.bloqueios.map((b) => b.codigo)).not.toContain('ABAIXO_DO_MINIMO');
+      expect(condicoes.condicoesPagamentoPermitidas).toEqual(['ADIANTADO_100']);
+    });
+
+    it.each([
+      [30000, ['ADIANTADO_100']],
+      [42373, ['ADIANTADO_100', 'BOLETO']],
+      [127118, ['ADIANTADO_100', 'BOLETO']],
+      [127119, ['ADIANTADO_100', 'BOLETO', 'PARCELADO']],
+    ])(
+      'condições permitidas com item de %i centavos (R$ 500 e R$ 1.500 inclusivos)',
+      async (precoUnitario, esperadas) => {
+        const { servico, idOrcamento } = await montarSegundaCompra(precoUnitario);
+
+        const { condicoes } = await servico.obter(idOrcamento);
+
+        expect(condicoes.condicoesPagamentoPermitidas).toEqual(esperadas);
+      },
+    );
+
+    it('bloqueia o parcelado escolhido abaixo de R$ 1.500,00', async () => {
+      const { servico, sessao, idOrcamento } = await montarSegundaCompra(100000);
+
+      const detalhe = await servico.atualizarCondicoes(
+        idOrcamento,
+        { condicaoPagamento: 'PARCELADO', numeroParcelas: 3, origemTransportadora: 'SUPRIMAX' },
+        sessao,
+      );
+
+      expect(detalhe.condicoes.bloqueios.map((b) => b.codigo)).toContain('CONDICAO_NAO_PERMITIDA');
+    });
+
+    it('estoque insuficiente: texto do UC19-E5, com produto, disponível e quantidade', async () => {
+      const { cenario, servico, idOrcamento, idVariacao } = await montarSegundaCompra(60000, 5);
+      cenario.banco.executar('dados.atualizar', {
+        tabela: 'variacao_produto',
+        valores: { quantidade_estoque: 0 },
+        filtros: { e: [['id_variacao', '=', idVariacao]] },
+      });
+
+      const { condicoes } = await servico.obter(idOrcamento);
+
+      expect(condicoes.bloqueios).toContainEqual({
+        codigo: 'ESTOQUE_INSUFICIENTE',
+        mensagem:
+          'Estoque insuficiente para emitir: Papel Higiênico. Disponível: 0; no orçamento: 1. Ajuste a quantidade ou remova o item.',
+      });
+    });
+
+    it('item FARDO é conferido em fardos, não em unidades', async () => {
+      const cenario = montarCenarioDeCadastros();
+      const servico = montarServico(cenario);
+      const idOperador = cenario.semearUsuario('OPERADOR', 'quem-calcula');
+      const sessao = sessaoDoOperador(idOperador, 'quem-calcula');
+      const idCliente = semearCliente(cenario);
+      // 25 unidades e fardos de 10: cabem 2 fardos.
+      const { idVariacao, idFardo } = semearVariacao(cenario, {
+        quantidadeEstoque: 25,
+        unidadesPorFardo: 10,
+      });
+      const { idOrcamento } = await servico.criar(
+        { idCliente, numeroSolicitacaoCompra: null, contatoSolicitacao: null },
+        sessao,
+      );
+      await servico.adicionarItem(
+        idOrcamento,
+        { idVariacao, granularidade: 'FARDO', idFardo, quantidade: 2 },
+        sessao,
+      );
+      expect(
+        (await servico.obter(idOrcamento)).condicoes.bloqueios.map((b) => b.codigo),
+      ).not.toContain('ESTOQUE_INSUFICIENTE');
+
+      cenario.banco.executar('dados.atualizar', {
+        tabela: 'variacao_produto',
+        valores: { quantidade_estoque: 15 },
+        filtros: { e: [['id_variacao', '=', idVariacao]] },
+      });
+      const { condicoes } = await servico.obter(idOrcamento);
+
+      expect(condicoes.bloqueios).toContainEqual(
+        expect.objectContaining({
+          codigo: 'ESTOQUE_INSUFICIENTE',
+          mensagem: expect.stringContaining('Disponível: 1; no orçamento: 2.'),
+        }),
+      );
+    });
+
+    it('bloqueia a emissão com frete provisório antes de chegar ao banco', async () => {
+      const { cenario, servico, sessao, idOrcamento } = await montarSegundaCompra(60000);
+      cenario.banco.executar('dados.atualizar', {
+        tabela: 'orcamento',
+        valores: {
+          condicao_pagamento: 'ADIANTADO_100',
+          modalidade_frete: 'FOB',
+          origem_transportadora: 'SUPRIMAX',
+          valor_frete: null,
+          frete_provisorio: true,
+        },
+        filtros: { e: [['id_orcamento', '=', idOrcamento]] },
+      });
+
+      await expect(servico.emitir(idOrcamento, sessao)).rejects.toMatchObject({
+        detalhes: { bloqueios: [expect.objectContaining({ codigo: 'FRETE_PROVISORIO' })] },
+      });
     });
   });
 
@@ -859,7 +1120,7 @@ describe('ServicoDeOrcamentos', () => {
       );
       await servico.atualizarCondicoes(
         idOrcamento,
-        { condicaoPagamento: 'ADIANTADO_100', origemTransportadora: 'SUPRIMAX' },
+        { condicaoPagamento: 'ADIANTADO_100', origemTransportadora: 'SUPRIMAX', valorFrete: 2000 },
         sessao,
       );
       const antes = cenario.proxy.chamadas.length;

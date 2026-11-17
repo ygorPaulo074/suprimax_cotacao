@@ -379,7 +379,7 @@ describe('GET /clientes/:id/orcamentos-em-aberto e /historico-compras', () => {
     );
   });
 
-  it('historico-compras só traz orçamentos ACEITO, com o número e o valor total como aceito (RF04/RF07)', async () => {
+  it('historico-compras só traz orçamentos ACEITO, com o número e o valor total aceito de resposta_orcamento (RF04/RF07)', async () => {
     const { app, operador, cadastrar, clienteNovo, banco } = await montar();
     await cadastrar(clienteNovo());
     banco.semear('orcamento', {
@@ -389,6 +389,16 @@ describe('GET /clientes/:id/orcamentos-em-aberto e /historico-compras', () => {
       numero_orcamento: 42,
       data_emissao: '2026-10-01',
       valor_total_proposta: '350.00',
+    });
+    // O cliente aceitou só parte dos itens: o valor aceito (R$ 280,00) difere do proposto.
+    banco.semear('resposta_orcamento', {
+      id_orcamento: 1,
+      tipo_resposta: 'ITENS',
+      status_resposta: 'CONSOLIDADA',
+      id_operador_vendedor: operador.idOperador,
+      data_resposta: '2026-10-02T10:00:00Z',
+      data_processamento: '2026-10-02T10:00:00Z',
+      valor_total_aceito: '280.00',
     });
     banco.semear('orcamento', {
       id_cliente: 1,
@@ -402,7 +412,7 @@ describe('GET /clientes/:id/orcamentos-em-aberto e /historico-compras', () => {
 
     expect(resposta.status).toBe(200);
     expect(resposta.body).toEqual([
-      { idOrcamento: 1, numeroOrcamento: 42, dataEmissao: '2026-10-01', valorTotalAceito: 35000 },
+      { idOrcamento: 1, numeroOrcamento: 42, dataEmissao: '2026-10-01', valorTotalAceito: 28000 },
     ]);
   });
 

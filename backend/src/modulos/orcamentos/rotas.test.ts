@@ -87,7 +87,11 @@ async function montar() {
     await request(cenario.app)
       .put(`/orcamentos/${idOrcamento}/condicoes`)
       .set('Authorization', operador.autorizacao)
-      .send({ condicaoPagamento: 'ADIANTADO_100', origemTransportadora: 'SUPRIMAX' });
+      .send({
+        condicaoPagamento: 'ADIANTADO_100',
+        origemTransportadora: 'SUPRIMAX',
+        valorFrete: 2000,
+      });
     await request(cenario.app)
       .post(`/orcamentos/${idOrcamento}/emitir`)
       .set('Authorization', operador.autorizacao);

@@ -9,6 +9,8 @@ import {
 import type { DadosDaEmpresaEmissora } from '../../config';
 import {
   ErroDeAnexoNaoEncontrado,
+  ErroDeClienteBloqueado,
+  ErroDeClienteNaoEncontrado,
   ErroDeEmissaoBloqueada,
   ErroDeEstoqueIndisponivel,
   ErroDeItemNaoEncontrado,
@@ -31,8 +33,11 @@ import type {
 import { calcularSaldoDisponivel, somarReservasPorVariacao } from '../comum/estoque';
 import { obterSituacaoCliente } from '../comum/situacaoCliente';
 import {
+  calcularFaltaParaFaturamentoMinimo,
   calcularFrete,
   calcularLinhaDoItem,
+  FATURAMENTO_MINIMO,
+  listarCondicoesPermitidas,
   hojeComoDataISO,
   validarCondicaoFaturamento,
   validarDisponibilidadeEstoque,
@@ -46,6 +51,7 @@ import {
   type VariacaoComProduto,
   type VariacaoDeProduto,
 } from '../produtos/repositorio';
+import { RepositorioDeRespostas } from '../respostas/repositorio';
 import type { GestorDeVersoesDeOrcamento, ItemParaNovaVersao } from '../respostas/servico';
 import { RepositorioDeUsuarios } from '../usuarios/repositorio';
 import {
@@ -102,11 +108,33 @@ interface BaseDasCondicoes {
   readonly variacoes: readonly VariacaoComProduto[];
   /** Reservas CONFIRMADA por variação (RN14). */
   readonly reservas: ReadonlyMap<number, number>;
+  /** Unidades por fardo, por `idFardo`, para conferir o estoque dos itens FARDO. */
+  readonly unidadesDosFardos: ReadonlyMap<number, number>;
 }
+
+const FORMATADOR_DE_REAIS = new Intl.NumberFormat('pt-BR', {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+/** Centavos como "R$ 1.500,00", para as mensagens de bloqueio (texto de docs/10, tela 6). */
+function formatarReais(centavos: number): string {
+  return `R$ ${FORMATADOR_DE_REAIS.format(centavos / 100)}`;
+}
+
+/** Rótulo de cada condição, para a mensagem de condição não permitida. */
+const ROTULO_DA_CONDICAO: Record<string, string> = {
+  ADIANTADO_100: '100% adiantado',
+  ADIANTADO_50_50: '50% adiantado e 50% após a entrega',
+  BOLETO: 'boleto',
+  PARCELADO: 'parcelado',
+};
 
 export interface BloqueioDeEmissao {
   readonly codigo:
     | 'ABAIXO_DO_MINIMO'
+    | 'CONDICAO_NAO_PERMITIDA'
+    | 'FRETE_PROVISORIO'
     | 'PENDENTE_CREDITO'
     | 'DIVIDA_EM_ABERTO'
     | 'ESTOQUE_INSUFICIENTE'
@@ -294,8 +322,16 @@ export class ServicoDeOrcamentos
     this.analiseDeCredito = gestor;
   }
 
-  /** Cria o orçamento do zero (UC14, sem pedido de origem). */
+  /**
+   * Cria o orçamento do zero (UC14, sem pedido de origem).
+   *
+   * @throws {ErroDeClienteNaoEncontrado} Se o cliente não existir (404).
+   * @throws {ErroDeClienteBloqueado} Se o cliente estiver INATIVO, BLOQUEADO ou com dívida
+   * EM_ABERTO/PROTESTADA (422, UC14-E1/E2, RN06). A recusa vem antes dos gatilhos do banco
+   * (CLIENTE_INATIVO, CLIENTE_INADIMPLENTE), com mensagem própria.
+   */
   async criar(dados: DadosDoOrcamentoNovo, autor: Sessao): Promise<OrcamentoDetalhado> {
+    await this.exigirClienteLiberado(dados.idCliente);
     const primeiraCompra = await this.ehPrimeiraCompra(dados.idCliente);
     const idOrcamento = await this.orcamentos.criar(
       {
@@ -409,7 +445,8 @@ export class ServicoDeOrcamentos
   }
 
   /**
-   * Histórico de compras do cliente (RF04, RF07): orçamentos ACEITO. Implementa
+   * Histórico de compras do cliente (RF04, RF07): orçamentos ACEITO, com o valor aceito
+   * (`resposta_orcamento.valor_total_aceito`, UC20). Implementa
    * {@link LeitorDeOrcamentosDoCliente} para o módulo de clientes.
    */
   async listarHistoricoDeCompras(idCliente: number): Promise<HistoricoDeCompraDoCliente[]> {
@@ -419,6 +456,9 @@ export class ServicoDeOrcamentos
         ['status', '=', STATUS_ACEITO],
       ],
     });
+    const valoresAceitos = await new RepositorioDeRespostas(this.proxy).valoresAceitosPorOrcamento(
+      orcamentos.map((orcamento) => orcamento.idOrcamento),
+    );
     return orcamentos
       .filter(
         (orcamento): orcamento is Orcamento & { numeroOrcamento: number; dataEmissao: string } =>
@@ -428,8 +468,9 @@ export class ServicoDeOrcamentos
         idOrcamento: orcamento.idOrcamento,
         numeroOrcamento: orcamento.numeroOrcamento,
         dataEmissao: orcamento.dataEmissao,
-        // TODO item 7: ver o comentário de `ServicoDeClientes.listarHistoricoDeCompras`.
-        valorTotalAceito: orcamento.valorTotalProposta ?? 0,
+        // O valor efetivamente aceito (UC20); sem resposta aceita registrada, cai no proposto.
+        valorTotalAceito:
+          valoresAceitos.get(orcamento.idOrcamento) ?? orcamento.valorTotalProposta ?? 0,
       }));
   }
 
@@ -1143,6 +1184,29 @@ export class ServicoDeOrcamentos
     }
   }
 
+  /** UC14-E1/E2: cliente inativo, bloqueado ou com dívida em aberto não abre orçamento. */
+  private async exigirClienteLiberado(idCliente: number): Promise<void> {
+    const cliente = await this.clientes.buscarPorId(idCliente);
+    if (!cliente) {
+      throw new ErroDeClienteNaoEncontrado();
+    }
+    if (cliente.status === 'INATIVO') {
+      throw new ErroDeClienteBloqueado(
+        'Este cliente está inativo. Não é possível abrir um orçamento para ele.',
+      );
+    }
+    if (cliente.status === 'BLOQUEADO') {
+      throw new ErroDeClienteBloqueado(
+        'Este cliente está bloqueado. Não é possível abrir um orçamento para ele.',
+      );
+    }
+    if ((await this.clientes.somarDividaEmAberto(idCliente)) > 0) {
+      throw new ErroDeClienteBloqueado(
+        'Este cliente tem dívida em aberto. Só é possível abrir um orçamento depois da renegociação (pagamento de no mínimo 50% do valor devido).',
+      );
+    }
+  }
+
   private async ehPrimeiraCompra(idCliente: number): Promise<boolean> {
     const situacao = await obterSituacaoCliente(
       this.proxy,
@@ -1232,19 +1296,27 @@ export class ServicoDeOrcamentos
       .listarItens(orcamento.idOrcamento)
       .then(async (itensDoOrcamento) => {
         const idsDasVariacoes = [...new Set(itensDoOrcamento.map((item) => item.idVariacao))];
-        const [variacoes, reservas] = await Promise.all([
+        const temFardo = itensDoOrcamento.some((item) => item.granularidade === 'FARDO');
+        const [variacoes, reservas, unidadesDosFardos] = await Promise.all([
           leitores.produtos.buscarVariacoesPorId(idsDasVariacoes),
           somarReservasPorVariacao(leitores.proxy, idsDasVariacoes, OPERACAO_SALDO_ITEM),
+          temFardo
+            ? leitores.produtos.buscarUnidadesDosFardos(idsDasVariacoes)
+            : Promise.resolve(new Map<number, number>()),
         ]);
-        return { itensDoOrcamento, variacoes, reservas };
+        return { itensDoOrcamento, variacoes, reservas, unidadesDosFardos };
       });
-    const [{ itensDoOrcamento, variacoes, reservas }, cliente, dividaEmAberto, situacao] =
-      await Promise.all([
-        itensEEstoque,
-        leitores.clientes.buscarPorId(orcamento.idCliente),
-        leitores.clientes.somarDividaEmAberto(orcamento.idCliente),
-        obterSituacaoCliente(leitores.proxy, orcamento.idCliente, 0, OPERACAO_SITUACAO_CLIENTE),
-      ]);
+    const [
+      { itensDoOrcamento, variacoes, reservas, unidadesDosFardos },
+      cliente,
+      dividaEmAberto,
+      situacao,
+    ] = await Promise.all([
+      itensEEstoque,
+      leitores.clientes.buscarPorId(orcamento.idCliente),
+      leitores.clientes.somarDividaEmAberto(orcamento.idCliente),
+      obterSituacaoCliente(leitores.proxy, orcamento.idCliente, 0, OPERACAO_SITUACAO_CLIENTE),
+    ]);
     return {
       itensDoOrcamento,
       cliente,
@@ -1252,13 +1324,21 @@ export class ServicoDeOrcamentos
       creditoAprovado: situacao.creditoAprovado,
       variacoes,
       reservas,
+      unidadesDosFardos,
     };
   }
 
   /** Bloqueios e condições comerciais, sempre ao vivo, a partir do que `carregarBase...` leu. */
   private avaliarCondicoes(orcamento: Orcamento, base: BaseDasCondicoes): CondicoesComerciais {
-    const { itensDoOrcamento, cliente, dividaEmAberto, creditoAprovado, variacoes, reservas } =
-      base;
+    const {
+      itensDoOrcamento,
+      cliente,
+      dividaEmAberto,
+      creditoAprovado,
+      variacoes,
+      reservas,
+      unidadesDosFardos,
+    } = base;
     const valorTotalItens = itensDoOrcamento.reduce(
       (total, item) => total + item.valorTotalItem,
       0,
@@ -1284,14 +1364,21 @@ export class ServicoDeOrcamentos
         mensagem: 'Defina a condição de pagamento e o frete antes de emitir.',
       });
     }
+    if (orcamento.modalidadeFrete === 'FOB' && orcamento.freteProvisorio) {
+      // O banco recusa a emissão com frete provisório (FRETE_PROVISORIO_NAO_EMITIVEL); avisar
+      // antes evita que o operador descubra pela falha da emissão (UC18-E3).
+      bloqueios.push({
+        codigo: 'FRETE_PROVISORIO',
+        mensagem:
+          'O frete ainda não foi cotado com a transportadora. Informe o valor do frete antes de emitir.',
+      });
+    }
+    const resultadoDoCredito =
+      creditoAprovado === null ? null : creditoAprovado ? 'APROVADO' : 'REPROVADO';
     let creditoStatus: CondicoesComerciais['creditoStatus'] = 'NAO_EXIGIDO';
-    let condicoesPermitidas: readonly string[] = ['ADIANTADO_100', 'BOLETO', 'PARCELADO'];
-    if (orcamento.primeiraCompra) {
-      creditoStatus = 'NAO_EXIGIDO';
-      condicoesPermitidas = ['ADIANTADO_100'];
-    } else if (
-      orcamento.condicaoPagamento === 'BOLETO' ||
-      orcamento.condicaoPagamento === 'PARCELADO'
+    if (
+      !orcamento.primeiraCompra &&
+      (orcamento.condicaoPagamento === 'BOLETO' || orcamento.condicaoPagamento === 'PARCELADO')
     ) {
       if (creditoAprovado === null) {
         creditoStatus = 'PENDENTE';
@@ -1299,40 +1386,67 @@ export class ServicoDeOrcamentos
           codigo: 'PENDENTE_CREDITO',
           mensagem: 'A análise de crédito ainda não foi concluída.',
         });
-      } else if (creditoAprovado) {
-        creditoStatus = 'APROVADO';
       } else {
-        creditoStatus = 'REPROVADO';
-        condicoesPermitidas = ['ADIANTADO_100', 'ADIANTADO_50_50'];
+        creditoStatus = creditoAprovado ? 'APROVADO' : 'REPROVADO';
       }
     }
-    if (
-      valorTotalItens > 0 &&
-      valorTotalItens < 50000 &&
-      orcamento.condicaoPagamento !== null &&
-      !orcamento.primeiraCompra
-    ) {
+    // As regras de valor e de condição vêm do módulo de cálculo (UC18); aqui só viram texto.
+    const condicoesPermitidas = listarCondicoesPermitidas({
+      valorTotalItens,
+      primeiraCompra: orcamento.primeiraCompra,
+      resultadoCredito: resultadoDoCredito,
+    });
+    const faltaParaOMinimo = calcularFaltaParaFaturamentoMinimo({
+      valorTotalItens,
+      primeiraCompra: orcamento.primeiraCompra,
+    });
+    if (valorTotalItens > 0 && faltaParaOMinimo > 0) {
       bloqueios.push({
         codigo: 'ABAIXO_DO_MINIMO',
-        mensagem: 'O valor total está abaixo do mínimo para faturamento a prazo.',
+        mensagem: `Abaixo do faturamento mínimo de ${formatarReais(FATURAMENTO_MINIMO)} – faltam ${formatarReais(faltaParaOMinimo)}`,
+      });
+    }
+    if (
+      orcamento.condicaoPagamento !== null &&
+      !(condicoesPermitidas as readonly string[]).includes(orcamento.condicaoPagamento)
+    ) {
+      const rotulo = ROTULO_DA_CONDICAO[orcamento.condicaoPagamento] ?? orcamento.condicaoPagamento;
+      const opcoes = condicoesPermitidas
+        .map((condicao) => ROTULO_DA_CONDICAO[condicao] ?? condicao)
+        .join(', ');
+      bloqueios.push({
+        codigo: 'CONDICAO_NAO_PERMITIDA',
+        mensagem: `A condição de pagamento escolhida (${rotulo}) não está disponível para este orçamento. Escolha uma destas: ${opcoes}.`,
       });
     }
     const variacaoPorId = new Map(variacoes.map((variacao) => [variacao.idVariacao, variacao]));
     for (const item of itensDoOrcamento) {
+      const variacao = variacaoPorId.get(item.idVariacao);
       const saldo = calcularSaldoDisponivel(
-        variacaoPorId.get(item.idVariacao)?.quantidadeEstoque ?? 0,
+        variacao?.quantidadeEstoque ?? 0,
         reservas.get(item.idVariacao) ?? 0,
       );
       const solicitado =
         item.granularidade === 'FARDO'
           ? (item.quantidadeFardos ?? 0)
           : (item.quantidadeAvulsa ?? 0);
-      if (solicitado > saldo) {
+      const unidadesPorFardo =
+        item.idFardo === null ? undefined : unidadesDosFardos.get(item.idFardo);
+      if (solicitado <= 0 || (item.granularidade === 'FARDO' && unidadesPorFardo === undefined)) {
+        continue;
+      }
+      const estoque = validarDisponibilidadeEstoque({
+        saldoDisponivel: saldo,
+        quantidadeSolicitada: solicitado,
+        granularidade: item.granularidade,
+        unidadesPorFardo,
+      });
+      if (!estoque.ok) {
+        // Texto do UC19-E5.
         bloqueios.push({
           codigo: 'ESTOQUE_INSUFICIENTE',
-          mensagem: 'Um ou mais itens não têm saldo suficiente no estoque.',
+          mensagem: `Estoque insuficiente para emitir: ${variacao?.descricaoDoProduto ?? 'produto'}. Disponível: ${estoque.maximoDisponivel}; no orçamento: ${solicitado}. Ajuste a quantidade ou remova o item.`,
         });
-        break;
       }
     }
     return {

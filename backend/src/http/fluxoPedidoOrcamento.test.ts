@@ -72,7 +72,11 @@ describe('fluxo completo: pedido (UC10) → orçamento (UC14) → emissão (UC19
     const condicoes = await request(app)
       .put(`/orcamentos/${idOrcamento}/condicoes`)
       .set(cabecalho)
-      .send({ condicaoPagamento: 'ADIANTADO_100', origemTransportadora: 'SUPRIMAX' });
+      .send({
+        condicaoPagamento: 'ADIANTADO_100',
+        origemTransportadora: 'SUPRIMAX',
+        valorFrete: 2000,
+      });
     expect(condicoes.status).toBe(200);
     expect(condicoes.body.condicoes.bloqueios).toEqual([]);
 
