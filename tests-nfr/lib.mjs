@@ -8,9 +8,20 @@ export const PROXY = process.env.PROXY_URL ?? 'http://localhost:3001';
 export const SENHA = process.env.SENHA_DEMO ?? 'Suprimax@2026';
 export const DIRECT_URL = process.env.DIRECT_URL; // Postgres LOCAL de teste (nunca o Supabase real)
 
+const HOSTS_LOCAIS = ['localhost', '127.0.0.1', '[::1]'];
+
+/** Verdadeiro só se o HOSTNAME da URL for localhost, 127.0.0.1 ou ::1 (nunca por busca de texto). */
+export function urlEhLocal(url) {
+  try {
+    return HOSTS_LOCAIS.includes(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+}
+
 export async function banco() {
   if (!DIRECT_URL) throw new Error('Defina DIRECT_URL (Postgres local de teste).');
-  if (!/127\.0\.0\.1|localhost/.test(DIRECT_URL)) throw new Error('DIRECT_URL deve ser local.');
+  if (!urlEhLocal(DIRECT_URL)) throw new Error('DIRECT_URL deve ser local.');
   const { Client } = require('../proxy/node_modules/pg');
   const c = new Client({ connectionString: DIRECT_URL });
   await c.connect();
