@@ -19,6 +19,7 @@ Origem: o protótipo do Figma foi trazido para `frontend/` e reconstruído como 
 - [x] Camada de API tipada (`src/api/`): cliente HTTP, `ApiError`, tipos e um módulo por recurso.
 - [x] Estados de carregando (skeleton), erro com “Tentar novamente” e vazio com próxima ação (`DataState`).
 - [x] Backend implementar as rotas de [frontend-api.md](../docs/frontend-api.md) e validar o contrato. Conferido em 2026-11-16: toda rota de `frontend-api.md` existe no backend.
+- [x] "Devolver à lista" (UC10-A3) chama `POST /pedidos/:id/devolver`, com confirmação, carregando e erro.
 - [ ] Teste ponta a ponta de cada fluxo (login → pedido → orçamento → emissão → resposta) com backend real.
 - [ ] Alinhar com o backend a paginação das listas (hoje as rotas devolvem a lista completa).
 
