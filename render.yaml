@@ -66,6 +66,15 @@ services:
         sync: false
       - key: PROXY_SERVICE_TOKEN
         sync: false
+      # Jobs agendados (UC20). JOBS_AGENDADOS_* ligam o agendador dentro do processo; JOBS_TOKEN é o
+      # segredo do cron externo que chama POST /jobs/executar (Authorization: Bearer). Opcionais: sem
+      # JOBS_TOKEN, a via por token fica desligada (backend/src/config.ts).
+      - key: JOBS_AGENDADOS_HABILITADOS
+        value: "false"
+      - key: JOBS_AGENDADOS_INTERVALO_MINUTOS
+        value: "60"
+      - key: JOBS_TOKEN
+        sync: false
       # Dados da empresa emissora do orçamento (PDF, UC19). Obrigatórios fora de dev: sem elas o
       # backend não sobe (backend/src/config.ts). Use os dados reais; valores de exemplo são recusados.
       - key: EMPRESA_RAZAO_SOCIAL
