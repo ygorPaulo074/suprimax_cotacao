@@ -1,7 +1,7 @@
 // UC01, UC05, UC14-19 — regras do orçamento: rascunho, itens, condições comerciais, emissão e
 // cancelamento. Implementa `MontadorDeOrcamentos` para o módulo de pedidos (UC10 → UC14).
 import { randomBytes } from 'node:crypto';
-import type { ClienteDeProxy } from '../../dados';
+import { LeitorEmLote, type ClienteDeProxy } from '../../dados';
 import {
   ErroDeArquivoNaoEncontrado,
   type ArmazenamentoDeArquivos,
@@ -22,7 +22,7 @@ import {
 } from '../../erros';
 import type { Logger } from '../../log';
 import type { Sessao } from '../auth/sessoes';
-import type { RepositorioDeClientes } from '../clientes/repositorio';
+import { RepositorioDeClientes, type ClienteCadastrado } from '../clientes/repositorio';
 import type {
   HistoricoDeCompraDoCliente,
   LeitorDeOrcamentosDoCliente,
@@ -41,9 +41,13 @@ import {
 import type { GestorDeOrcamentoParaCredito } from '../credito/servico';
 import type { ItemDePedido, Pedido } from '../pedidos/repositorio';
 import type { MontadorDeOrcamentos } from '../pedidos/servico';
-import type { RepositorioDeProdutos, VariacaoDeProduto } from '../produtos/repositorio';
+import {
+  RepositorioDeProdutos,
+  type VariacaoComProduto,
+  type VariacaoDeProduto,
+} from '../produtos/repositorio';
 import type { GestorDeVersoesDeOrcamento, ItemParaNovaVersao } from '../respostas/servico';
-import type { RepositorioDeUsuarios } from '../usuarios/repositorio';
+import { RepositorioDeUsuarios } from '../usuarios/repositorio';
 import {
   RepositorioDeOrcamentos,
   STATUS_DO_ORCAMENTO_EDITAVEIS,
@@ -67,6 +71,7 @@ import { gerarPdfDeOrcamento } from './pdf';
 
 const OPERACAO_SITUACAO_CLIENTE = 'UC14-situacao-cliente';
 const OPERACAO_SALDO_ITEM = 'UC15-saldo-item';
+const OPERACAO_DETALHE = 'UC15-detalhe-orcamento';
 const BYTES_DA_CHAVE_DE_SEGURANCA = 24;
 /** Observação do evento de histórico registrado por `enviar` (UC08, variação A1). */
 const MENSAGEM_DO_HISTORICO_DE_ENVIO = 'Documento enviado ao cliente.';
@@ -87,6 +92,17 @@ const STATUS_DO_ORCAMENTO_PERMITEM_NOVA_VERSAO: ReadonlySet<StatusDoOrcamento> =
   STATUS_ABERTO,
   'ALTERACAO_SOLICITADA',
 ]);
+
+/** O que `carregarBaseDasCondicoes` lê para calcular condições e bloqueios. */
+interface BaseDasCondicoes {
+  readonly itensDoOrcamento: readonly ItemDoOrcamento[];
+  readonly cliente: ClienteCadastrado | null;
+  readonly dividaEmAberto: number;
+  readonly creditoAprovado: boolean | null;
+  readonly variacoes: readonly VariacaoComProduto[];
+  /** Reservas CONFIRMADA por variação (RN14). */
+  readonly reservas: ReadonlyMap<number, number>;
+}
 
 export interface BloqueioDeEmissao {
   readonly codigo:
@@ -801,9 +817,13 @@ export class ServicoDeOrcamentos
    */
   async emitir(idOrcamento: number, autor: Sessao): Promise<OrcamentoDetalhado> {
     const orcamento = await this.buscarOuFalhar(idOrcamento);
-    const detalhe = await this.montarDetalhe(orcamento);
-    if (detalhe.condicoes.bloqueios.length > 0) {
-      throw new ErroDeEmissaoBloqueada(detalhe.condicoes.bloqueios);
+    // Só as condições: o detalhe completo é montado uma vez, ao devolver o orçamento já emitido.
+    const { bloqueios } = this.avaliarCondicoes(
+      orcamento,
+      await this.carregarBaseDasCondicoes(orcamento, this.leitoresEmLote()),
+    );
+    if (bloqueios.length > 0) {
+      throw new ErroDeEmissaoBloqueada(bloqueios);
     }
     await this.orcamentos.emitir(idOrcamento, autor.idOperador, () =>
       randomBytes(BYTES_DA_CHAVE_DE_SEGURANCA).toString('hex'),
@@ -1182,26 +1202,69 @@ export class ServicoDeOrcamentos
     return Math.ceil((validade.getTime() - hoje.getTime()) / milissegundosPorDia);
   }
 
-  private async montarDetalhe(orcamento: Orcamento): Promise<OrcamentoDetalhado> {
-    const [itensDoOrcamento, cliente, historico, versoes, anexosDoOrcamento] = await Promise.all([
-      this.orcamentos.listarItens(orcamento.idOrcamento),
-      this.clientes.buscarPorId(orcamento.idCliente),
-      this.orcamentos.listarHistorico(orcamento.idOrcamento),
-      this.orcamentos.listarVersoes(orcamento),
-      this.orcamentos.listarAnexos(orcamento.idOrcamento),
-    ]);
-    const historicoDetalhado = await this.detalharHistorico(historico);
-    const itens = await this.detalharItens(itensDoOrcamento);
-    const valorTotalItens = itens.reduce((total, item) => total + item.valorTotalItem, 0);
-    const dividaEmAberto = cliente ? await this.clientes.somarDividaEmAberto(cliente.idCliente) : 0;
-    const situacao = await obterSituacaoCliente(
-      this.proxy,
-      orcamento.idCliente,
+  /**
+   * Repositórios e proxy que agrupam as leituras de cada rodada em um só `dados.lote` (RNF03): o
+   * detalhe do orçamento lê muitas tabelas, e cada leitura avulsa seria uma ida ao proxy.
+   */
+  private leitoresEmLote() {
+    const proxy = new LeitorEmLote(this.proxy, OPERACAO_DETALHE);
+    return {
+      proxy,
+      orcamentos: new RepositorioDeOrcamentos(proxy),
+      clientes: new RepositorioDeClientes(proxy),
+      produtos: new RepositorioDeProdutos(proxy),
+      usuarios: new RepositorioDeUsuarios(proxy),
+    };
+  }
+
+  /**
+   * Lê o que as condições comerciais e os bloqueios precisam: itens, cliente, dívida, crédito e
+   * estoque. São três rodadas de leitura (itens e cliente; variações e reservas; produtos e
+   * reservas), qualquer que seja o número de itens.
+   */
+  private async carregarBaseDasCondicoes(
+    orcamento: Orcamento,
+    leitores: ReturnType<ServicoDeOrcamentos['leitoresEmLote']>,
+  ): Promise<BaseDasCondicoes> {
+    // Cada leitura segue assim que o que ela precisa chegar, sem esperar as outras: é isso que
+    // mantém as rodadas do lote em três.
+    const itensEEstoque = leitores.orcamentos
+      .listarItens(orcamento.idOrcamento)
+      .then(async (itensDoOrcamento) => {
+        const idsDasVariacoes = [...new Set(itensDoOrcamento.map((item) => item.idVariacao))];
+        const [variacoes, reservas] = await Promise.all([
+          leitores.produtos.buscarVariacoesPorId(idsDasVariacoes),
+          somarReservasPorVariacao(leitores.proxy, idsDasVariacoes, OPERACAO_SALDO_ITEM),
+        ]);
+        return { itensDoOrcamento, variacoes, reservas };
+      });
+    const [{ itensDoOrcamento, variacoes, reservas }, cliente, dividaEmAberto, situacao] =
+      await Promise.all([
+        itensEEstoque,
+        leitores.clientes.buscarPorId(orcamento.idCliente),
+        leitores.clientes.somarDividaEmAberto(orcamento.idCliente),
+        obterSituacaoCliente(leitores.proxy, orcamento.idCliente, 0, OPERACAO_SITUACAO_CLIENTE),
+      ]);
+    return {
+      itensDoOrcamento,
+      cliente,
       dividaEmAberto,
-      OPERACAO_SITUACAO_CLIENTE,
+      creditoAprovado: situacao.creditoAprovado,
+      variacoes,
+      reservas,
+    };
+  }
+
+  /** Bloqueios e condições comerciais, sempre ao vivo, a partir do que `carregarBase...` leu. */
+  private avaliarCondicoes(orcamento: Orcamento, base: BaseDasCondicoes): CondicoesComerciais {
+    const { itensDoOrcamento, cliente, dividaEmAberto, creditoAprovado, variacoes, reservas } =
+      base;
+    const valorTotalItens = itensDoOrcamento.reduce(
+      (total, item) => total + item.valorTotalItem,
+      0,
     );
     const bloqueios: BloqueioDeEmissao[] = [];
-    if (itens.length === 0) {
+    if (itensDoOrcamento.length === 0) {
       bloqueios.push({ codigo: 'SEM_ITENS', mensagem: 'O orçamento não tem itens.' });
     }
     if (cliente && cliente.status !== 'ATIVO') {
@@ -1230,13 +1293,13 @@ export class ServicoDeOrcamentos
       orcamento.condicaoPagamento === 'BOLETO' ||
       orcamento.condicaoPagamento === 'PARCELADO'
     ) {
-      if (situacao.creditoAprovado === null) {
+      if (creditoAprovado === null) {
         creditoStatus = 'PENDENTE';
         bloqueios.push({
           codigo: 'PENDENTE_CREDITO',
           mensagem: 'A análise de crédito ainda não foi concluída.',
         });
-      } else if (situacao.creditoAprovado) {
+      } else if (creditoAprovado) {
         creditoStatus = 'APROVADO';
       } else {
         creditoStatus = 'REPROVADO';
@@ -1254,15 +1317,10 @@ export class ServicoDeOrcamentos
         mensagem: 'O valor total está abaixo do mínimo para faturamento a prazo.',
       });
     }
+    const variacaoPorId = new Map(variacoes.map((variacao) => [variacao.idVariacao, variacao]));
     for (const item of itensDoOrcamento) {
-      const reservas = await somarReservasPorVariacao(
-        this.proxy,
-        [item.idVariacao],
-        OPERACAO_SALDO_ITEM,
-      );
-      const variacao = await this.produtos.buscarVariacaoComPrecos(item.idVariacao);
       const saldo = calcularSaldoDisponivel(
-        variacao?.quantidadeEstoque ?? 0,
+        variacaoPorId.get(item.idVariacao)?.quantidadeEstoque ?? 0,
         reservas.get(item.idVariacao) ?? 0,
       );
       const solicitado =
@@ -1277,9 +1335,9 @@ export class ServicoDeOrcamentos
         break;
       }
     }
-    const condicoes: CondicoesComerciais = {
+    return {
       valorTotalItens,
-      valorTotalImposto: itens.reduce((total, item) => total + item.valorImposto, 0),
+      valorTotalImposto: itensDoOrcamento.reduce((total, item) => total + item.valorImposto, 0),
       modalidadeFrete: orcamento.modalidadeFrete,
       origemTransportadora: orcamento.origemTransportadora,
       transportadora: orcamento.transportadora,
@@ -1293,6 +1351,27 @@ export class ServicoDeOrcamentos
       creditoStatus,
       bloqueios,
     };
+  }
+
+  private async montarDetalhe(orcamento: Orcamento): Promise<OrcamentoDetalhado> {
+    const leitores = this.leitoresEmLote();
+    // Tudo é pedido junto: as leituras independentes caem na mesma rodada do lote.
+    const [base, complementos] = await Promise.all([
+      this.carregarBaseDasCondicoes(orcamento, leitores),
+      Promise.all([
+        leitores.orcamentos.listarHistorico(orcamento.idOrcamento),
+        leitores.orcamentos.listarVersoes(orcamento),
+        leitores.orcamentos.listarAnexos(orcamento.idOrcamento),
+      ]).then(async ([historico, versoes, anexos]) => ({
+        historicoDetalhado: await this.detalharHistorico(historico, leitores.usuarios),
+        versoes,
+        anexosDoOrcamento: anexos,
+      })),
+    ]);
+    const { cliente } = base;
+    const { historicoDetalhado, versoes, anexosDoOrcamento } = complementos;
+    const itens = this.detalharItens(base.itensDoOrcamento, base.variacoes);
+    const condicoes = this.avaliarCondicoes(orcamento, base);
     return {
       ...this.paraResumo(
         orcamento,
@@ -1342,15 +1421,16 @@ export class ServicoDeOrcamentos
   /** Resolve o `usuario` (login) de cada evento, para exibição (UC06). */
   private async detalharHistorico(
     eventos: readonly EventoDoHistorico[],
+    usuarios: RepositorioDeUsuarios,
   ): Promise<EventoDeHistoricoDetalhado[]> {
     const idsDosOperadores = [
       ...new Set(
         eventos.map((evento) => evento.idOperador).filter((id): id is number => id !== null),
       ),
     ];
-    const usuarios = await Promise.all(idsDosOperadores.map((id) => this.usuarios.buscarPorId(id)));
+    const encontrados = await Promise.all(idsDosOperadores.map((id) => usuarios.buscarPorId(id)));
     const nomesPorId = new Map(
-      usuarios
+      encontrados
         .filter((usuario): usuario is NonNullable<typeof usuario> => usuario !== null)
         .map((usuario) => [usuario.idOperador, usuario.usuario]),
     );
@@ -1364,9 +1444,10 @@ export class ServicoDeOrcamentos
     }));
   }
 
-  private async detalharItens(itens: readonly ItemDoOrcamento[]): Promise<ItemDetalhado[]> {
-    const idsDasVariacoes = [...new Set(itens.map((item) => item.idVariacao))];
-    const variacoes = await this.produtos.buscarVariacoesPorId(idsDasVariacoes);
+  private detalharItens(
+    itens: readonly ItemDoOrcamento[],
+    variacoes: readonly VariacaoComProduto[],
+  ): ItemDetalhado[] {
     const porId = new Map(variacoes.map((variacao) => [variacao.idVariacao, variacao]));
     return itens.map((item) => {
       const variacao = porId.get(item.idVariacao);
