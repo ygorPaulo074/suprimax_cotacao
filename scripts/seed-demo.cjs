@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Dados FALSOS para apresentar o sistema: um usuário de cada perfil, clientes, fornecedores e
-// produtos com variações, faixas de preço, fardos e estoque. É idempotente: rodar de novo não
+// produtos com variações, faixas de preço, fardos e estoque, mais pedidos na fila, um orçamento em
+// rascunho incompleto e um orçamento emitido (ABERTO, com PDF). É idempotente: rodar de novo não
 // duplica nada (ON CONFLICT DO NOTHING) e não altera o que já existe.
 //
 // Uso:
@@ -92,7 +93,7 @@ async function main() {
   const hash = await bcrypt.hash(SENHA_DEMO, CUSTO_BCRYPT);
   const db = new Client({ connectionString: url });
   await db.connect();
-  const contagem = { operador: 0, cliente: 0, fornecedor: 0, produto: 0, variacao: 0 };
+  const contagem = { operador: 0, cliente: 0, fornecedor: 0, produto: 0, variacao: 0, pedido: 0, orcamento: 0 };
   try {
     await db.query('BEGIN');
 
@@ -160,6 +161,85 @@ async function main() {
         'INSERT INTO fardo (id_variacao, quantidade_unidades, preco_fixo) VALUES ($1, 6, $2)',
         [idVariacao, (preco * 6 * 0.92).toFixed(2)],
       );
+    }
+
+    // ---- Pedidos e orçamentos de demonstração -------------------------------------------------
+    // Cada grupo só entra se o seu marcador (numero_solicitacao_compra) ainda não existe, então rodar de
+    // novo não duplica nada. Dinheiro em centavos inteiros; imposto de 18% arredondado uma vez por linha.
+    const centavos = (decimal) => Math.round(Number(decimal) * 100);
+    const reais = (c) => (c / 100).toFixed(2);
+    const idVariacaoDe = async (codigo) =>
+      (await db.query(
+        `SELECT v.id_variacao FROM variacao_produto v JOIN produto p ON p.id_produto = v.id_produto
+          WHERE p.codigo_interno = $1 ORDER BY v.id_variacao LIMIT 1`,
+        [codigo],
+      )).rows[0].id_variacao;
+    const idClienteDe = async (cnpj) =>
+      (await db.query('SELECT id_cliente FROM cliente WHERE cnpj = $1', [cnpj])).rows[0].id_cliente;
+    const precoAplicado = async (idVariacao, quantidade) => {
+      const faixa = (await db.query(
+        `SELECT id_faixa_preco, preco_unitario FROM faixa_preco
+          WHERE id_variacao = $1 AND quantidade_minima <= $2 ORDER BY quantidade_minima DESC LIMIT 1`,
+        [idVariacao, quantidade],
+      )).rows[0];
+      const unitario = centavos(faixa.preco_unitario);
+      const subtotal = unitario * quantidade;
+      const imposto = Math.round((subtotal * 18) / 100);
+      return { idFaixa: faixa.id_faixa_preco, unitario, imposto, total: subtotal + imposto };
+    };
+    const novoPedido = async (marcador, cnpj, vendedor, status, itens, atendimento) => {
+      if ((await db.query('SELECT 1 FROM pedido WHERE numero_solicitacao_compra = $1', [marcador])).rowCount) return null;
+      const idCliente = await idClienteDe(cnpj);
+      const p = await db.query(
+        `INSERT INTO pedido (id_cliente, id_operador_vendedor, numero_solicitacao_compra, contato_solicitacao,
+                             condicao_pagamento_desejada, status, id_operador_atendimento)
+         VALUES ($1, $2, $3, 'Contato de demonstração', 'ADIANTADO_100', $4, $5) RETURNING id_pedido`,
+        [idCliente, ids[vendedor], marcador, status, atendimento ? ids[atendimento] : null],
+      );
+      for (const [codigo, quantidade] of itens) {
+        await db.query(
+          `INSERT INTO item_pedido (id_pedido, id_variacao, granularidade, quantidade_solicitada)
+           VALUES ($1, $2, 'AVULSO', $3)`,
+          [p.rows[0].id_pedido, await idVariacaoDe(codigo), quantidade],
+        );
+      }
+      contagem.pedido++;
+      return { idPedido: p.rows[0].id_pedido, idCliente };
+    };
+    const novoRascunho = async (marcador, pedido, operador, itens, condicoes) => {
+      if ((await db.query('SELECT 1 FROM orcamento WHERE numero_solicitacao_compra = $1', [marcador])).rowCount) return null;
+      const o = await db.query(
+        `INSERT INTO orcamento (id_cliente, id_operador, id_pedido, numero_solicitacao_compra, primeira_compra,
+                                condicao_pagamento, modalidade_frete)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id_orcamento`,
+        [pedido.idCliente, ids[operador], pedido.idPedido, marcador, Boolean(condicoes), condicoes?.pagamento ?? null, condicoes?.frete ?? null],
+      );
+      for (const [codigo, quantidade] of itens) {
+        const idVariacao = await idVariacaoDe(codigo);
+        const preco = await precoAplicado(idVariacao, quantidade);
+        await db.query(
+          `INSERT INTO item_orcamento (id_orcamento, id_variacao, granularidade, id_faixa_preco, quantidade_avulsa,
+                                       preco_unitario_aplicado, valor_imposto, valor_total_item)
+           VALUES ($1, $2, 'AVULSO', $3, $4, $5, $6, $7)`,
+          [o.rows[0].id_orcamento, idVariacao, preco.idFaixa, quantidade, reais(preco.unitario), reais(preco.imposto), reais(preco.total)],
+        );
+      }
+      contagem.orcamento++;
+      return o.rows[0].id_orcamento;
+    };
+
+    // Fila de pedidos (SOLICITADO), como se tivessem chegado do Sistema 1.
+    await novoPedido('DEMO-PED-001', '11222333000181', 'vendedor1', 'SOLICITADO', [['DEMO-ARROZ-5', 50], ['DEMO-FEIJAO-1', 100]]);
+    await novoPedido('DEMO-PED-002', '22333444000172', 'vendedor1', 'SOLICITADO', [['DEMO-OLEO-900', 120], ['DEMO-LEITE-1', 200]]);
+    await novoPedido('DEMO-PED-003', '33444555000163', 'vendedor2', 'SOLICITADO', [['DEMO-FARINHA-1', 80], ['DEMO-ACUCAR-5', 40]]);
+    // Pedido em análise com orçamento em rascunho INCOMPLETO (sem pagamento nem frete): mostra os bloqueios de emissão.
+    const pedido4 = await novoPedido('DEMO-PED-004', '44555666000154', 'vendedor2', 'EM_ANALISE', [['DEMO-ARROZ-1', 24], ['DEMO-FEIJAO-1', 24]], 'operador');
+    if (pedido4) await novoRascunho('DEMO-ORC-RASCUNHO', pedido4, 'operador', [['DEMO-ARROZ-1', 24], ['DEMO-FEIJAO-1', 24]], null);
+    // Pedido em análise com orçamento COMPLETO, emitido pela função do banco (número, validade, reservas e PDF).
+    const pedido5 = await novoPedido('DEMO-PED-005', '44555666000235', 'vendedor2', 'EM_ANALISE', [['DEMO-ARROZ-5', 10], ['DEMO-LEITE-1', 60]], 'operador');
+    if (pedido5) {
+      const idOrcamento = await novoRascunho('DEMO-ORC-EMITIDO', pedido5, 'operador', [['DEMO-ARROZ-5', 10], ['DEMO-LEITE-1', 60]], { pagamento: 'ADIANTADO_100', frete: 'CIF' });
+      await db.query('SELECT * FROM proxy_orcamento_emitir($1, $2, $3)', [idOrcamento, ids.operador, require('node:crypto').randomBytes(32).toString('hex')]);
     }
 
     if (modo === '--gravar') {
