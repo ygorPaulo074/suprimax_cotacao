@@ -25,9 +25,10 @@ Itens do menu: Pedidos, Orçamentos, Respostas pendentes, Clientes, Produtos, En
 | **Perfil** | **Itens do menu visíveis** |
 |---|---|
 | **Operador** | Pedidos, Orçamentos, Respostas pendentes, Clientes (consulta e cadastro), Produtos (consulta e cadastro de produtos e variações) e Entrada de mercadoria (registro). |
-| **Operador chefe** | Todos os itens, exceto Análise de crédito e Dívidas. É o único perfil que altera faixas de preço e fardos, ajusta estoque, libera divergências de entrada, cadastra fornecedores e gerencia usuários. |
+| **Operador chefe** | Todos os itens, exceto Análise de crédito e Dívidas. É o único perfil que altera faixas de preço e fardos, ajusta estoque, libera divergências de entrada (com o administrador), cadastra fornecedores e gerencia usuários. |
 | **Fiscal** | Análise de crédito. |
 | **Financeiro** | Dívidas. |
+| **Administrador** | Todos os itens do menu e todas as ações condicionadas a perfil; é o único que atribui o perfil ADMIN. |
 | **Vendedor e Gestor** | Sem menu no Sistema 2: o vendedor atua no Sistema 1 e o gestor, no Sistema 3. |
 
 
@@ -305,7 +306,7 @@ Figura 10.14 — Tela 14 (UC24 – Ajuste de estoque): exemplo visual.
 Registro da entrada de mercadoria. Campos: fornecedor, variação, nº da cotação de compra, quantidade comprada e quantidade informada.
 
 - Divergência entre quantidade comprada e informada: alerta laranja e botão Salvar bloqueado.
-- Liberação: modal “Liberação por operador chefe”, com usuário e senha próprios.
+- Liberação: modal “Liberação por operador chefe ou administrador”, com usuário e senha próprios.
 
 ![fig19.png](assets/fig19.png)
 
@@ -328,7 +329,7 @@ Figura 10.16 — Tela 16 (UC22 – Fornecedores): exemplo visual.
 ### 10.6.17 Tela 17 – UC25 – Usuários
 
 
-Gestão de usuários pelo operador chefe. A lista mostra usuário, e-mail, perfil (VENDEDOR, OPERADOR, OPERADOR_CHEFE, FISCAL, FINANCEIRO, GESTOR) e status (ATIVO, INATIVO); o formulário pede usuário, e-mail e perfil.
+Gestão de usuários pelo operador chefe. A lista mostra usuário, e-mail, perfil (VENDEDOR, OPERADOR, OPERADOR_CHEFE, FISCAL, FINANCEIRO, GESTOR, ADMIN; exibidos em português, p.ex. Administrador) e status (ATIVO, INATIVO); o formulário pede usuário, e-mail e perfil.
 
 - Inativação de vendedor com clientes na carteira: modal solicitando o novo vendedor responsável.
 

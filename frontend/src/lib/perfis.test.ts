@@ -1,5 +1,14 @@
 import type { Perfil } from '@/api/types';
-import { itensDoMenu, rotaInicial, temAcessoAoSistema2 } from './perfis';
+import {
+  ehOperadorChefe,
+  itensDoMenu,
+  MENU,
+  perfisAtribuiveis,
+  perfisDoModulo,
+  rotaInicial,
+  temAcessoAoSistema2,
+  temPerfil,
+} from './perfis';
 
 const ids = (perfil: Perfil) => itensDoMenu(perfil).map((i) => i.id);
 
@@ -37,5 +46,31 @@ describe('visibilidade do menu por perfil (docs/10, seção 10.2)', () => {
   it('a rota inicial é o primeiro item do menu do perfil', () => {
     expect(rotaInicial('OPERADOR')).toBe('/pedidos');
     expect(rotaInicial('FISCAL')).toBe('/credito');
+  });
+});
+
+describe('perfil ADMIN', () => {
+  it('vê todos os itens do menu e tem acesso ao Sistema 2', () => {
+    expect(ids('ADMIN')).toEqual(MENU.map((i) => i.id));
+    expect(temAcessoAoSistema2('ADMIN')).toBe(true);
+    expect(rotaInicial('ADMIN')).toBe('/pedidos');
+  });
+
+  it('passa em todas as rotas de módulo e nas ações de operador chefe', () => {
+    for (const item of MENU) expect(perfisDoModulo(item.id)).toContain('ADMIN');
+    expect(ehOperadorChefe('ADMIN')).toBe(true);
+    expect(ehOperadorChefe('OPERADOR')).toBe(false);
+  });
+
+  it('temPerfil: ADMIN sempre passa; os demais precisam estar na lista', () => {
+    expect(temPerfil('ADMIN', [])).toBe(true);
+    expect(temPerfil('FISCAL', ['FISCAL'])).toBe(true);
+    expect(temPerfil('FISCAL', ['FINANCEIRO'])).toBe(false);
+  });
+
+  it('só ADMIN pode atribuir o perfil ADMIN', () => {
+    const todos = ['OPERADOR', 'OPERADOR_CHEFE', 'ADMIN'] as const;
+    expect(perfisAtribuiveis('OPERADOR_CHEFE', [...todos])).not.toContain('ADMIN');
+    expect(perfisAtribuiveis('ADMIN', [...todos])).toContain('ADMIN');
   });
 });

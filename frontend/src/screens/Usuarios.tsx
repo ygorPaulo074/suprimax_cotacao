@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, clientesApi, usuariosApi, type Perfil, type Usuario } from '@/api';
+import { useAuth } from '@/auth/AuthContext';
+import { perfisAtribuiveis, ROTULO_PERFIL } from '@/lib/perfis';
 import { DataState } from '@/components/DataState';
 import {
   Alerta,
@@ -28,6 +30,7 @@ const PERFIS: Perfil[] = [
   'FISCAL',
   'FINANCEIRO',
   'GESTOR',
+  'ADMIN',
 ];
 
 function ModalNovoVendedor({ usuario, aoFechar }: { usuario: Usuario; aoFechar: () => void }) {
@@ -84,9 +87,10 @@ function ModalNovoVendedor({ usuario, aoFechar }: { usuario: Usuario; aoFechar: 
   );
 }
 
-/** Tela 17 — UC25 – Usuários (somente OPERADOR_CHEFE). */
+/** Tela 17 — UC25 – Usuários (OPERADOR_CHEFE e ADMIN; só ADMIN gerencia ADMIN). */
 export default function Usuarios() {
   const queryClient = useQueryClient();
+  const { sessao } = useAuth();
   const consulta = useQuery({ queryKey: ['usuarios'], queryFn: usuariosApi.listar });
   const [nome, setNome] = useState('');
   const [email, setEmail] = useState('');
@@ -141,9 +145,9 @@ export default function Usuarios() {
               value={perfil}
               onChange={(e) => setPerfil(e.target.value as Perfil)}
             >
-              {PERFIS.map((p) => (
+              {perfisAtribuiveis(sessao?.perfil, PERFIS).map((p) => (
                 <option key={p} value={p}>
-                  {p}
+                  {ROTULO_PERFIL[p]}
                 </option>
               ))}
             </Selecao>
@@ -185,7 +189,7 @@ export default function Usuarios() {
                     <Td className="font-semibold">{u.usuario}</Td>
                     <Td>{u.email}</Td>
                     <Td>
-                      <Badge status={u.perfil} />
+                      <Badge status={u.perfil} rotulo={ROTULO_PERFIL[u.perfil]} />
                     </Td>
                     <Td>
                       <Badge status={u.status} />

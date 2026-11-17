@@ -21,6 +21,7 @@ const BADGES: Record<string, { estilo: string; icone: string }> = {
   VENDEDOR: { estilo: 'bg-indigo-100 text-indigo-800', icone: '●' },
   SUBSTITUIDO: { estilo: 'bg-indigo-100 text-indigo-800', icone: '⇄' },
   OPERADOR_CHEFE: { estilo: 'bg-violet-100 text-violet-800', icone: '★' },
+  ADMIN: { estilo: 'bg-petroleo text-white', icone: '★' },
   GESTOR: { estilo: 'bg-petroleo text-white', icone: '★' },
   RASCUNHO: { estilo: 'bg-gray-100 text-gray-600', icone: '✎' },
   CANCELADO: { estilo: 'bg-gray-100 text-gray-600', icone: '⊘' },
@@ -52,7 +53,7 @@ const BADGES: Record<string, { estilo: string; icone: string }> = {
 };
 
 /** O texto é sempre o valor literal do status (docs/10, seção 10.4). */
-export function Badge({ status }: { status: string }) {
+export function Badge({ status, rotulo }: { status: string; rotulo?: string }) {
   const cfg = BADGES[status] ?? { estilo: 'bg-gray-100 text-gray-600', icone: '●' };
   return (
     <span
@@ -62,7 +63,7 @@ export function Badge({ status }: { status: string }) {
       )}
     >
       <span aria-hidden="true">{cfg.icone}</span>
-      {status}
+      {rotulo ?? status}
     </span>
   );
 }
