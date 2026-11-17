@@ -241,6 +241,96 @@ describe('ServicoDePedidos', () => {
     });
   });
 
+  describe('devolver (UC10-A3)', () => {
+    it('devolve à lista o pedido assumido pela própria sessão e libera o operador', async () => {
+      const cenario = montarCenarioDeCadastros();
+      const servico = montarServico(cenario);
+      const idOperador = cenario.semearUsuario('OPERADOR', 'quem-assumiu');
+      const { idPedido } = semearPedido(cenario, {
+        status: 'EM_ANALISE',
+        idOperadorAtendimento: idOperador,
+      });
+
+      await servico.devolver(idPedido, sessaoDoOperador(idOperador, 'quem-assumiu'));
+
+      const [pedido] = cenario.banco.linhas('pedido');
+      expect(pedido?.status).toBe('SOLICITADO');
+      expect(pedido?.id_operador_atendimento ?? null).toBeNull();
+    });
+
+    it('recusa quando outro operador assumiu o pedido e nada muda', async () => {
+      const cenario = montarCenarioDeCadastros();
+      const servico = montarServico(cenario);
+      const idOutro = cenario.semearUsuario('OPERADOR', 'outro-operador');
+      const idQuemTenta = cenario.semearUsuario('OPERADOR', 'quem-tenta');
+      const { idPedido } = semearPedido(cenario, {
+        status: 'EM_ANALISE',
+        idOperadorAtendimento: idOutro,
+      });
+
+      await expect(
+        servico.devolver(idPedido, sessaoDoOperador(idQuemTenta, 'quem-tenta')),
+      ).rejects.toBeInstanceOf(ErroDePedidoNaoAssumidoPorVoce);
+      const [pedido] = cenario.banco.linhas('pedido');
+      expect(pedido?.status).toBe('EM_ANALISE');
+      expect(pedido?.id_operador_atendimento).toBe(idOutro);
+    });
+
+    it.each(['SOLICITADO', 'APROVADO', 'NEGADO', 'CANCELADO'] as const)(
+      'recusa o pedido que está %s',
+      async (status) => {
+        const cenario = montarCenarioDeCadastros();
+        const servico = montarServico(cenario);
+        const idOperador = cenario.semearUsuario('OPERADOR', 'quem-tenta');
+        const { idPedido } = semearPedido(cenario, { status });
+
+        await expect(
+          servico.devolver(idPedido, sessaoDoOperador(idOperador, 'quem-tenta')),
+        ).rejects.toBeInstanceOf(ErroDePedidoNaoAssumidoPorVoce);
+        expect(cenario.banco.linhas('pedido')[0]?.status).toBe(status);
+      },
+    );
+
+    it('deixa o ADMIN devolver o pedido assumido por outro operador', async () => {
+      const cenario = montarCenarioDeCadastros();
+      const servico = montarServico(cenario);
+      const idOutro = cenario.semearUsuario('OPERADOR', 'outro-operador');
+      const idAdmin = cenario.semearUsuario('ADMIN', 'adm');
+      const { idPedido } = semearPedido(cenario, {
+        status: 'EM_ANALISE',
+        idOperadorAtendimento: idOutro,
+      });
+
+      await servico.devolver(idPedido, { ...sessaoDoOperador(idAdmin, 'adm'), perfil: 'ADMIN' });
+
+      expect(cenario.banco.linhas('pedido')[0]?.status).toBe('SOLICITADO');
+    });
+
+    it('rejeita um pedido inexistente', async () => {
+      const cenario = montarCenarioDeCadastros();
+      const servico = montarServico(cenario);
+      const idOperador = cenario.semearUsuario('OPERADOR', 'quem-tenta');
+
+      await expect(
+        servico.devolver(999, sessaoDoOperador(idOperador, 'quem-tenta')),
+      ).rejects.toBeInstanceOf(ErroDePedidoNaoEncontrado);
+    });
+
+    it('permite assumir de novo o pedido devolvido', async () => {
+      const cenario = montarCenarioDeCadastros();
+      const servico = montarServico(cenario);
+      const idPrimeiro = cenario.semearUsuario('OPERADOR', 'primeiro');
+      const idSegundo = cenario.semearUsuario('OPERADOR', 'segundo');
+      const { idPedido } = semearPedido(cenario, { status: 'SOLICITADO' });
+
+      await servico.assumir(idPedido, sessaoDoOperador(idPrimeiro, 'primeiro'));
+      await servico.devolver(idPedido, sessaoDoOperador(idPrimeiro, 'primeiro'));
+      const detalhe = await servico.assumir(idPedido, sessaoDoOperador(idSegundo, 'segundo'));
+
+      expect(detalhe.operadorAtendimento).toBe('segundo');
+    });
+  });
+
   describe('montarOrcamento', () => {
     it('delega ao montador de orçamentos com o pedido e os itens', async () => {
       const cenario = montarCenarioDeCadastros();

@@ -13,6 +13,7 @@ export const ROTAS_DE_PEDIDOS = {
   COLECAO: '/pedidos',
   ITEM: '/pedidos/:id',
   ASSUMIR: '/pedidos/:id/assumir',
+  DEVOLVER: '/pedidos/:id/devolver',
   MONTAR_ORCAMENTO: '/pedidos/:id/montar-orcamento',
   NEGAR: '/pedidos/:id/negar',
 } as const;
@@ -27,6 +28,7 @@ export interface DependenciasDasRotasDePedidos {
  * - `GET /pedidos?status=`: fila com os indicadores da tela 2;
  * - `GET /pedidos/:id`: detalhe do pedido (tela 3), com a situação de crédito do cliente;
  * - `POST /pedidos/:id/assumir`: `pedido.assumir` (SOLICITADO → EM_ANALISE);
+ * - `POST /pedidos/:id/devolver`: devolve o pedido à lista (EM_ANALISE → SOLICITADO, UC10-A3);
  * - `POST /pedidos/:id/montar-orcamento`: cria o orçamento em RASCUNHO (UC10 → UC14);
  * - `POST /pedidos/:id/negar`: nega o pedido com o motivo informado.
  */
@@ -58,6 +60,16 @@ export function criarRotasDePedidos({ servico, sessoes }: DependenciasDasRotasDe
     rotaAssincrona(async (req, res) => {
       const { id } = validarEntrada(esquemaDeParametroId, req.params);
       res.status(STATUS_HTTP.OK).json(await servico.assumir(id, obterSessao(res)));
+    }),
+  );
+
+  rotas.post(
+    ROTAS_DE_PEDIDOS.DEVOLVER,
+    operador,
+    rotaAssincrona(async (req, res) => {
+      const { id } = validarEntrada(esquemaDeParametroId, req.params);
+      await servico.devolver(id, obterSessao(res));
+      res.status(STATUS_HTTP.SEM_CONTEUDO).end();
     }),
   );
 

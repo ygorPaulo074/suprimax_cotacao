@@ -1,4 +1,4 @@
-// UC10 — fila de pedidos do Sistema 1: assumir, consultar, negar ou montar o orçamento.
+// UC10 — fila de pedidos do Sistema 1: assumir, devolver, consultar, negar ou montar o orçamento.
 import { z } from 'zod';
 import { consultar, validarLinha, type ClienteDeProxy } from '../../dados';
 import { ErroDePedidoNaoAssumidoPorVoce, ErroDePedidoNaoEncontrado } from '../../erros';
@@ -214,6 +214,39 @@ export class ServicoDePedidos {
     this.logger.info(
       { evento: 'pedido_negado', idPedido, idOperador: sessao.idOperador },
       'Pedido negado.',
+    );
+  }
+
+  /**
+   * Devolve o pedido à lista (EM_ANALISE → SOLICITADO, UC10-A3): o operador desistiu da análise.
+   * Só quem assumiu o pedido devolve; o ADMIN devolve qualquer pedido EM_ANALISE.
+   *
+   * @throws {ErroDePedidoNaoEncontrado} Se o pedido não existir (404).
+   * @throws {ErroDePedidoNaoAssumidoPorVoce} Se o pedido não está EM_ANALISE ou outro operador o
+   *   assumiu (409).
+   */
+  async devolver(idPedido: number, sessao: Sessao): Promise<void> {
+    const pedido = await this.buscarOuFalhar(idPedido);
+    const ehAdmin = sessao.perfil === 'ADMIN';
+    if (pedido.status !== 'EM_ANALISE') {
+      throw new ErroDePedidoNaoAssumidoPorVoce();
+    }
+    if (!ehAdmin) {
+      this.exigirAssumidoPelaSessao(pedido, sessao);
+    }
+    const devolvido = await this.pedidos.devolver(idPedido, ehAdmin ? null : sessao.idOperador);
+    if (!devolvido) {
+      // Mudou entre a leitura e a gravação (aprovado, negado ou devolvido por outra requisição).
+      throw new ErroDePedidoNaoAssumidoPorVoce();
+    }
+    this.logger.info(
+      {
+        evento: 'pedido_devolvido',
+        idPedido,
+        idOperador: sessao.idOperador,
+        idOperadorAtendimento: pedido.idOperadorAtendimento,
+      },
+      'Pedido devolvido à lista.',
     );
   }
 
