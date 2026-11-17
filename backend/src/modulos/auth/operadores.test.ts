@@ -71,7 +71,7 @@ describe('RepositorioDeOperadores.buscarCredenciais', () => {
   });
 
   it.each([
-    ['perfil desconhecido', { perfil: 'ADMIN' }],
+    ['perfil desconhecido', { perfil: 'SUPERUSUARIO' }],
     ['sem hash de senha', { senhaHash: undefined }],
     ['data inválida', { bloqueadoAte: 'amanhã' }],
   ])('trata linha fora do formato (%s) como erro interno', async (_caso, defeito) => {

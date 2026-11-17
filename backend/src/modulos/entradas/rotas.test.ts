@@ -186,3 +186,30 @@ describe('POST /entradas-mercadoria (UC04)', () => {
     expect(resposta.body.codigo).toBe('VARIACAO_NAO_ENCONTRADA');
   });
 });
+
+describe('liberação de divergência por ADMIN (UC04, RF19)', () => {
+  it('aceita a divergência com usuário e senha de um ADMIN', async () => {
+    const cenario = await montar();
+    const senhaHash = await cenario.senhas.gerarHash('senha-admin-123');
+    cenario.banco.semear('operador', {
+      usuario: 'adm-liberador',
+      email: 'adm-liberador@suprimax.com.br',
+      senha_hash: senhaHash,
+      perfil: 'ADMIN',
+      status: 'ATIVO',
+    });
+
+    const resposta = await cenario.registrar({
+      idFornecedor: cenario.idFornecedor,
+      idVariacao: cenario.idVariacao,
+      quantidadeComprada: 20,
+      quantidadeInformada: 18,
+      liberacao: { usuario: 'adm-liberador', senha: 'senha-admin-123' },
+    });
+
+    expect(resposta.status).toBe(204);
+    expect(cenario.banco.linhas('entrada_mercadoria')[0]).toMatchObject({
+      id_operador_liberacao: expect.any(Number),
+    });
+  });
+});

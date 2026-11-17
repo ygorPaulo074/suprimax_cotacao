@@ -217,7 +217,7 @@ describe('POST /usuarios (UC25)', () => {
     ['usuário acima de 50 caracteres', { usuario: 'u'.repeat(51) }, ['usuario']],
     ['e-mail malformado', { email: 'davi@' }, ['email']],
     ['e-mail acima de 120 caracteres', { email: `${'d'.repeat(110)}@suprimax.com.br` }, ['email']],
-    ['perfil desconhecido', { perfil: 'ADMIN' }, ['perfil']],
+    ['perfil desconhecido', { perfil: 'SUPERUSUARIO' }, ['perfil']],
     ['perfil ausente', { perfil: undefined }, ['perfil']],
   ])('responde 400 com o campo recusado: %s', async (_caso, alteracoes, campos) => {
     const { criar, banco } = await montar();
@@ -504,7 +504,7 @@ describe('PATCH /usuarios/:id (UC25)', () => {
     ['corpo vazio', 1, {}, ['status']],
     ['só o novo vendedor', 1, { idNovoVendedor: 2 }, ['status']],
     ['status desconhecido', 1, { status: 'BLOQUEADO' }, ['status']],
-    ['perfil desconhecido', 1, { perfil: 'ADMIN' }, ['perfil']],
+    ['perfil desconhecido', 1, { perfil: 'SUPERUSUARIO' }, ['perfil']],
     [
       'novo vendedor não numérico',
       1,
@@ -553,5 +553,72 @@ describe('autorização das rotas de usuários', () => {
     expect(resposta.body.codigo).toBe('ACESSO_NEGADO');
     expect(banco.linhas('operador')).toHaveLength(2);
     expect(banco.linhas('operador')[0]).toMatchObject({ status: 'ATIVO' });
+  });
+});
+
+describe('usuários ADMIN (UC25): só ADMIN gerencia ADMIN', () => {
+  const NOVO_ADMIN = { usuario: 'root', email: 'root@suprimax.com.br', perfil: 'ADMIN' };
+
+  it('OPERADOR_CHEFE não cria usuário ADMIN (403 ACESSO_NEGADO)', async () => {
+    const { criar, banco } = await montar();
+
+    const resposta = await criar(NOVO_ADMIN);
+
+    expect(resposta.status).toBe(403);
+    expect(resposta.body.codigo).toBe('ACESSO_NEGADO');
+    expect(banco.linhas('operador')).toHaveLength(1);
+  });
+
+  it('OPERADOR_CHEFE não promove ninguém a ADMIN (403)', async () => {
+    const { alterar, entrarComo, usuarioNoBanco } = await montar();
+    const operador = await entrarComo('OPERADOR', 'olga');
+
+    const resposta = await alterar(operador.idOperador, { perfil: 'ADMIN' });
+
+    expect(resposta.status).toBe(403);
+    expect(usuarioNoBanco(operador.idOperador)?.perfil).toBe('OPERADOR');
+  });
+
+  it('OPERADOR_CHEFE não edita nem inativa um ADMIN (403)', async () => {
+    const { alterar, semearUsuario, usuarioNoBanco } = await montar();
+    const idAdmin = semearUsuario('ADMIN', 'adm');
+
+    const rebaixar = await alterar(idAdmin, { perfil: 'OPERADOR' });
+    const inativar = await alterar(idAdmin, { status: 'INATIVO' });
+
+    expect(rebaixar.status).toBe(403);
+    expect(inativar.status).toBe(403);
+    expect(usuarioNoBanco(idAdmin)).toMatchObject({ perfil: 'ADMIN', status: 'ATIVO' });
+  });
+
+  it('ADMIN cria um usuário ADMIN', async () => {
+    const { criar, entrarComo } = await montar();
+    const admin = await entrarComo('ADMIN', 'adm');
+
+    const resposta = await criar(NOVO_ADMIN, admin.autorizacao);
+
+    expect(resposta.status).toBe(201);
+    expect(resposta.body).toMatchObject({ usuario: 'root', perfil: 'ADMIN' });
+  });
+
+  it('ADMIN promove e inativa outro ADMIN, mas não inativa a si mesmo (422)', async () => {
+    const { alterar, entrarComo, semearUsuario, usuarioNoBanco } = await montar();
+    const admin = await entrarComo('ADMIN', 'adm');
+    const idOutro = semearUsuario('ADMIN', 'adm2');
+    const idOperador = semearUsuario('OPERADOR', 'olga');
+
+    const promover = await alterar(idOperador, { perfil: 'ADMIN' }, admin.autorizacao);
+    const inativarOutro = await alterar(idOutro, { status: 'INATIVO' }, admin.autorizacao);
+    const inativarASiMesmo = await alterar(
+      admin.idOperador,
+      { status: 'INATIVO' },
+      admin.autorizacao,
+    );
+
+    expect(promover.status).toBe(200);
+    expect(usuarioNoBanco(idOperador)?.perfil).toBe('ADMIN');
+    expect(inativarOutro.status).toBe(200);
+    expect(inativarASiMesmo.status).toBe(422);
+    expect(inativarASiMesmo.body.codigo).toBe('ALTERACAO_DO_PROPRIO_USUARIO');
   });
 });

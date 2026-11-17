@@ -9,8 +9,12 @@ export const PERFIS = [
   'FISCAL',
   'FINANCEIRO',
   'GESTOR',
+  'ADMIN',
 ] as const;
 export type Perfil = (typeof PERFIS)[number];
+
+/** Perfil com acesso a todas as rotas; só um ADMIN gerencia usuários ADMIN. */
+export const PERFIL_ADMIN: Perfil = 'ADMIN';
 
 /** Dados do usuário autenticado. É o tipo `Sessao` de `frontend/src/api/types.ts`. */
 export interface Sessao {

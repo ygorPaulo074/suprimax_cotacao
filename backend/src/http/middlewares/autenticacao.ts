@@ -2,7 +2,12 @@
 // conveniência do frontend: a autorização é conferida aqui (docs/10, seção 10.2).
 import type { RequestHandler, Response } from 'express';
 import { ErroDeAcessoNegado, ErroNaoAutenticado } from '../../erros';
-import type { Perfil, RepositorioDeSessoes, Sessao } from '../../modulos/auth/sessoes';
+import {
+  PERFIL_ADMIN,
+  type Perfil,
+  type RepositorioDeSessoes,
+  type Sessao,
+} from '../../modulos/auth/sessoes';
 import { rotaAssincrona } from '../rotaAssincrona';
 
 const CHAVE_LOCAL_SESSAO = 'sessao';
@@ -28,11 +33,13 @@ export function exigirSessao(sessoes: RepositorioDeSessoes): RequestHandler {
 
 /**
  * Exige que o perfil da sessão esteja entre os informados; senão, `403 ACESSO_NEGADO`.
+ * O perfil ADMIN passa sempre (acesso total), sem precisar constar da lista.
  * Use depois de `exigirSessao`.
  */
 export function exigirPerfil(...perfis: readonly Perfil[]): RequestHandler {
   return (_req, res, next) => {
-    next(perfis.includes(obterSessao(res).perfil) ? undefined : new ErroDeAcessoNegado());
+    const { perfil } = obterSessao(res);
+    next(perfil === PERFIL_ADMIN || perfis.includes(perfil) ? undefined : new ErroDeAcessoNegado());
   };
 }
 

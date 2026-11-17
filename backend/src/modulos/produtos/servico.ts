@@ -24,7 +24,7 @@ import type {
 } from './repositorio';
 
 /** Único perfil que define ou altera preços (UC04, passo 4). */
-export const PERFIL_QUE_ALTERA_PRECOS: Perfil = 'OPERADOR_CHEFE';
+export const PERFIS_QUE_ALTERAM_PRECOS: readonly Perfil[] = ['OPERADOR_CHEFE', 'ADMIN'];
 
 const MENSAGENS = {
   PRECOS_SO_DO_CHEFE: 'Somente o operador chefe altera faixas de preço e fardos.',
@@ -194,7 +194,7 @@ export class ServicoDeProdutos {
     const informouPrecos = dados.variacoes.some(
       (variacao) => variacao.faixasPreco !== undefined || variacao.fardos !== undefined,
     );
-    if (informouPrecos && autor.perfil !== PERFIL_QUE_ALTERA_PRECOS) {
+    if (informouPrecos && !PERFIS_QUE_ALTERAM_PRECOS.includes(autor.perfil)) {
       throw new ErroDeAcessoNegado(MENSAGENS.PRECOS_SO_DO_CHEFE);
     }
   }
@@ -204,7 +204,7 @@ export class ServicoDeProdutos {
     const removePrecos = plano.variacoesRemovidas.some(
       ({ idsDasFaixas, idsDosFardos }) => idsDasFaixas.length > 0 || idsDosFardos.length > 0,
     );
-    if (removePrecos && autor.perfil !== PERFIL_QUE_ALTERA_PRECOS) {
+    if (removePrecos && !PERFIS_QUE_ALTERAM_PRECOS.includes(autor.perfil)) {
       throw new ErroDeAcessoNegado(MENSAGENS.REMOCAO_SO_DO_CHEFE);
     }
   }

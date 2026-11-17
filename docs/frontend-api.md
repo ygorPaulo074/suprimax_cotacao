@@ -14,7 +14,7 @@ Fonte do contrato (código): `frontend/src/api/types.ts` (tipos) e um arquivo po
 - **Orçamento:** toda mutação devolve o `OrcamentoDetalhe` **já recalculado** pelo módulo de cálculo (docs/11, seção 11.6). Os bloqueios de emissão vêm em `condicoes.bloqueios[]` com a mensagem pronta (ex.: “Abaixo do faturamento mínimo de R$ 500,00 – faltam R$ 107,65”), e as formas de pagamento permitidas em `condicoes.condicoesPagamentoPermitidas`.
 - **Erros:** status HTTP adequado e corpo `{ "codigo": "…", "mensagem": "…", "detalhes": { … } }`. A `mensagem` é exibida ao operador, então deve estar em português e não expor detalhes internos.
 - **Autorização:** o menu por perfil é só conveniência; cada rota deve validar o perfil (docs/10, seção 10.2).
-- **Sessão (UC13):** o token é opaco e expira após 30 minutos sem uso (cada requisição autenticada renova o prazo). Sessão inexistente ou expirada responde `401 NAO_AUTENTICADO`; perfil sem permissão, `403 ACESSO_NEGADO`. As sessões ficam na memória do backend: quando o serviço reinicia, os usuários entram de novo. Em `Sessao`, `nome` repete `usuario`, porque a tabela `operador` não tem coluna de nome.
+- **Sessão (UC13):** o token é opaco e expira após 30 minutos sem uso (cada requisição autenticada renova o prazo). Sessão inexistente ou expirada responde `401 NAO_AUTENTICADO`; perfil sem permissão, `403 ACESSO_NEGADO`. O perfil `ADMIN` (usuário `adm` no seed de demonstração) tem acesso a todas as rotas, inclusive as de Chefe, Fiscal, Financeiro e Gestor, e pode liberar divergência de entrada; só um `ADMIN` cria, promove a `ADMIN`, edita ou inativa usuários `ADMIN` (o Chefe recebe `403 ACESSO_NEGADO`), e ninguém inativa nem rebaixa a si mesmo (`422 ALTERACAO_DO_PROPRIO_USUARIO`). As sessões ficam na memória do backend: quando o serviço reinicia, os usuários entram de novo. Em `Sessao`, `nome` repete `usuario`, porque a tabela `operador` não tem coluna de nome.
 
 ## Rotas
 
@@ -61,8 +61,8 @@ Fonte do contrato (código): `frontend/src/api/types.ts` (tipos) e um arquivo po
 | | `GET …/:id/movimentacoes` · `POST …/:id/ajustes` | `MovimentacaoEstoque[]` · `{quantidade, motivo}`; `422 AJUSTE_ABAIXO_DO_RESERVADO` | Chefe |
 | 15 · UC04 Entrada | `POST /entradas-mercadoria` | `EntradaMercadoriaNova`; `422 ENTRADA_DIVERGENTE`; `403 LIBERACAO_NEGADA` | Operador, Chefe |
 | 16 · UC22 Fornecedores | `GET /fornecedores` · `POST /fornecedores` | `Fornecedor[]` · `FornecedorNovo` | Chefe (`GET` também Operador) |
-| 17 · UC25 Usuários | `GET /usuarios` · `POST /usuarios` | `Usuario[]` · `UsuarioNovo` | Chefe |
-| | `PATCH /usuarios/:id` | `{perfil?, status?, idNovoVendedor?}`; `422 NOVO_VENDEDOR_OBRIGATORIO` | Chefe |
+| 17 · UC25 Usuários | `GET /usuarios` · `POST /usuarios` | `Usuario[]` · `UsuarioNovo` | Chefe, Admin |
+| | `PATCH /usuarios/:id` | `{perfil?, status?, idNovoVendedor?}`; `422 NOVO_VENDEDOR_OBRIGATORIO`; `403` ao mexer em `ADMIN` sem ser `ADMIN` | Chefe, Admin |
 
 ## Pontos a confirmar com o time de backend
 
