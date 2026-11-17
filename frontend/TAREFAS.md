@@ -36,6 +36,7 @@ Origem: o protótipo do Figma foi trazido para `frontend/` e reconstruído como 
 - [x] Variações viraram estados reais: mínimo, sem estoque, timeout com “Tentar novamente”, pendente de crédito, estoque insuficiente, dívida em aberto, divergência, LGPD, ajuste abaixo do reservado.
 - [ ] Testes de tela para cada estado (Testing Library) quando houver backend/mocks de rede.
 - [x] Botão "Novo orçamento" na ficha do cliente (UC14): `POST /orcamentos`, abre `/orcamentos/:id`, desabilitado com motivo se há dívida ou cliente inativo.
+- [x] "Novo orçamento" também desabilitado para cliente BLOQUEADO (decisão do usuário; UC14).
 - [x] Página 404 própria (hoje volta à rota inicial). `NaoEncontrada.tsx` (PR #24).
 
 ## 5. Perfis e menu
@@ -52,6 +53,7 @@ Origem: o protótipo do Figma foi trazido para `frontend/` e reconstruído como 
 - [x] Sessão encerrada automaticamente em `401`.
 - [x] Redefinir senha (UC13): tela `/redefinir-senha` (PR #24). O e-mail com o link ainda não é enviado (sem provedor); use `scripts/definir-senha.cjs`.
 - [x] Quitar dívida (UC23), abrir anexo por URL assinada e erros de upload (UC19) (PR #24).
+- [x] Upload do documento de crédito (PDF/JPEG/PNG, até 10 MB) e botão Abrir por URL assinada na análise de crédito (UC07).
 - [x] Perfil `ADMIN` (acesso total; só ADMIN gerencia ADMIN) (PR #31).
 - [ ] **RNF06:** cache local das alterações em andamento, reenvio ao voltar a conexão e atualização da tela só após a leitura confirmada.
 - [ ] Revisar os textos e campos de cada tela contra o capítulo 10 da documentação FINAL (o protótipo partiu de uma revisão anterior).
