@@ -361,7 +361,7 @@ Figura 10.18 — Tela 18 (Componentes e estados): exemplo visual.
 | **Orçamento emitido** | É somente leitura. A única forma de alterar é criar uma nova versão pelo tratamento da resposta (tela 10); o original passa a SUBSTITUIDO. |
 | **Motivos e justificativas** | Obrigatórios: motivo da negativa do pedido e motivo do ajuste de estoque. Opcional: justificativa do cancelamento do orçamento, que aceita campo vazio. |
 | **Confirmação em modal** | Ações com efeito sobre outro registro pedem confirmação: negar pedido, cancelar orçamento, substituir o original, liberar divergência e trocar o vendedor responsável. |
-| **Resiliência** | Em queda de conexão, a alteração em andamento fica em cache local e é reenviada ao restabelecer a conexão; a tela só se atualiza depois da leitura confirmada do banco (RNF06). |
+| **Resiliência** | Em queda de conexão, a alteração em andamento fica em cache local e é reenviada ao restabelecer a conexão; a tela só se atualiza depois da leitura confirmada do banco (RNF06). Implementação: mutações de orçamento sobre um orçamento existente, feitas sem conexão, entram numa fila local (sem token) com `Idempotency-Key` fixa, são reenviadas em ordem ao voltar a rede e saem da fila só após a releitura; erro 4xx definitivo descarta o item e avisa. O cabeçalho mostra o selo laranja "N alterações pendentes". O último orçamento lido fica em cache local para continuar visível offline; fila e cache são apagados no logout. Criação de orçamento e upload de anexo não entram na fila. |
 | **Formatos** | Valores em R$ 0.000,00, alinhados à direita; datas no padrão brasileiro; nenhum texto abaixo de 12 px. |
 | **Estados de dados** | Skeleton durante o carregamento e tela vazia com orientação da próxima ação, como no CNPJ não encontrado. |
 

@@ -55,7 +55,8 @@ Origem: o protótipo do Figma foi trazido para `frontend/` e reconstruído como 
 - [x] Quitar dívida (UC23), abrir anexo por URL assinada e erros de upload (UC19) (PR #24).
 - [x] Upload do documento de crédito (PDF/JPEG/PNG, até 10 MB) e botão Abrir por URL assinada na análise de crédito (UC07).
 - [x] Perfil `ADMIN` (acesso total; só ADMIN gerencia ADMIN) (PR #31).
-- [ ] **RNF06:** cache local das alterações em andamento, reenvio ao voltar a conexão e atualização da tela só após a leitura confirmada.
+- [x] **RNF06:** fila persistida de alterações de orçamento sem conexão, `Idempotency-Key`, reenvio em ordem ao voltar a rede e saída da fila só após a releitura (`api/filaOffline.ts`).
+- [ ] RNF06 fora do escopo atual: cadastros (clientes, produtos etc.), criação de orçamento (`POST /orcamentos`, precisa do id na resposta) e upload de anexo ficam sem fila; falta teste manual no navegador com rede cortada.
 - [ ] Revisar os textos e campos de cada tela contra o capítulo 10 da documentação FINAL (o protótipo partiu de uma revisão anterior).
 - [ ] Resolver os pontos em aberto de [frontend-api.md](../docs/frontend-api.md): “Devolver à lista”, protesto de dívida, efeito de “Enviar”, alcance da busca global.
 - [ ] Pop-up de 7 dias para vencimento (RF16) é do vendedor, no Sistema 1; fora deste frontend.
