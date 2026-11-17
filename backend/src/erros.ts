@@ -135,6 +135,14 @@ export const CATALOGO_DE_ERROS = {
     status: STATUS_HTTP.NAO_PROCESSAVEL,
     mensagem: 'Este orçamento não pode mais ser editado.',
   },
+  TIPO_DE_ARQUIVO_NAO_ACEITO: {
+    status: STATUS_HTTP.NAO_PROCESSAVEL,
+    mensagem: 'Tipo de arquivo não aceito. Envie PDF, JPEG ou PNG.',
+  },
+  NOME_DE_ARQUIVO_LONGO_DEMAIS: {
+    status: STATUS_HTTP.NAO_PROCESSAVEL,
+    mensagem: 'O nome do arquivo pode ter no máximo 255 caracteres.',
+  },
   ITEM_NAO_ENCONTRADO: {
     status: STATUS_HTTP.NAO_ENCONTRADO,
     mensagem: 'Item não encontrado neste orçamento.',
@@ -484,6 +492,20 @@ export class ErroDeOrcamentoNaoEncontrado extends AppError {
 export class ErroDeOrcamentoNaoEditavel extends AppError {
   constructor() {
     super('ORCAMENTO_NAO_EDITAVEL');
+  }
+}
+
+/** Tipo de conteúdo do arquivo fora da lista aceita (422, UC07). */
+export class ErroDeTipoDeArquivoNaoAceito extends AppError {
+  constructor() {
+    super('TIPO_DE_ARQUIVO_NAO_ACEITO');
+  }
+}
+
+/** Nome do arquivo acima de 255 caracteres (422, UC07, UC19). */
+export class ErroDeNomeDeArquivoLongoDemais extends AppError {
+  constructor() {
+    super('NOME_DE_ARQUIVO_LONGO_DEMAIS');
   }
 }
 

@@ -7,7 +7,10 @@ import { rotaAssincrona } from '../../http/rotaAssincrona';
 import { validarEntrada } from '../../http/validacao';
 import { z } from 'zod';
 import { esquemaDeParametroId } from '../comum/campos';
-import { processarUploadDeArquivo } from '../comum/uploadDeArquivo';
+import {
+  processarUploadComTiposAceitos,
+  TIPOS_DE_CONTEUDO_DE_DOCUMENTO_DE_CREDITO,
+} from '../comum/uploadDeArquivo';
 import type { RepositorioDeSessoes } from '../auth/sessoes';
 import { esquemaDeDocumentoRecebido, esquemaDeResultadoDeCredito } from './esquemas';
 import type { ServicoDeAnaliseCredito } from './servico';
@@ -67,7 +70,7 @@ export function criarRotasDeCredito({ servico, sessoes }: DependenciasDasRotasDe
     ROTAS_DE_CREDITO.DOCUMENTOS,
     autenticado,
     somenteFiscal,
-    processarUploadDeArquivo,
+    processarUploadComTiposAceitos(TIPOS_DE_CONTEUDO_DE_DOCUMENTO_DE_CREDITO),
     rotaAssincrona(async (req, res) => {
       const { id } = validarEntrada(esquemaDeParametroId, req.params);
       const dados = validarEntrada(esquemaDeDocumentoRecebido, req.body);

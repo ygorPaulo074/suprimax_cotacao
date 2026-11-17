@@ -352,4 +352,37 @@ describe('documentos de crédito com arquivo digital (UC07, LGPD)', () => {
     expect(resposta.status).toBe(413);
     expect(armazenamento.objetos.size).toBe(0);
   });
+
+  it.each([['contrato.pdf'], ['foto.jpg'], ['foto.png']])(
+    'aceita o tipo de conteúdo de %s',
+    async (nome) => {
+      const { enviar, armazenamento } = await comAnalise();
+
+      const resposta = await enviar('conteudo', nome);
+
+      expect(resposta.status).toBe(200);
+      expect(armazenamento.objetos.size).toBe(1);
+    },
+  );
+
+  it('recusa tipo de conteúdo fora de PDF/JPEG/PNG com 422, sem enviar ao armazenamento', async () => {
+    const { enviar, armazenamento } = await comAnalise();
+
+    const resposta = await enviar('conteudo', 'planilha.txt');
+
+    expect(resposta.status).toBe(422);
+    expect(armazenamento.objetos.size).toBe(0);
+  });
+
+  it('aceita nome com 255 caracteres e recusa 256 com 422, sem enviar ao armazenamento', async () => {
+    const { enviar, armazenamento } = await comAnalise();
+
+    const aceito = await enviar('x', `${'a'.repeat(251)}.pdf`);
+    expect(aceito.status).toBe(200);
+    expect(armazenamento.objetos.size).toBe(1);
+
+    const recusado = await enviar('x', `${'a'.repeat(252)}.pdf`);
+    expect(recusado.status).toBe(422);
+    expect(armazenamento.objetos.size).toBe(1);
+  });
 });
