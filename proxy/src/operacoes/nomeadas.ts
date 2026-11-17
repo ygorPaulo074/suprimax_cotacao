@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AppError, type CodigoErro } from '../erros';
+import { AppError, REGRAS_DO_BANCO, type CodigoErro } from '../erros';
 import { ErroBanco } from '../banco/executor';
 import { aspas, colunasVisiveis, SEM_CREDENCIAIS } from '../sql/base';
 import { analisar, type ContextoOperacao, type Operacao } from './tipos';
@@ -21,6 +21,7 @@ const CODIGOS_DE_NEGOCIO: CodigoErro[] = [
   'RESPOSTA_JA_PROCESSADA',
   'PEDIDO_JA_ASSUMIDO',
   'NOT_FOUND',
+  'PAYLOAD_INVALIDO',
 ];
 
 /**
@@ -30,22 +31,33 @@ const CODIGOS_DE_NEGOCIO: CodigoErro[] = [
  */
 export function traduzirErroDoBanco(e: unknown): never {
   if (e instanceof AppError) throw e;
-  if (e instanceof ErroBanco) {
-    const m = /^([A-Z_]+)(?::(.*))?$/s.exec(e.message.trim());
-    const codigo = m?.[1] as CodigoErro | undefined;
-    if (codigo && CODIGOS_DE_NEGOCIO.includes(codigo)) {
-      let detalhes: Record<string, unknown> | undefined;
-      try {
-        const bruto = m?.[2] ? (JSON.parse(m[2]) as unknown) : undefined;
-        if (bruto && typeof bruto === 'object' && !Array.isArray(bruto))
-          detalhes = bruto as Record<string, unknown>;
-      } catch {
-        /* detalhes ilegíveis: segue só com o código */
-      }
-      throw new AppError(codigo, detalhes, e.message);
-    }
-  }
+  const traduzido = erroDeRegraDoBanco(e);
+  if (traduzido) throw traduzido;
   throw new AppError('INTERNAL_ERROR', undefined, e instanceof Error ? e.message : String(e));
+}
+
+/**
+ * Converte o `RAISE EXCEPTION 'CODIGO'` do banco em AppError, ou devolve null se a mensagem não
+ * for um código conhecido. Códigos com entrada própria no catálogo mantêm o código; os demais
+ * (REGRAS_DO_BANCO) viram REGRA_DE_NEGOCIO (422) com `detalhes.regra`.
+ */
+export function erroDeRegraDoBanco(e: unknown): AppError | null {
+  if (!(e instanceof ErroBanco)) return null;
+  const m = /^([A-Z_]+)(?::(.*))?$/s.exec(e.message.trim());
+  const codigo = m?.[1];
+  if (!codigo) return null;
+  const propria = CODIGOS_DE_NEGOCIO.includes(codigo as CodigoErro);
+  if (!propria && !REGRAS_DO_BANCO.includes(codigo)) return null;
+  let detalhes: Record<string, unknown> | undefined;
+  try {
+    const bruto = m?.[2] ? (JSON.parse(m[2]) as unknown) : undefined;
+    if (bruto && typeof bruto === 'object' && !Array.isArray(bruto))
+      detalhes = bruto as Record<string, unknown>;
+  } catch {
+    /* detalhes ilegíveis: segue só com o código */
+  }
+  if (propria) return new AppError(codigo as CodigoErro, detalhes, e.message);
+  return new AppError('REGRA_DE_NEGOCIO', { ...detalhes, regra: codigo }, e.message);
 }
 
 const inteiro = z.number().int().positive();

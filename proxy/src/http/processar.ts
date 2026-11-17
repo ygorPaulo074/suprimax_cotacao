@@ -18,6 +18,7 @@ import { AppError, corpoDoErro } from '../erros';
 import type { Esquema } from '../esquema/esquema';
 import type { FilaEscrita } from '../fila/fila';
 import { podeLerCredenciais } from '../operacoes/dados';
+import { erroDeRegraDoBanco } from '../operacoes/nomeadas';
 import { OPERACOES } from '../operacoes/registro';
 import { analisar, type ContextoOperacao } from '../operacoes/tipos';
 
@@ -59,6 +60,9 @@ const SchemaEnvelope = z
 /** Erros do banco de regra de integridade (CHECK, UNIQUE, FK, gatilhos) viram 400; o resto, 500. */
 function normalizarErro(e: unknown): AppError {
   if (e instanceof AppError) return e;
+  // Regra levantada por gatilho em dados.* (RAISE EXCEPTION 'CODIGO'): mesmo tratamento das nomeadas.
+  const regra = erroDeRegraDoBanco(e);
+  if (regra) return regra;
   if (e instanceof ErroBanco && e.codigoSql?.startsWith('23')) {
     return new AppError('PAYLOAD_INVALIDO', undefined, e.message);
   }
@@ -127,7 +131,8 @@ export async function processar(deps: DepsServidor, req: Requisicao): Promise<Re
     const preparada = op.preparar(envelope.payload, ctx);
     exigirEscopos(auth.escopos, preparada.escopos);
 
-    const resultado = op.escrita
+    // `somenteLeitura` só vem da própria operação (lote cujos passos são todos leituras conhecidas).
+    const resultado = op.escrita && !preparada.somenteLeitura
       ? await deps.fila.executar(
           {
             sistemaOrigem: sistema,
