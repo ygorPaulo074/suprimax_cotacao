@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { pedidosApi } from '@/api';
 import { formatarBRL } from '@/lib/dinheiro';
 import { DataState } from '@/components/DataState';
@@ -28,7 +28,9 @@ export default function AnalisePedido() {
   const id = Number(useParams().id);
   const navegar = useNavigate();
   const consulta = useQuery({ queryKey: ['pedidos', id], queryFn: () => pedidosApi.obter(id) });
+  const queryClient = useQueryClient();
   const [negando, setNegando] = useState(false);
+  const [devolvendo, setDevolvendo] = useState(false);
   const [motivo, setMotivo] = useState('');
 
   const aprovar = useMutation({
@@ -38,6 +40,14 @@ export default function AnalisePedido() {
   const negar = useMutation({
     mutationFn: () => pedidosApi.negar(id, motivo.trim()),
     onSuccess: () => navegar('/pedidos'),
+  });
+
+  const devolver = useMutation({
+    mutationFn: () => pedidosApi.devolver(id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['pedidos'] });
+      navegar('/pedidos');
+    },
   });
 
   return (
@@ -135,8 +145,10 @@ export default function AnalisePedido() {
               </Secao>
             </div>
 
-            {(aprovar.isError || negar.isError) && (
-              <Alerta className="mt-3">{mensagemDeErro(aprovar.error ?? negar.error)}</Alerta>
+            {(aprovar.isError || negar.isError || devolver.isError) && (
+              <Alerta className="mt-3">
+                {mensagemDeErro(aprovar.error ?? negar.error ?? devolver.error)}
+              </Alerta>
             )}
 
             <div className="mt-5 flex flex-wrap gap-3">
@@ -147,10 +159,42 @@ export default function AnalisePedido() {
                 Aprovar e montar orçamento
               </BotaoPrimario>
               <BotaoSecundario onClick={() => setNegando(true)}>Negar pedido</BotaoSecundario>
-              <BotaoSecundario onClick={() => navegar('/pedidos')}>
-                Devolver à lista
-              </BotaoSecundario>
+              {p.status === 'EM_ANALISE' ? (
+                <BotaoSecundario disabled={devolver.isPending} onClick={() => setDevolvendo(true)}>
+                  Devolver à lista
+                </BotaoSecundario>
+              ) : (
+                <BotaoSecundario onClick={() => navegar('/pedidos')}>
+                  Voltar à lista
+                </BotaoSecundario>
+              )}
             </div>
+
+            {devolvendo && (
+              <Modal
+                titulo="Devolver pedido à lista"
+                aoFechar={() => setDevolvendo(false)}
+                acoes={
+                  <>
+                    <BotaoSecundario onClick={() => setDevolvendo(false)}>Voltar</BotaoSecundario>
+                    <BotaoConfirmacao
+                      disabled={devolver.isPending}
+                      onClick={() => {
+                        setDevolvendo(false);
+                        devolver.mutate();
+                      }}
+                    >
+                      {devolver.isPending ? 'Devolvendo…' : 'Confirmar devolução'}
+                    </BotaoConfirmacao>
+                  </>
+                }
+              >
+                <p>
+                  O pedido volta a SOLICITADO e fica disponível para qualquer operador assumir. Você
+                  deixa de ser o responsável pela análise.
+                </p>
+              </Modal>
+            )}
 
             {negando && (
               <Modal

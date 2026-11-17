@@ -10,6 +10,8 @@ export const pedidosApi = {
   obter: (idPedido: number) => api.get<PedidoDetalhe>(`/pedidos/${idPedido}`),
   /** pedido.assumir: SOLICITADO -> EM_ANALISE. 409 PEDIDO_JA_ASSUMIDO se outro operador chegou antes. */
   assumir: (idPedido: number) => api.post<PedidoDetalhe>(`/pedidos/${idPedido}/assumir`),
+  /** UC10-A3: EM_ANALISE -> SOLICITADO. 409 PEDIDO_NAO_ASSUMIDO_POR_VOCE se não é seu ou não está em análise. */
+  devolver: (idPedido: number) => api.post<void>(`/pedidos/${idPedido}/devolver`),
   /** Cria o orçamento em RASCUNHO a partir do pedido e devolve o seu id. */
   aprovarEMontar: (idPedido: number) =>
     api.post<{ idOrcamento: number }>(`/pedidos/${idPedido}/montar-orcamento`),
