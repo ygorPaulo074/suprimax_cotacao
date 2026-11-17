@@ -25,6 +25,7 @@ import { criarModuloDePedidos } from '../modulos/pedidos';
 import { criarModuloDeProdutos } from '../modulos/produtos';
 import { criarModuloDeRespostas } from '../modulos/respostas';
 import { criarModuloDeUsuarios, type NotificadorDeEmail } from '../modulos/usuarios';
+import { CABECALHO_IDEMPOTENCY_KEY } from './middlewares/idempotencia';
 import { logRequisicao } from './middlewares/logRequisicao';
 import { CABECALHO_REQUEST_ID, requestId } from './middlewares/requestId';
 import { rotaNaoEncontrada } from './middlewares/rotaNaoEncontrada';
@@ -37,7 +38,7 @@ export const LIMITE_DO_CORPO_JSON = '100kb';
 
 const CONFIGURACAO_TRUST_PROXY = 'trust proxy';
 const METODOS_PERMITIDOS_NO_CORS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
-const CABECALHOS_PERMITIDOS_NO_CORS = ['Authorization', 'Content-Type'];
+const CABECALHOS_PERMITIDOS_NO_CORS = ['Authorization', 'Content-Type', CABECALHO_IDEMPOTENCY_KEY];
 
 /** O que a aplicação precisa receber pronto de quem a monta. */
 export interface DependenciasDoApp {
