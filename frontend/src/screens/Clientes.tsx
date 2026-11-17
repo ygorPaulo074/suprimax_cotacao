@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { ApiError, clientesApi, type ClienteFicha } from '@/api';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { ApiError, clientesApi, orcamentosApi, type ClienteFicha } from '@/api';
 import { formatarBRL } from '@/lib/dinheiro';
 import { formatarCnpj, formatarData, formatarNumeroOrcamento } from '@/lib/datas';
 import {
@@ -13,13 +13,53 @@ import {
   Cartao,
   Dado,
   EstadoVazio,
+  mensagemDeErro,
   Pagina,
   Skeleton,
   Tabela,
   Td,
   Th,
 } from '@/components/ui';
+import { useAuth } from '@/auth/AuthContext';
+import { temPerfil } from '@/lib/perfis';
 import { DataState } from '@/components/DataState';
+
+/** UC14: cria o rascunho direto da ficha. O backend autoriza; aqui só se oculta e se explica o bloqueio. */
+function NovoOrcamento({ cliente }: { cliente: ClienteFicha }) {
+  const navegar = useNavigate();
+  const { sessao } = useAuth();
+  const criar = useMutation({
+    mutationFn: () => orcamentosApi.criar({ idCliente: cliente.idCliente }),
+    onSuccess: (orcamento) => navegar(`/orcamentos/${orcamento.idOrcamento}`),
+  });
+  if (!sessao || !temPerfil(sessao.perfil, ['OPERADOR', 'OPERADOR_CHEFE'])) return null;
+
+  const motivo =
+    cliente.status === 'INATIVO'
+      ? 'Cliente inativo: não é possível criar orçamento.'
+      : cliente.dividaEmAberto > 0
+        ? 'Dívida em aberto: novo orçamento bloqueado.'
+        : null;
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-3">
+        <BotaoPrimario
+          onClick={() => criar.mutate()}
+          disabled={motivo !== null || criar.isPending}
+          aria-describedby={motivo ? 'motivo-novo-orcamento' : undefined}
+        >
+          {criar.isPending ? 'Criando…' : 'Novo orçamento'}
+        </BotaoPrimario>
+        {motivo && (
+          <span id="motivo-novo-orcamento" className="text-sm text-gray-500">
+            {motivo}
+          </span>
+        )}
+      </div>
+      {criar.isError && <Alerta>{mensagemDeErro(criar.error)}</Alerta>}
+    </div>
+  );
+}
 
 function Abas({ cliente }: { cliente: ClienteFicha }) {
   const [aba, setAba] = useState<'abertos' | 'historico'>('abertos');
@@ -230,6 +270,7 @@ export default function Clientes() {
               </div>
             ))}
           </Cartao>
+          <NovoOrcamento cliente={consulta.data} />
           <Abas cliente={consulta.data} />
         </div>
       )}
