@@ -132,17 +132,18 @@ export async function processar(deps: DepsServidor, req: Requisicao): Promise<Re
     exigirEscopos(auth.escopos, preparada.escopos);
 
     // `somenteLeitura` só vem da própria operação (lote cujos passos são todos leituras conhecidas).
-    const resultado = op.escrita && !preparada.somenteLeitura
-      ? await deps.fila.executar(
-          {
-            sistemaOrigem: sistema,
-            dominio: preparada.dominio,
-            operacao: op.id,
-            payload: op.admin ? null : envelope.payload,
-          },
-          preparada.executar,
-        )
-      : await preparada.executar();
+    const resultado =
+      op.escrita && !preparada.somenteLeitura
+        ? await deps.fila.executar(
+            {
+              sistemaOrigem: sistema,
+              dominio: preparada.dominio,
+              operacao: op.id,
+              payload: op.admin ? null : envelope.payload,
+            },
+            preparada.executar,
+          )
+        : await preparada.executar();
     return { status: 200, corpo: { ok: true, ...resultado } };
   } catch (e) {
     const erro = normalizarErro(e);
