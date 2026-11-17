@@ -2,6 +2,7 @@
 import { Router } from 'express';
 import { ErroDeValidacao, STATUS_HTTP } from '../../erros';
 import { exigirPerfil, exigirSessao, obterSessao } from '../../http/middlewares/autenticacao';
+import { idempotencia } from '../../http/middlewares/idempotencia';
 import { rotaAssincrona } from '../../http/rotaAssincrona';
 import { validarEntrada } from '../../http/validacao';
 import type { RepositorioDeSessoes } from '../auth/sessoes';
@@ -63,6 +64,9 @@ export function criarRotasDeOrcamentos({
 }: DependenciasDasRotasDeOrcamentos): Router {
   const rotas = Router();
   const operador = [exigirSessao(sessoes), exigirPerfil('OPERADOR', 'OPERADOR_CHEFE')];
+  // Mutações em JSON aceitam `Idempotency-Key` (RNF06, UC16-A1): reenvio não repete o efeito.
+  // Anexos (multipart) ficam de fora. Sem o cabeçalho, nada muda.
+  const mutacao = [...operador, idempotencia()];
 
   rotas.get(
     ROTAS_DE_ORCAMENTOS.COLECAO,
@@ -75,7 +79,7 @@ export function criarRotasDeOrcamentos({
 
   rotas.post(
     ROTAS_DE_ORCAMENTOS.COLECAO,
-    operador,
+    mutacao,
     rotaAssincrona(async (req, res) => {
       const dados = validarEntrada(esquemaDeOrcamentoNovo, req.body);
       res.status(STATUS_HTTP.CRIADO).json(await servico.criar(dados, obterSessao(res)));
@@ -93,7 +97,7 @@ export function criarRotasDeOrcamentos({
 
   rotas.patch(
     ROTAS_DE_ORCAMENTOS.ITEM,
-    operador,
+    mutacao,
     rotaAssincrona(async (req, res) => {
       const { id } = validarEntrada(esquemaDeParametroId, req.params);
       const dados = validarEntrada(esquemaDeCabecalhoAtualizar, req.body);
@@ -105,7 +109,7 @@ export function criarRotasDeOrcamentos({
 
   rotas.post(
     ROTAS_DE_ORCAMENTOS.ITENS,
-    operador,
+    mutacao,
     rotaAssincrona(async (req, res) => {
       const { id } = validarEntrada(esquemaDeParametroId, req.params);
       const dados = validarEntrada(esquemaDeItemAdicionar, req.body);
@@ -115,7 +119,7 @@ export function criarRotasDeOrcamentos({
 
   rotas.patch(
     ROTAS_DE_ORCAMENTOS.ITEM_DO_ORCAMENTO,
-    operador,
+    mutacao,
     rotaAssincrona(async (req, res) => {
       const { id, idItem } = validarEntrada(esquemaDeParametrosDoItem, req.params);
       const { quantidade } = validarEntrada(esquemaDeQuantidadeAlterar, req.body);
@@ -127,7 +131,7 @@ export function criarRotasDeOrcamentos({
 
   rotas.delete(
     ROTAS_DE_ORCAMENTOS.ITEM_DO_ORCAMENTO,
-    operador,
+    mutacao,
     rotaAssincrona(async (req, res) => {
       const { id, idItem } = validarEntrada(esquemaDeParametrosDoItem, req.params);
       res.status(STATUS_HTTP.OK).json(await servico.removerItem(id, idItem, obterSessao(res)));
@@ -136,7 +140,7 @@ export function criarRotasDeOrcamentos({
 
   rotas.put(
     ROTAS_DE_ORCAMENTOS.CONDICOES,
-    operador,
+    mutacao,
     rotaAssincrona(async (req, res) => {
       const { id } = validarEntrada(esquemaDeParametroId, req.params);
       const dados = validarEntrada(esquemaDeCondicoesAtualizar, req.body);
@@ -148,7 +152,7 @@ export function criarRotasDeOrcamentos({
 
   rotas.post(
     ROTAS_DE_ORCAMENTOS.EMITIR,
-    operador,
+    mutacao,
     rotaAssincrona(async (req, res) => {
       const { id } = validarEntrada(esquemaDeParametroId, req.params);
       res.status(STATUS_HTTP.OK).json(await servico.emitir(id, obterSessao(res)));
@@ -157,7 +161,7 @@ export function criarRotasDeOrcamentos({
 
   rotas.post(
     ROTAS_DE_ORCAMENTOS.CANCELAR,
-    operador,
+    mutacao,
     rotaAssincrona(async (req, res) => {
       const { id } = validarEntrada(esquemaDeParametroId, req.params);
       const { justificativa } = validarEntrada(esquemaDeCancelamento, req.body);
@@ -202,7 +206,7 @@ export function criarRotasDeOrcamentos({
 
   rotas.delete(
     ROTAS_DE_ORCAMENTOS.ANEXO_DO_ORCAMENTO,
-    operador,
+    mutacao,
     rotaAssincrona(async (req, res) => {
       const { id, idAnexo } = validarEntrada(esquemaDeParametrosDoAnexo, req.params);
       res.status(STATUS_HTTP.OK).json(await servico.removerAnexo(id, idAnexo, obterSessao(res)));
@@ -227,7 +231,7 @@ export function criarRotasDeOrcamentos({
 
   rotas.post(
     ROTAS_DE_ORCAMENTOS.ENVIAR,
-    operador,
+    mutacao,
     rotaAssincrona(async (req, res) => {
       const { id } = validarEntrada(esquemaDeParametroId, req.params);
       // `frontend/src/api/orcamentos.ts`: `enviar` espera `void` (sem corpo), diferente das
