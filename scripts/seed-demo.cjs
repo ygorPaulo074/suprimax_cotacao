@@ -104,6 +104,9 @@ async function main() {
         [usuario, `${usuario}@demo.suprimax.local`, hash, perfil],
       );
       contagem.operador += r.rowCount;
+      if (usuario === 'adm') {
+        console.warn('AVISO: usuário adm com senha de demonstração: NÃO use em produção; troque a senha.');
+      }
       ids[usuario] = (await db.query('SELECT id_operador FROM operador WHERE usuario = $1', [usuario])).rows[0].id_operador;
     }
 
