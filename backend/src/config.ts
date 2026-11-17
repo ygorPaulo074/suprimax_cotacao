@@ -90,6 +90,9 @@ export const NOMES_DAS_VARIAVEIS = [
   'JOBS_AGENDADOS_HABILITADOS',
   'JOBS_AGENDADOS_INTERVALO_MINUTOS',
   'JOBS_TOKEN',
+  'RESEND_API_KEY',
+  'EMAIL_REMETENTE',
+  'FRONTEND_URL',
   ...VARIAVEIS_DA_EMPRESA_EMISSORA,
 ] as const;
 export type NomeDaVariavel = (typeof NOMES_DAS_VARIAVEIS)[number];
@@ -141,6 +144,9 @@ const FORMATO_ESPERADO: Readonly<Record<NomeDaVariavel, string>> = {
   JOBS_AGENDADOS_HABILITADOS: 'deve ser true ou false',
   JOBS_AGENDADOS_INTERVALO_MINUTOS: `deve ser um inteiro entre 1 e ${JOBS_AGENDADOS_INTERVALO_MAXIMO_MINUTOS}`,
   JOBS_TOKEN: `deve ser um texto sem espaços com pelo menos ${JOBS_TOKEN_TAMANHO_MINIMO} caracteres`,
+  RESEND_API_KEY: 'deve ser um texto sem espaços',
+  EMAIL_REMETENTE: 'deve ser um texto não vazio',
+  FRONTEND_URL: 'deve ser uma URL http(s)',
   EMPRESA_RAZAO_SOCIAL: 'deve ser um texto não vazio',
   EMPRESA_ENDERECO: 'deve ser um texto não vazio',
   EMPRESA_TELEFONE: 'deve ser um texto não vazio',
@@ -180,6 +186,15 @@ export interface Config {
    * token fica desligada e só a sessão de GESTOR/ADMIN dispara os jobs. Nunca registre em log.
    */
   readonly jobsToken?: string;
+  /**
+   * E-mail de definição e recuperação de senha (UC13, UC25). Sem `resendApiKey` (dev/teste), nada
+   * é enviado: só log. Com ela, `emailRemetente` e `frontendUrl` são obrigatórios.
+   * `resendApiKey` é segredo: nunca registre em log nem devolva em resposta.
+   */
+  readonly resendApiKey?: string;
+  readonly emailRemetente?: string;
+  /** Base do link de redefinição de senha, sem barra final. */
+  readonly frontendUrl?: string;
   /** Cabeçalho/rodapé do PDF de orçamento (docs/09). Sempre presente: ver {@link DadosDaEmpresaEmissora}. */
   readonly empresaEmissora: DadosDaEmpresaEmissora;
 }
@@ -254,6 +269,9 @@ const esquemaDasVariaveis = z.object({
     JOBS_AGENDADOS_INTERVALO_MAXIMO_MINUTOS,
   ).optional(),
   JOBS_TOKEN: z.string().regex(PADRAO_TEXTO_SEM_ESPACOS).min(JOBS_TOKEN_TAMANHO_MINIMO).optional(),
+  RESEND_API_KEY: z.string().regex(PADRAO_TEXTO_SEM_ESPACOS).optional(),
+  EMAIL_REMETENTE: z.string().trim().min(1).optional(),
+  FRONTEND_URL: z.string().refine(ehUrlHttp).transform(removerBarrasFinais).optional(),
   EMPRESA_RAZAO_SOCIAL: z.string().trim().min(1).optional(),
   EMPRESA_ENDERECO: z.string().trim().min(1).optional(),
   EMPRESA_TELEFONE: z.string().trim().min(1).optional(),
@@ -323,6 +341,13 @@ function validarRegrasDoAmbiente(
   if (!ambiente.success) {
     return;
   }
+  if (brutas.RESEND_API_KEY !== undefined) {
+    for (const nome of ['EMAIL_REMETENTE', 'FRONTEND_URL'] as const) {
+      if (brutas[nome] === undefined) {
+        problemas.set(nome, 'é obrigatória quando RESEND_API_KEY está configurada');
+      }
+    }
+  }
   if (ambiente.data !== 'dev') {
     for (const nome of [
       'CORS_ORIGENS',
@@ -391,6 +416,9 @@ export function carregarConfig(env: NodeJS.ProcessEnv = process.env): Config {
     ...(dados.PROXY_SERVICE_TOKEN !== undefined && {
       proxyServiceToken: dados.PROXY_SERVICE_TOKEN,
     }),
+    ...(dados.RESEND_API_KEY !== undefined && { resendApiKey: dados.RESEND_API_KEY }),
+    ...(dados.EMAIL_REMETENTE !== undefined && { emailRemetente: dados.EMAIL_REMETENTE }),
+    ...(dados.FRONTEND_URL !== undefined && { frontendUrl: dados.FRONTEND_URL }),
     jobsAgendadosHabilitados: dados.JOBS_AGENDADOS_HABILITADOS ?? JOBS_AGENDADOS_HABILITADOS_PADRAO,
     jobsAgendadosIntervaloMs:
       (dados.JOBS_AGENDADOS_INTERVALO_MINUTOS ?? JOBS_AGENDADOS_INTERVALO_PADRAO_MINUTOS) *

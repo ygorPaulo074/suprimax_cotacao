@@ -8,6 +8,7 @@ import {
   variaveisDoProxyAusentes,
   type ClienteDeProxy,
 } from './dados';
+import { criarNotificadoresDeEmail } from './email/notificadores';
 import { createApp, type DependenciasDoApp } from './http/app';
 import { RepositorioDeSessoesEmMemoria } from './modulos/auth/sessoes';
 import { criarModuloDeJobs } from './modulos/jobs';
@@ -169,7 +170,13 @@ export async function principal(
     });
     sessoes.iniciarLimpeza();
     const proxy = criarClienteDeProxy(config, logger);
-    const servidor = new ServidorHttp({ config, logger, proxy, sessoes });
+    const servidor = new ServidorHttp({
+      config,
+      logger,
+      proxy,
+      sessoes,
+      ...criarNotificadoresDeEmail(config, logger),
+    });
     await servidor.iniciar();
     servidor.registrarEncerramento(processo);
     // Item 9 — agendador in-process dos jobs de expiração/protesto, desligado por padrão
