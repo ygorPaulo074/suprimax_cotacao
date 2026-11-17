@@ -69,7 +69,7 @@ Como o proxy é o único autorizado a escrever no banco compartilhado, ele preci
 **Schema da tabela fila_escrita:** id; sistema_origem; dominio; operacao; payload (jsonb); status (pendente | processando | concluido | erro); tentativas; criado_em; atualizado_em; erro_mensagem.
 
 
-Operações síncronas: o chamador aguarda a conclusão da gravação. As escritas (dados.inserir, dados.atualizar, dados.excluir, dados.lote, dados.rpc que altere dados e as operações nomeadas) passam pela fila; dados.consultar não. A fila garante a ordem das escritas, mas a resposta só é devolvida depois de gravada. pedido.assumir, orcamento.emitir e resposta.processar são operações únicas, executadas em transação, que devolvem o resultado ao chamador; pedido.assumir só tem efeito se o pedido ainda estiver SOLICITADO, o que impede dois operadores de assumirem o mesmo pedido.
+Operações síncronas: o chamador aguarda a conclusão da gravação. As escritas (dados.inserir, dados.atualizar, dados.excluir, dados.lote com ao menos um passo de escrita, dados.rpc que altere dados e as operações nomeadas) passam pela fila; dados.consultar e dados.lote formado só por passos dados.consultar não (o proxy decide pela lista de operações conhecidas, nunca por declaração do cliente). A fila garante a ordem das escritas, mas a resposta só é devolvida depois de gravada. pedido.assumir, orcamento.emitir e resposta.processar são operações únicas, executadas em transação, que devolvem o resultado ao chamador; pedido.assumir só tem efeito se o pedido ainda estiver SOLICITADO, o que impede dois operadores de assumirem o mesmo pedido.
 
 
 ## 12.6 Tratamento de erros
@@ -174,6 +174,7 @@ Falhas do Storage viram INTERNAL_ERROR (o detalhe vai só ao log). Limite de cor
 | PEDIDO_JA_ASSUMIDO | 409 | pedido.assumir sobre pedido que não está mais SOLICITADO. |
 | ESTOQUE_INSUFICIENTE | 409 | orcamento.emitir com saldo menor que a quantidade de algum item. |
 | RESPOSTA_JA_PROCESSADA | 409 | resposta.processar sobre resposta que não está PENDENTE. |
+| REGRA_DE_NEGOCIO | 422 | Função ou gatilho do banco levantou `RAISE EXCEPTION 'CODIGO'` sem código próprio nesta tabela (por exemplo CLIENTE_INADIMPLENTE, ORCAMENTO_SEM_ITENS, TOTAL_ACEITO_DIVERGENTE). O código do banco vai em `detalhes.regra`; o texto ao usuário é do catálogo do consumidor. Código do banco desconhecido continua INTERNAL_ERROR (500). |
 | RISCO_ESTRUTURAL | 422 | A verificação de risco bloqueou a operação (por exemplo, dados.excluir sem filtro ou com mais de 50 linhas). |
 | LIMITE_EXCEDIDO | 429 | Rate limiting: excesso de requisições do integrante (ou do IP de origem, no teto de abuso). |
 

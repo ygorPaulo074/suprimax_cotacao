@@ -7,6 +7,7 @@ import { RepositorioIntegrantesMemoria } from '../auth/integrantes';
 import { ErroBanco, type Consulta, type Executor, type ResultadoConsulta } from '../banco/executor';
 import { carregarConfig } from '../config';
 import { esquemaDoDicionario } from '../esquema/esquema';
+import { REGRAS_DO_BANCO } from '../erros';
 import { FilaEscrita } from '../fila/fila';
 import { criarApp } from './app';
 import type { DepsServidor } from './processar';
@@ -407,6 +408,40 @@ describe('operações nomeadas', () => {
     expect(banco.consultas.at(-1)?.texto).toContain('"proxy_orcamento_emitir"');
   });
 
+  it.each(REGRAS_DO_BANCO)('regra do banco %s chega como 422 com detalhes.regra', async (regra) => {
+    const i = await integrante(['operacao:orcamento.emitir']);
+    banco.responder = () => new ErroBanco(regra);
+    const r = await chamar(
+      'orcamento.emitir',
+      { id_orcamento: 7, id_operador: 2, chave_seguranca: 'a'.repeat(32) },
+      como(i),
+    );
+    expect(r.status).toBe(422);
+    expect(r.corpo.erro).toMatchObject({
+      codigo: 'REGRA_DE_NEGOCIO',
+      detalhes: { regra },
+    });
+  });
+
+  it('regra levantada por gatilho em dados.* também vira 422; código desconhecido segue 500', async () => {
+    const i = await integrante(['orcamento:inserir']);
+    const corpo = { tabela: 'orcamento', valores: { id_cliente: 1 } };
+    banco.responder = () => new ErroBanco('CLIENTE_INADIMPLENTE', 'P0001');
+    const r = await chamar('dados.inserir', corpo, como(i));
+    expect([r.status, r.corpo.erro.detalhes]).toEqual([422, { regra: 'CLIENTE_INADIMPLENTE' }]);
+    banco.responder = () => new ErroBanco('CODIGO_INVENTADO', 'P0001');
+    expect((await chamar('dados.inserir', corpo, como(i))).status).toBe(500);
+  });
+
+  it('PAYLOAD_INVALIDO e NOT_FOUND levantados pela função do banco mantêm 400 e 404', async () => {
+    const i = await integrante(['operacao:orcamento.emitir']);
+    const corpo = { id_orcamento: 7, id_operador: 2, chave_seguranca: 'a'.repeat(32) };
+    banco.responder = () => new ErroBanco('PAYLOAD_INVALIDO');
+    expect((await chamar('orcamento.emitir', corpo, como(i))).status).toBe(400);
+    banco.responder = () => new ErroBanco('NOT_FOUND');
+    expect((await chamar('orcamento.emitir', corpo, como(i))).status).toBe(404);
+  });
+
   it('resposta.processar: RESPOSTA_JA_PROCESSADA e erro desconhecido do banco não vazam', async () => {
     const i = await integrante(['operacao:resposta.processar']);
     const corpo = {
@@ -509,6 +544,59 @@ describe('dados.lote e dados.rpc', () => {
     ).toBe(400);
     const repetido = { id: 'a', operacao: 'dados.consultar', payload: { tabela: 'pedido' } };
     expect((await lote([repetido, repetido])).status).toBe(400);
+  });
+
+  it('lote só de leituras não passa pela fila; lote com escrita continua nela', async () => {
+    const fila = jest.spyOn(FilaEscrita.prototype, 'executar');
+    try {
+      const i = await integrante(['pedido:consultar', 'cliente:consultar', 'pedido:inserir']);
+      const leitura = (id: string, tabela: string) => ({
+        id,
+        operacao: 'dados.consultar',
+        payload: { tabela },
+      });
+      const antes = fila.mock.calls.length; // integrante.criar também passa pela fila
+      const r = await chamar(
+        'dados.lote',
+        { passos: [leitura('a', 'pedido'), leitura('b', 'cliente')] },
+        como(i),
+      );
+      expect(r.status).toBe(200);
+      expect(Object.keys(r.corpo.resultados)).toEqual(['a', 'b']);
+      expect(fila.mock.calls.length).toBe(antes);
+
+      const misto = await chamar(
+        'dados.lote',
+        {
+          passos: [
+            leitura('a', 'pedido'),
+            {
+              id: 'b',
+              operacao: 'dados.inserir',
+              payload: { tabela: 'pedido', valores: { id_cliente: 1 } },
+            },
+          ],
+        },
+        como(i),
+      );
+      expect(misto.status).toBe(200);
+      expect(fila.mock.calls.length).toBe(antes + 1);
+
+      // Operação desconhecida ou fora de dados.*: recusada, mesmo que o cliente a chame de leitura.
+      const recusado = await chamar(
+        'dados.lote',
+        {
+          passos: [
+            leitura('a', 'pedido'),
+            { id: 'b', operacao: 'dados.rpc', payload: { funcao: 'f' }, somente_leitura: true },
+          ],
+        },
+        como(i),
+      );
+      expect(recusado.status).toBe(400);
+    } finally {
+      fila.mockRestore();
+    }
   });
 
   it('rpc: só funções autorizadas pelo escopo, com argumentos nomeados parametrizados', async () => {

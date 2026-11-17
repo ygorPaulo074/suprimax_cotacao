@@ -35,7 +35,7 @@ A parte que não depende do banco está implementada e testada (83 testes, com b
 - [ ] **Teste de carga** em `tests-nfr/` (k6 ou Artillery): 10 operadores simultâneos sem perda de dados nem número de orçamento duplicado (RNF09). Exige o schema.
 - [ ] **Decisões em aberto** (detalhes no `README.md`):
   - atualizar a seção 12.3 da documentação com `DATABASE_URL`;
-  - código de erro próprio para violação de regra do banco (hoje `PAYLOAD_INVALIDO`);
+  - [x] código de erro próprio para violação de regra do banco: `REGRA_DE_NEGOCIO` (422) com `detalhes.regra`;
   - origem do `id_usuario` na auditoria (hoje nulo);
   - reprocessar itens pendentes da fila após reinício;
   - rate limit compartilhado se houver mais de uma instância.
