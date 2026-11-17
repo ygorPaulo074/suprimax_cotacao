@@ -170,6 +170,25 @@ test('o ADMIN libera divergência na entrada de mercadoria; o FISCAL continua se
   });
 });
 
+test('o ADMIN registra o resultado da análise de crédito; o OPERADOR_CHEFE continua sem poder', { skip: !enabled }, async () => {
+  await withRollback(async () => {
+    const fixture = await createFixture();
+    const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const admin = await db.query(
+      `INSERT INTO operador(usuario,email,senha_hash,perfil) VALUES ($1,$2,'hash','ADMIN') RETURNING id_operador`,
+      [`adm-cr-${suffix}`, `adm-cr-${suffix}@example.test`],
+    );
+    const analise = (idFiscal) =>
+      db.query(
+        `INSERT INTO analise_credito(id_cliente,resultado,data_analise,id_operador_fiscal)
+         VALUES ($1,'APROVADO',CURRENT_DATE,$2)`,
+        [fixture.clientId, idFiscal],
+      );
+    await analise(admin.rows[0].id_operador);
+    await assert.rejects(analise(fixture.operatorId), /RESPONSAVEL_CREDITO_NAO_E_FISCAL/);
+  });
+});
+
 test('rejeita quantidade de estoque negativa', { skip: !enabled }, async () => {
   await withRollback(async () => {
     const product = await db.query(`INSERT INTO produto(codigo_interno,descricao) VALUES ('TEST-NEG-STOCK','Teste') RETURNING id_produto`);
