@@ -1,6 +1,7 @@
 import express, { type NextFunction, type Request, type Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import { AppError, corpoDoErro } from '../erros';
+import { LimitePorChave } from './limite';
 import { processar, type DepsServidor } from './processar';
 
 type RequisicaoComCorpo = Request & { corpoBruto?: string };
@@ -11,7 +12,7 @@ const LIMITE_CORPO_ARQUIVO = '14mb';
 /**
  * Corpo acima de 1 MB só vale para arquivo.salvar. O token é autenticado depois da leitura do
  * corpo (a assinatura cobre o corpo bruto), então um cliente sem credencial ainda pode forçar a
- * leitura de até 14 MB; o rate limit por IP, aplicado antes, contém esse abuso.
+ * leitura de até 14 MB; o teto por IP, aplicado antes, contém esse abuso.
  */
 function conferirLimite(req: RequisicaoComCorpo): boolean {
   const tamanho = Buffer.byteLength(req.corpoBruto ?? '', 'utf8');
@@ -28,10 +29,14 @@ export function criarApp(deps: DepsServidor): express.Express {
     res.json({ ok: true, ambiente: deps.config.env });
   });
 
-  // Limite por origem (IP): conter abuso, força bruta e picos (docs/12, seção 12.4).
+  // Teto por origem (IP), antes da autenticação: só contra abuso e força bruta. O backend inteiro
+  // sai de um único IP, então o teto é bem mais alto que o limite por integrante (docs/12, 12.4).
+  const janelaMs = deps.config.rateLimitJanelaSegundos * 1000;
+  // Limite por integrante, aplicado depois da autenticação (chave = service_id validado).
+  const limiteIntegrante = new LimitePorChave(janelaMs, deps.config.rateLimitIntegranteMaximo);
   const limitador = rateLimit({
-    windowMs: deps.config.rateLimitJanelaSegundos * 1000,
-    limit: deps.config.rateLimitMaximo,
+    windowMs: janelaMs,
+    limit: deps.config.rateLimitIpMaximo,
     standardHeaders: true,
     legacyHeaders: false,
     handler: (_req, res) => {
@@ -66,6 +71,9 @@ export function criarApp(deps: DepsServidor): express.Express {
         corpoBruto: req.corpoBruto ?? '',
         corpo: req.body,
         ip: req.ip ?? null,
+        aposAutenticar: (serviceId) => {
+          if (!limiteIntegrante.permitir(serviceId)) throw new AppError('LIMITE_EXCEDIDO');
+        },
       });
       res.status(resposta.status).json(resposta.corpo);
     },

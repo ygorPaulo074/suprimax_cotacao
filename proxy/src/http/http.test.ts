@@ -115,13 +115,47 @@ describe('transporte', () => {
     expect(r.corpo.erro.codigo).toBe('PAYLOAD_INVALIDO');
   });
 
-  it('limita requisições (LIMITE_EXCEDIDO)', async () => {
+  it('teto por IP, antes da autenticação (LIMITE_EXCEDIDO)', async () => {
     await new Promise<void>((r) => servidor.close(() => r()));
-    iniciar({ RATE_LIMIT_MAXIMO: '3' });
+    iniciar({ RATE_LIMIT_IP_MAXIMO: '3' });
     const status = [];
     for (let i = 0; i < 4; i++)
       status.push((await chamar('dados.consultar', { tabela: 'pedido' })).status);
     expect(status).toEqual([401, 401, 401, 429]);
+  });
+
+  it('limite por integrante: A estourando dá 429 e não bloqueia B', async () => {
+    await new Promise<void>((r) => servidor.close(() => r()));
+    iniciar({ RATE_LIMIT_INTEGRANTE_MAXIMO: '3' });
+    const a = await integrante(['*:consultar']);
+    const b = await integrante(['*:consultar']);
+    const statusA = [];
+    for (let i = 0; i < 4; i++)
+      statusA.push((await chamar('dados.consultar', { tabela: 'pedido' }, como(a))).status);
+    expect(statusA).toEqual([200, 200, 200, 429]);
+
+    const bloqueado = await chamar('dados.consultar', { tabela: 'pedido' }, como(a));
+    expect(bloqueado.status).toBe(429);
+    expect(bloqueado.corpo).toMatchObject({ ok: false, erro: { codigo: 'LIMITE_EXCEDIDO' } });
+    expect(JSON.stringify(bloqueado.corpo)).not.toContain(a.token);
+
+    for (let i = 0; i < 3; i++)
+      expect((await chamar('dados.consultar', { tabela: 'pedido' }, como(b))).status).toBe(200);
+  });
+
+  it('requisição sem credencial válida não gasta o limite do integrante', async () => {
+    await new Promise<void>((r) => servidor.close(() => r()));
+    iniciar({ RATE_LIMIT_INTEGRANTE_MAXIMO: '2' });
+    const a = await integrante(['*:consultar']);
+    for (let i = 0; i < 5; i++) {
+      const r = await chamar(
+        'dados.consultar',
+        { tabela: 'pedido' },
+        { token: 'lixo', serviceId: a.serviceId },
+      );
+      expect(r.status).toBe(401);
+    }
+    expect((await chamar('dados.consultar', { tabela: 'pedido' }, como(a))).status).toBe(200);
   });
 });
 
