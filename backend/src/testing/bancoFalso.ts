@@ -77,6 +77,7 @@ const OPERACOES = {
   ATUALIZAR: 'dados.atualizar',
   EXCLUIR: 'dados.excluir',
   LOTE: 'dados.lote',
+  RPC: 'dados.rpc',
   ASSUMIR_PEDIDO: 'pedido.assumir',
   EMITIR_ORCAMENTO: 'orcamento.emitir',
   PROCESSAR_RESPOSTA: 'resposta.processar',
@@ -112,6 +113,9 @@ const OPERACOES_PERMITIDAS_NO_LOTE: ReadonlySet<string> = new Set([
   OPERACOES.EXCLUIR,
 ]);
 
+/** Função do banco que o job de rascunhos expirados chama por `dados.rpc` (RN25). */
+const FUNCAO_EXPIRAR_RASCUNHOS = 'proxy_job_expirar_rascunhos';
+const DIAS_DA_FUNCAO_DE_RASCUNHOS = 30;
 const LIMITE_PADRAO = 50;
 const LIMITE_MAXIMO = 500;
 const MAXIMO_DE_LINHAS_POR_INSERCAO = 100;
@@ -219,6 +223,8 @@ export class BancoFalso {
         return this.excluir(payload);
       case OPERACOES.LOTE:
         return this.lote(payload);
+      case OPERACOES.RPC:
+        return this.chamarFuncao(payload);
       case OPERACOES.ASSUMIR_PEDIDO:
         return this.assumirPedido(payload);
       case OPERACOES.EMITIR_ORCAMENTO:
@@ -642,6 +648,69 @@ export class BancoFalso {
         ? retornar.map((coluna) => this.exigirColuna(tabela, coluna))
         : this.colunasDa(tabela).map(({ coluna }) => coluna);
     return linhas.map((linha) => Object.fromEntries(colunas.map((c) => [c, linha[c]])));
+  }
+
+  // ------------------------------------------------------------------------------------------
+  // dados.rpc (docs/12, seção 12.8.2) — só as funções do banco que o backend chama
+
+  private chamarFuncao(p: Readonly<Record<string, unknown>>): { resultado: Linha[] } {
+    if (p.funcao !== FUNCAO_EXPIRAR_RASCUNHOS) {
+      throw payloadInvalido(`função sem dublê: ${String(p.funcao)}`);
+    }
+    return { resultado: [{ [FUNCAO_EXPIRAR_RASCUNHOS]: this.expirarEApagarRascunhos() }] };
+  }
+
+  /**
+   * Espelha `proxy_job_expirar_rascunhos` (migration 20261112002000): expira RASCUNHO e
+   * PENDENTE_CREDITO sem edição há 30 dias e apaga os EXPIRADO por RASCUNHO encerrados há mais de
+   * 30 dias. Dentro da função o banco liga a flag que libera os gatilhos de exclusão, e o
+   * `ON DELETE CASCADE` da migration inicial leva item, anexo, histórico e reservas junto;
+   * `DELETE` direto em `dados.excluir` continua recusado enquanto houver histórico.
+   *
+   * @returns Expirados + removidos, como a função.
+   */
+  private expirarEApagarRascunhos(): number {
+    const agora = this.agora().getTime();
+    const limite = new Date(agora - DIAS_DA_FUNCAO_DE_RASCUNHOS * MILISSEGUNDOS_POR_DIA);
+    const antes = (valor: unknown) => typeof valor === 'string' && new Date(valor) < limite;
+    let expirados = 0;
+    for (const orcamento of this.linhasDa('orcamento')) {
+      if (
+        (orcamento.status === 'RASCUNHO' || orcamento.status === 'PENDENTE_CREDITO') &&
+        antes(orcamento.data_ultima_edicao)
+      ) {
+        orcamento.status = 'EXPIRADO';
+        orcamento.motivo_expiracao = 'RASCUNHO';
+        orcamento.data_encerramento = new Date(agora).toISOString();
+        expirados += 1;
+      }
+    }
+    const apagar = new Set(
+      this.linhasDa('orcamento')
+        .filter(
+          (o) =>
+            o.status === 'EXPIRADO' &&
+            o.motivo_expiracao === 'RASCUNHO' &&
+            antes(o.data_encerramento),
+        )
+        .map((o) => o.id_orcamento),
+    );
+    const itens = new Set(
+      this.linhasDa('item_orcamento')
+        .filter((i) => apagar.has(i.id_orcamento))
+        .map((i) => i.id_item),
+    );
+    const manter = (tabela: string, coluna: string, ids: ReadonlySet<unknown>) =>
+      this.tabelas.set(
+        tabela,
+        this.linhasDa(tabela).filter((linha) => !ids.has(linha[coluna])),
+      );
+    manter('reserva_estoque', 'id_item', itens);
+    manter('item_orcamento', 'id_orcamento', apagar);
+    manter('anexo_orcamento', 'id_orcamento', apagar);
+    manter('historico_orcamento', 'id_orcamento', apagar);
+    manter('orcamento', 'id_orcamento', apagar);
+    return expirados + apagar.size;
   }
 
   // ------------------------------------------------------------------------------------------

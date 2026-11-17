@@ -230,3 +230,36 @@ test('impede abrir orçamento para cliente com dívida em aberto', { skip: !enab
     );
   });
 });
+
+test('proxy_job_expirar_rascunhos apaga o rascunho EXPIRADO com histórico; DELETE direto é recusado', { skip: !enabled }, async () => {
+  await withRollback(async () => {
+    const fixture = await createFixture();
+    await db.query(
+      `INSERT INTO historico_orcamento(id_orcamento,id_operador,tipo_evento,status_novo)
+       VALUES ($1,$2,'MUDANCA_STATUS','RASCUNHO')`,
+      [fixture.quoteId, fixture.operatorId],
+    );
+    await db.query(
+      `UPDATE orcamento
+          SET status='EXPIRADO', motivo_expiracao='RASCUNHO',
+              data_encerramento=CURRENT_TIMESTAMP-INTERVAL '31 days'
+        WHERE id_orcamento=$1`,
+      [fixture.quoteId],
+    );
+    // Os gatilhos exigem a flag que só a função liga: o DELETE direto não passa.
+    await db.query('SAVEPOINT before_delete');
+    await assert.rejects(db.query('DELETE FROM orcamento WHERE id_orcamento=$1', [fixture.quoteId]));
+    await db.query('ROLLBACK TO SAVEPOINT before_delete');
+
+    const result = await db.query('SELECT public.proxy_job_expirar_rascunhos() AS total');
+    assert.ok(result.rows[0].total >= 1);
+    const counts = await db.query(
+      `SELECT (SELECT COUNT(*)::INTEGER FROM orcamento WHERE id_orcamento=$1) AS orcamentos,
+              (SELECT COUNT(*)::INTEGER FROM item_orcamento WHERE id_orcamento=$1) AS itens,
+              (SELECT COUNT(*)::INTEGER FROM historico_orcamento WHERE id_orcamento=$1) AS historico`,
+      [fixture.quoteId],
+    );
+    // O CASCADE do historico_orcamento já existe na migration inicial (linha 650).
+    assert.deepEqual(counts.rows[0], { orcamentos: 0, itens: 0, historico: 0 });
+  });
+});
