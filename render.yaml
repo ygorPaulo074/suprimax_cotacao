@@ -100,4 +100,11 @@ services:
         sync: false
       - key: EMPRESA_DADOS_BANCARIOS
         sync: false
-      # RESEND_API_KEY: o backend ainda não lê essa variável (backend/src/config.ts). Acrescentar quando o e-mail for implementado.
+      # E-mail de definição/recuperação de senha (UC13, UC25), via Resend (backend/src/config.ts).
+      # Sem RESEND_API_KEY o backend não envia nada (só log); com ela, as duas seguintes são obrigatórias.
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_REMETENTE # remetente verificado no Resend
+        sync: false
+      - key: FRONTEND_URL # URL do frontend na Vercel, sem barra final (base do link de redefinição)
+        sync: false
