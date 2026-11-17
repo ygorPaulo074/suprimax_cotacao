@@ -35,6 +35,7 @@ Origem: o protótipo do Figma foi trazido para `frontend/` e reconstruído como 
 - [x] Removidos o “Wireframe Navigator” e os seletores de variação (`normal`, `min-value`, `no-stock`, `timeout`, …).
 - [x] Variações viraram estados reais: mínimo, sem estoque, timeout com “Tentar novamente”, pendente de crédito, estoque insuficiente, dívida em aberto, divergência, LGPD, ajuste abaixo do reservado.
 - [ ] Testes de tela para cada estado (Testing Library) quando houver backend/mocks de rede.
+- [x] Botão "Novo orçamento" na ficha do cliente (UC14): `POST /orcamentos`, abre `/orcamentos/:id`, desabilitado com motivo se há dívida ou cliente inativo.
 - [x] Página 404 própria (hoje volta à rota inicial). `NaoEncontrada.tsx` (PR #24).
 
 ## 5. Perfis e menu
