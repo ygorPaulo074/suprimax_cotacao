@@ -43,6 +43,8 @@ export interface Requisicao {
   corpoBruto: string;
   corpo: unknown;
   ip: string | null;
+  /** Chamado logo após a autenticação, com o service_id validado (limite por integrante). Pode lançar AppError. */
+  aposAutenticar?: (serviceId: string) => void;
 }
 
 export interface Resposta {
@@ -99,6 +101,7 @@ export async function processar(deps: DepsServidor, req: Requisicao): Promise<Re
       ? autenticarAdmin(depsAuth, req.headers, req.corpoBruto)
       : await autenticarIntegrante(depsAuth, req.headers, req.corpoBruto);
     sistema = auth.serviceId;
+    req.aposAutenticar?.(auth.serviceId);
 
     const envelope = analisar(SchemaEnvelope, req.corpo);
     operacao = envelope.operacao;

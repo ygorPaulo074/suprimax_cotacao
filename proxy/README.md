@@ -17,7 +17,7 @@ npm run dev                  # http://localhost:3001  (GET /saude)
 npm run lint && npm run format:check && npm run typecheck && npm test
 ```
 
-Variáveis (docs/12, seção 12.3): `JWT_SIGNING_SECRET` (≥ 32 caracteres), `PROXY_ADMIN_KEY` (≥ 16), `PORT`, `ENV` (`dev`, `homologacao`, `producao`), `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` e **`DATABASE_URL`** (ver "Pontos em aberto"). Opcionais: `TOLERANCIA_TIMESTAMP_SEGUNDOS` (60), `RATE_LIMIT_JANELA_SEGUNDOS` (60) e `RATE_LIMIT_MAXIMO` (300).
+Variáveis (docs/12, seção 12.3): `JWT_SIGNING_SECRET` (≥ 32 caracteres), `PROXY_ADMIN_KEY` (≥ 16), `PORT`, `ENV` (`dev`, `homologacao`, `producao`), `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` e **`DATABASE_URL`** (ver "Pontos em aberto"). Opcionais: `TOLERANCIA_TIMESTAMP_SEGUNDOS` (60), `RATE_LIMIT_JANELA_SEGUNDOS` (60), `RATE_LIMIT_INTEGRANTE_MAXIMO` (1200) e `RATE_LIMIT_IP_MAXIMO` (6000).
 
 ## Contrato
 
@@ -77,7 +77,7 @@ Pronto e testado (83 testes, banco simulado): autenticação, escopos, replay, r
 
 - **`DATABASE_URL`:** a documentação lista só `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY`, mas o proxy monta SQL parametrizado e transações, o que exige conexão direta ao Postgres (string de conexão do Supabase, de preferência pelo pooler em modo transação). Confirmar e atualizar a seção 12.3.
 - **Fila:** o proxy roda uma instância e serializa as escritas em memória; a tabela `fila_escrita` registra o ciclo (padrão outbox), mas não há reprocessamento de itens pendentes após reinício.
-- **Rate limit:** por IP, em memória. Em várias instâncias, trocar o armazenamento (ex.: `rate-limiter-flexible` com Redis).
+- **Rate limit:** por integrante (depois da autenticação) e teto por IP (antes), em memória. Em várias instâncias, trocar o armazenamento (ex.: `rate-limiter-flexible` com Redis).
 - **`id_usuario` da auditoria:** a documentação não diz de onde vem; hoje fica nulo.
 - **Exclusão condicionada (12.8.5):** “`orcamento` em RASCUNHO” é uma condição de dados, não de escopo; deve ser garantida por gatilho no banco.
 - **Escopos do Sistema 1 e 3** são propostas ainda não validadas com os grupos.

@@ -204,7 +204,8 @@ function main() {
       '# Opcionais:',
       '# TOLERANCIA_TIMESTAMP_SEGUNDOS=60',
       '# RATE_LIMIT_JANELA_SEGUNDOS=60',
-      '# RATE_LIMIT_MAXIMO=300',
+      '# RATE_LIMIT_INTEGRANTE_MAXIMO=1200',
+      '# RATE_LIMIT_IP_MAXIMO=6000',
     ]),
   ].join('\n');
 

@@ -23,6 +23,15 @@ services:
       - key: ENV
         value: producao
       # PORT: não definir; o Render injeta.
+      # Rate limit (docs/12, 12.4): por integrante (depois da autenticação) e teto por IP (antes dela).
+      # 1200/min por integrante = 10 operadores simultâneos x ~1 ação/s x ~5 chamadas, com folga de 2x.
+      # O backend inteiro sai de um IP, então o teto por IP (6000/min) fica bem acima: só contra abuso.
+      - key: RATE_LIMIT_JANELA_SEGUNDOS
+        value: "60"
+      - key: RATE_LIMIT_INTEGRANTE_MAXIMO
+        value: "1200"
+      - key: RATE_LIMIT_IP_MAXIMO
+        value: "6000"
       - key: DATABASE_URL # pooler, Transaction, porta 6543
         sync: false
       - key: SUPABASE_URL

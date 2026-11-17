@@ -11,7 +11,10 @@ export interface Config {
   jwtSigningSecret: string;
   toleranciaTimestampSegundos: number;
   rateLimitJanelaSegundos: number;
-  rateLimitMaximo: number;
+  /** Requisições por janela, por integrante autenticado (depois da autenticação). */
+  rateLimitIntegranteMaximo: number;
+  /** Teto por IP de origem, antes da autenticação: só contra abuso. Deve ser maior que o de integrante. */
+  rateLimitIpMaximo: number;
 }
 
 const ENVS = ['dev', 'homologacao', 'producao'] as const;
@@ -54,6 +57,11 @@ export function carregarConfig(env: NodeJS.ProcessEnv = process.env): Config {
       60,
       'RATE_LIMIT_JANELA_SEGUNDOS',
     ),
-    rateLimitMaximo: inteiro(env.RATE_LIMIT_MAXIMO, 300, 'RATE_LIMIT_MAXIMO'),
+    rateLimitIntegranteMaximo: inteiro(
+      env.RATE_LIMIT_INTEGRANTE_MAXIMO,
+      1200,
+      'RATE_LIMIT_INTEGRANTE_MAXIMO',
+    ),
+    rateLimitIpMaximo: inteiro(env.RATE_LIMIT_IP_MAXIMO, 6000, 'RATE_LIMIT_IP_MAXIMO'),
   };
 }

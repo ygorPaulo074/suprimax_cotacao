@@ -38,7 +38,7 @@ O acesso ao proxy é restrito e exige autenticação por token de serviço. As c
 Escopos do token: têm o formato tabela:acao, com acao em consultar, inserir, atualizar ou excluir (por exemplo, pedido:inserir); o curinga * vale para todas as tabelas; rpc:<funcao> autoriza dados.rpc para uma função do banco; operacao:<identificador> autoriza uma operação nomeada. Colunas sensíveis (senha_hash, token_recuperacao_senha e validade_token) nunca são devolvidas por dados.consultar, exceto ao integrante que possua o escopo operador.credenciais:consultar, concedido apenas ao sistema que autentica usuários.
 
 
-**Variáveis de ambiente (fixas, do proxy):** SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (conexão com o banco); PROXY_ADMIN_KEY (chave mestra, única credencial autorizada a criar novos integrantes); JWT_SIGNING_SECRET (assinatura dos tokens de integrante); PORT; ENV (dev/homologação/produção).
+**Variáveis de ambiente (fixas, do proxy):** SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (conexão com o banco); PROXY_ADMIN_KEY (chave mestra, única credencial autorizada a criar novos integrantes); JWT_SIGNING_SECRET (assinatura dos tokens de integrante); PORT; ENV (dev/homologação/produção). Opcionais: TOLERANCIA_TIMESTAMP_SEGUNDOS (60); RATE_LIMIT_JANELA_SEGUNDOS (60), RATE_LIMIT_INTEGRANTE_MAXIMO (1200) e RATE_LIMIT_IP_MAXIMO (6000), descritas na seção 12.4.
 
 
 **Token de integrante (JWT):** emitido pelo mecanismo de criação de integrantes a partir da PROXY_ADMIN_KEY, contendo service_id, escopos permitidos, origens associadas, issued_at e expires_at.
@@ -56,7 +56,7 @@ A segurança do proxy é composta de conjunto de contramedidas complementares, c
 - Escopo por tabela e ação (seção 12.3) — cada integrante só executa o que consta em seu token, inclusive nas operações genéricas dados.*.
 - Validação e sanitização de queries (seção 12.1) — nenhuma instrução chega ao banco sem antes ser validada e sanitizada pelo proxy, mitigando injeção de dados maliciosos.
 - Verificação de risco estrutural (seção 12.1) — antes de executar qualquer operação aprovada na etapa de autorização, o proxy avalia se ela representa risco à integridade dos dados ou do sistema (ex.: exclusão em massa, alteração que rompe relacionamento entre entidades), bloqueando sua execução quando identificado. Nas operações genéricas, dados.atualizar e dados.excluir sem filtro, ou que afetariam mais de 50 linhas, são bloqueados.
-- Rate limiting — aplicado às requisições recebidas pelo proxy, para conter abuso, força bruta e picos anômalos de tráfego. Bibliotecas sugeridas (stack Node.js/Express, já definida para o backend): express-rate-limit, implementação simples em memória, suficiente para uma instância única como é o caso do proxy hospedado no Render; ou rate-limiter-flexible, mais flexível, permitindo trocar o armazenamento (memória, Redis) caso seja necessário escalar para múltiplas instâncias no futuro.
+- Rate limiting — em duas camadas, para conter abuso, força bruta e picos anômalos de tráfego. (1) Teto por IP (RATE_LIMIT_IP_MAXIMO, padrão 6000 por janela de RATE_LIMIT_JANELA_SEGUNDOS, 60 s), aplicado antes da autenticação, só contra abuso: o backend do Sistema 2 inteiro sai de um único IP, então este teto precisa ficar bem acima do uso legítimo. (2) Limite por integrante (RATE_LIMIT_INTEGRANTE_MAXIMO, padrão 1200 por janela), aplicado depois da autenticação, com o service_id validado como chave; requisições sem credencial válida não gastam o limite de ninguém, e um integrante que estoura não bloqueia os demais. Dimensionamento: 10 operadores simultâneos pelo backend, cerca de 1 ação por segundo cada e até 5 chamadas ao proxy por ação dão cerca de 600 por minuto; 1200 dá folga de 2x e o teto por IP (6000) fica 5x acima disso. Acima do limite, a resposta é LIMITE_EXCEDIDO (429) no formato padrão de erro. Contadores em memória, suficientes para uma instância única como é o caso do proxy hospedado no Render. Bibliotecas sugeridas (stack Node.js/Express, já definida para o backend): express-rate-limit, implementação simples em memória, suficiente para uma instância única como é o caso do proxy hospedado no Render; ou rate-limiter-flexible, mais flexível, permitindo trocar o armazenamento (memória, Redis) caso seja necessário escalar para múltiplas instâncias no futuro.
 - Ocultação de dados internos em erros (seção 12.6) — mesmo em caso de falha, apenas códigos e mensagens corporativas genéricas chegam ao cliente, sem expor detalhes estruturais do banco de dados.
 
 ## 12.5 Fila de escrita
@@ -140,7 +140,7 @@ Existem porque exigem transação única e regra atômica que não se resolvem e
 | arquivo.remover | { caminho } — deve começar com `orcamento/` ou `analise-credito/` e não conter `..` | Remove o objeto; o bucket é escolhido pelo prefixo. <br> Retorno: { ok }. |
 | arquivo.assinar | { caminho, expira_em_segundos? } — mesmos prefixos; padrão 300, máximo 3600 | Gera URL assinada temporária de leitura. A URL não é registrada em log nem na auditoria. <br> Retorno: { ok, dados: { url, expira_em } }. Erro: NOT_FOUND se o objeto não existir. |
 
-Falhas do Storage viram INTERNAL_ERROR (o detalhe vai só ao log). Limite de corpo da requisição: 1 MB para todas as operações, exceto arquivo.salvar (cerca de 14 MB, por causa do base64). Como a assinatura do corpo só é conferida depois de lê-lo, o corpo grande é lido antes da autenticação; o limite por IP (rate limit) contém esse abuso, e qualquer operação diferente de arquivo.salvar com corpo acima de 1 MB é recusada com PAYLOAD_INVALIDO.
+Falhas do Storage viram INTERNAL_ERROR (o detalhe vai só ao log). Limite de corpo da requisição: 1 MB para todas as operações, exceto arquivo.salvar (cerca de 14 MB, por causa do base64). Como a assinatura do corpo só é conferida depois de lê-lo, o corpo grande é lido antes da autenticação; o teto por IP (rate limit, seção 12.4) contém esse abuso, e qualquer operação diferente de arquivo.salvar com corpo acima de 1 MB é recusada com PAYLOAD_INVALIDO.
 
 
 ### 12.8.4 Administração de integrantes
@@ -175,7 +175,7 @@ Falhas do Storage viram INTERNAL_ERROR (o detalhe vai só ao log). Limite de cor
 | ESTOQUE_INSUFICIENTE | 409 | orcamento.emitir com saldo menor que a quantidade de algum item. |
 | RESPOSTA_JA_PROCESSADA | 409 | resposta.processar sobre resposta que não está PENDENTE. |
 | RISCO_ESTRUTURAL | 422 | A verificação de risco bloqueou a operação (por exemplo, dados.excluir sem filtro ou com mais de 50 linhas). |
-| LIMITE_EXCEDIDO | 429 | Rate limiting: excesso de requisições do integrante. |
+| LIMITE_EXCEDIDO | 429 | Rate limiting: excesso de requisições do integrante (ou do IP de origem, no teto de abuso). |
 
 
 ## 12.9 Pendências

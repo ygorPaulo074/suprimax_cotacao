@@ -1,7 +1,10 @@
 // RNF01 (11) e RNF05 (14, 15). Uso: node tests-nfr/t11-14-15-seguranca.mjs <roles|replay|ratelimit>
 // roles:     precisa de backend + proxy no ar e do seed de demonstracao.
 // replay:    exige PROXY_SERVICE_ID e PROXY_SERVICE_TOKEN no ambiente (de backend/.env local de teste).
-// ratelimit: suba o proxy SEM RATE_LIMIT_MAXIMO (padrao 300/min) antes de rodar; DIRECT_URL local para achar um orcamento.
+// ratelimit: limite por integrante (RNF05). Suba o proxy com RATE_LIMIT_INTEGRANTE_MAXIMO=60 (e sem RATE_LIMIT_IP_MAXIMO,
+//            padrao 6000/min) antes de rodar; o backend inteiro e UM integrante. DIRECT_URL local para achar um orcamento.
+//            Informe o mesmo valor em RATE_LIMIT_ESPERADO (padrao 60). Esperado: cerca de 60 respostas 200 e o resto
+//            bloqueado (429 ou o status que o backend der a LIMITE_EXCEDIDO), nunca bloqueio antes do limite.
 import { chamar, login, banco, PROXY, resumo } from './lib.mjs';
 
 const modo = process.argv[2];
@@ -71,14 +74,17 @@ if (modo === 'ratelimit') {
   const id = criado.corpo.idOrcamento ?? criado.corpo.id;
   const seq = [];
   let primeiro503 = null;
-  for (let i = 1; i <= 40; i++) {
+  const esperado = Number(process.env.RATE_LIMIT_ESPERADO ?? 60);
+  const total = esperado + 20;
+  // O login e a criacao do orcamento acima tambem gastam requisicoes do integrante na janela; por isso "cerca de".
+  for (let i = 1; i <= total; i++) {
     const r = await chamar('GET', `/orcamentos/${id}`, { token });
     seq.push(r.status);
     if (r.status !== 200 && primeiro503 === null) primeiro503 = { requisicao: i, status: r.status, corpo: r.corpo, ms: Math.round(r.ms) };
   }
   const contagem = {};
   for (const s of seq) contagem[s] = (contagem[s] ?? 0) + 1;
-  out.ratelimit = { totalGETs: 40, contagemPorStatus: contagem, primeiraFalha: primeiro503, sequencia: seq.join(',') };
+  out.ratelimit = { limiteEsperado: esperado, totalGETs: total, contagemPorStatus: contagem, primeiraFalha: primeiro503, sequencia: seq.join(',') };
   await db.end();
 }
 resumo(`seguranca/${modo}`, out);
