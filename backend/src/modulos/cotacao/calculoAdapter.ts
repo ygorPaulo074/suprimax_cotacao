@@ -4,10 +4,13 @@
 // quantidade, que não é uma das 8 funções do módulo (quem escolhe a faixa é quem chama).
 import {
   calcularCondicaoCreditoReprovado,
+  calcularFaltaParaFaturamentoMinimo,
+  listarCondicoesPermitidas,
   calcularFrete,
   calcularImpostoItem,
   calcularValidadeOrcamento,
   CalculoError,
+  FATURAMENTO_MINIMO,
   formatarNumeroOrcamento,
   recalcularOrcamentoAprovado,
   validarCondicaoFaturamento,
@@ -29,9 +32,12 @@ import { ErroDeValidacao, ErroInterno } from '../../erros';
 // Reexportado para quem monta `condicoes`/itens sem precisar conhecer o caminho do módulo.
 export {
   calcularCondicaoCreditoReprovado,
+  calcularFaltaParaFaturamentoMinimo,
+  listarCondicoesPermitidas,
   calcularFrete,
   calcularImpostoItem,
   calcularValidadeOrcamento,
+  FATURAMENTO_MINIMO,
   formatarNumeroOrcamento,
   recalcularOrcamentoAprovado,
   validarCondicaoFaturamento,
