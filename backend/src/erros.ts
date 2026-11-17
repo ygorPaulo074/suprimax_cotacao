@@ -256,6 +256,26 @@ export const CATALOGO_DE_ERROS = {
     status: STATUS_HTTP.NAO_PROCESSAVEL,
     mensagem: 'O orçamento precisa estar emitido para gerar o PDF.',
   },
+  REGRA_DE_NEGOCIO: {
+    status: STATUS_HTTP.NAO_PROCESSAVEL,
+    mensagem: 'A operação não pôde ser concluída por uma regra de negócio. Revise os dados.',
+  },
+  OPERACAO_NAO_PERMITIDA: {
+    status: STATUS_HTTP.NAO_PROCESSAVEL,
+    mensagem: 'Esta operação não é permitida no estado atual do registro.',
+  },
+  DADOS_INCONSISTENTES: {
+    status: STATUS_HTTP.NAO_PROCESSAVEL,
+    mensagem: 'Os valores informados não conferem. Atualize a tela e tente novamente.',
+  },
+  PRAZO_PROTESTO_NAO_ATINGIDO: {
+    status: STATUS_HTTP.NAO_PROCESSAVEL,
+    mensagem: 'O prazo para protestar esta dívida ainda não foi atingido.',
+  },
+  MOTIVO_TRATAMENTO_INVALIDO: {
+    status: STATUS_HTTP.NAO_PROCESSAVEL,
+    mensagem: 'O motivo informado para tratar a resposta é inválido.',
+  },
   INTERNAL_ERROR: {
     status: STATUS_HTTP.ERRO_INTERNO,
     mensagem: 'Ocorreu um erro interno. Tente novamente em instantes.',

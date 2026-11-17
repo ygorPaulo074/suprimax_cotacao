@@ -8,6 +8,7 @@ import {
   type AppError,
 } from '../erros';
 import type { ErroProxy } from './proxyCliente';
+import { traduzirRegraDoBanco } from './regrasDoBanco';
 
 /** Códigos de erro devolvidos pelo proxy. */
 export const CODIGOS_DO_PROXY = {
@@ -23,6 +24,7 @@ export const CODIGOS_DO_PROXY = {
   RESPOSTA_JA_PROCESSADA: 'RESPOSTA_JA_PROCESSADA',
   RISCO_ESTRUTURAL: 'RISCO_ESTRUTURAL',
   LIMITE_EXCEDIDO: 'LIMITE_EXCEDIDO',
+  REGRA_DE_NEGOCIO: 'REGRA_DE_NEGOCIO',
   OPERACAO_NAO_IMPLEMENTADA: 'OPERACAO_NAO_IMPLEMENTADA',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
 } as const;
@@ -94,6 +96,10 @@ export function proxyEmEspera(erro: ErroProxy): boolean {
 export function traduzirErroDeProxy(erro: ErroProxy): AppError | null {
   if (CODIGOS_REPASSADOS_A_QUEM_CHAMOU.has(erro.codigo)) {
     return null;
+  }
+  if (erro.codigo === CODIGOS_DO_PROXY.REGRA_DE_NEGOCIO) {
+    // RNF09: regra do banco (RAISE EXCEPTION) com 422 e `detalhes.regra`.
+    return traduzirRegraDoBanco(erro);
   }
   if (erro.codigo === CODIGOS_DO_PROXY.LIMITE_EXCEDIDO) {
     // O proxy limita as requisições por janela de tempo: passa sozinho, então é indisponibilidade
