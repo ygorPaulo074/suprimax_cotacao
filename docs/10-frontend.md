@@ -136,7 +136,7 @@ Permite avaliar se o pedido pode ser atendido. O cabeçalho mostra o status EM_A
 
 - Configuração do pedido: endereço de entrega, nº da solicitação de compra, contato, condição de pagamento desejada, prazo do boleto desejado, nº de parcelas desejado, transportadora indicada e observações.
 - Situação do cliente: indicadores de crédito e de dívida em aberto.
-- Ações: Aprovar e montar orçamento (primária); Negar pedido (secundária), que abre modal com Motivo da negativa obrigatório; Devolver à lista.
+- Ações: Aprovar e montar orçamento (primária); Negar pedido (secundária), que abre modal com Motivo da negativa obrigatório; Devolver à lista (confirmação; chama `POST /pedidos/:id/devolver`). Se o pedido em análise já tem um orçamento em RASCUNHO vinculado (criado antes de uma devolução), a tela abre um modal: **Retomar rascunho** (abre `/orcamentos/:id`) ou **Começar novo** (cria outro e mantém o anterior como está).
 
 ![fig07.png](assets/fig07.png)
 

@@ -128,7 +128,7 @@ Esta seção consolida os status usados no banco compartilhado, o fluxo do pedid
 | **De** | **Para** | **Disparo** |
 |---|---|---|
 | Pedido SOLICITADO | EM_ANALISE | Operador, ao selecionar o pedido na lista de pedidos em aberto. |
-| Pedido EM_ANALISE | SOLICITADO | Operador que assumiu o pedido (ou ADMIN), ao desistir da análise e devolvê-lo à lista (UC10-A3); o pedido fica sem operador de atendimento. |
+| Pedido EM_ANALISE | SOLICITADO | Operador que assumiu o pedido (ou ADMIN), ao desistir da análise e devolvê-lo à lista (UC10-A3); o pedido fica sem operador de atendimento. Um orçamento em RASCUNHO já vinculado ao pedido não é alterado nem apagado: quem voltar a assumir o pedido escolhe entre retomar esse rascunho e começar um novo (que mantém o anterior até ele expirar). |
 | Pedido EM_ANALISE | APROVADO | Sistema 2, na emissão do orçamento vinculado (UC19). |
 | Pedido EM_ANALISE | NEGADO | Operador, ao negar o pedido com o motivo. |
 | Pedido SOLICITADO | CANCELADO | Vendedor, no Sistema 1, antes da análise. |
