@@ -28,7 +28,8 @@ Fonte do contrato (código): `frontend/src/api/types.ts` (tipos) e um arquivo po
 | | `POST /auth/redefinir-senha` | `{token, novaSenha}` → 204; `422 TOKEN_RECUPERACAO_INVALIDO` (inválido/expirado/já usado); encerra as sessões do operador. Rota nova do backend (UC13): o frontend a consome na tela `/redefinir-senha`, que lê o `?token=` da URL (o backend ainda não monta o link do e-mail). | — |
 | 2 · UC10 Pedidos | `GET /pedidos?status=` | `{itens: PedidoResumo[], indicadores}` | Operador, Chefe |
 | | `POST /pedidos/:id/assumir` | `pedido.assumir` → `PedidoDetalhe`; `409 PEDIDO_JA_ASSUMIDO` | Operador, Chefe |
-| 3 · UC10 Análise | `GET /pedidos/:id` | `PedidoDetalhe` (itens com saldo, situação do cliente) | Operador, Chefe |
+| 3 · UC10 Análise | `GET /pedidos/:id` | `PedidoDetalhe` (itens com saldo, situação do cliente, `idOrcamentoRascunho`: id do RASCUNHO mais recente vinculado ao pedido ou `null`) | Operador, Chefe |
+| | `POST /pedidos/:id/devolver` | UC10-A3: EM_ANALISE → SOLICITADO, sem operador de atendimento → 204; `409 PEDIDO_NAO_ASSUMIDO_POR_VOCE` se não está EM_ANALISE ou outro operador o assumiu (ADMIN devolve qualquer um) | Operador, Chefe |
 | | `POST /pedidos/:id/montar-orcamento` | cria o RASCUNHO → `{idOrcamento}` | Operador, Chefe |
 | | `POST /pedidos/:id/negar` | `{motivo}` obrigatório → 204 | Operador, Chefe |
 | 4 · UC03 Clientes | `GET /clientes/busca?cnpj=` | `ClienteFicha`; `404 CLIENTE_NAO_ENCONTRADO` | Operador, Chefe |

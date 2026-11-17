@@ -1,4 +1,4 @@
-// UC10 — fila de pedidos do Sistema 1: assumir, consultar, negar ou montar o orçamento.
+// UC10 — fila de pedidos do Sistema 1: assumir, devolver, consultar, negar ou montar o orçamento.
 import { z } from 'zod';
 import { consultar, validarLinha, type ClienteDeProxy } from '../../dados';
 import { ErroDePedidoNaoAssumidoPorVoce, ErroDePedidoNaoEncontrado } from '../../erros';
@@ -60,6 +60,12 @@ export interface PedidoDetalhado extends PedidoResumo {
   readonly transportadoraIndicada: string | null;
   readonly observacoes: string | null;
   readonly situacaoCliente: SituacaoCliente;
+  /**
+   * Orçamento em RASCUNHO já vinculado ao pedido (criado antes de uma devolução à lista), o mais
+   * recente; `null` se não houver. A tela pergunta se o operador retoma esse rascunho ou começa um
+   * novo (UC10-A3).
+   */
+  readonly idOrcamentoRascunho: number | null;
 }
 
 /** Os quatro indicadores da tela 2. É o tipo `IndicadoresPedidos` do frontend. */
@@ -146,10 +152,11 @@ export class ServicoDePedidos {
    */
   async obterDetalhe(idPedido: number, sessao: Sessao): Promise<PedidoDetalhado> {
     const pedido = await this.buscarOuFalhar(idPedido);
-    const [itensDoPedido, usuarios, cliente] = await Promise.all([
+    const [itensDoPedido, usuarios, cliente, idOrcamentoRascunho] = await Promise.all([
       this.pedidos.listarItens(idPedido),
       this.mapaDeUsuarios(),
       this.clientes.buscarPorId(pedido.idCliente),
+      this.buscarRascunhoVinculado(idPedido),
     ]);
     const resumo = this.paraResumo(
       pedido,
@@ -182,6 +189,7 @@ export class ServicoDePedidos {
       transportadoraIndicada: pedido.transportadoraIndicada,
       observacoes: pedido.observacoes,
       situacaoCliente,
+      idOrcamentoRascunho,
     };
   }
 
@@ -218,6 +226,39 @@ export class ServicoDePedidos {
   }
 
   /**
+   * Devolve o pedido à lista (EM_ANALISE → SOLICITADO, UC10-A3): o operador desistiu da análise.
+   * Só quem assumiu o pedido devolve; o ADMIN devolve qualquer pedido EM_ANALISE.
+   *
+   * @throws {ErroDePedidoNaoEncontrado} Se o pedido não existir (404).
+   * @throws {ErroDePedidoNaoAssumidoPorVoce} Se o pedido não está EM_ANALISE ou outro operador o
+   *   assumiu (409).
+   */
+  async devolver(idPedido: number, sessao: Sessao): Promise<void> {
+    const pedido = await this.buscarOuFalhar(idPedido);
+    const ehAdmin = sessao.perfil === 'ADMIN';
+    if (pedido.status !== 'EM_ANALISE') {
+      throw new ErroDePedidoNaoAssumidoPorVoce();
+    }
+    if (!ehAdmin) {
+      this.exigirAssumidoPelaSessao(pedido, sessao);
+    }
+    const devolvido = await this.pedidos.devolver(idPedido, ehAdmin ? null : sessao.idOperador);
+    if (!devolvido) {
+      // Mudou entre a leitura e a gravação (aprovado, negado ou devolvido por outra requisição).
+      throw new ErroDePedidoNaoAssumidoPorVoce();
+    }
+    this.logger.info(
+      {
+        evento: 'pedido_devolvido',
+        idPedido,
+        idOperador: sessao.idOperador,
+        idOperadorAtendimento: pedido.idOperadorAtendimento,
+      },
+      'Pedido devolvido à lista.',
+    );
+  }
+
+  /**
    * Cria o orçamento em RASCUNHO a partir do pedido (UC10 → UC14).
    *
    * @throws {ErroDePedidoNaoEncontrado} Se o pedido não existir (404).
@@ -238,6 +279,33 @@ export class ServicoDePedidos {
       'Orçamento montado a partir do pedido.',
     );
     return { idOrcamento };
+  }
+
+  /** Id do orçamento RASCUNHO mais recente vinculado ao pedido; `null` se não houver. */
+  private async buscarRascunhoVinculado(idPedido: number): Promise<number | null> {
+    const [linha] = await consultar(
+      this.proxy,
+      {
+        tabela: 'orcamento',
+        filtros: {
+          e: [
+            ['id_pedido', '=', idPedido],
+            ['status', '=', 'RASCUNHO'],
+          ],
+        },
+        ordenacao: [['id_orcamento', 'desc']],
+        limite: 1,
+      },
+      'UC10-rascunho-do-pedido',
+    );
+    if (linha === undefined) {
+      return null;
+    }
+    return validarLinha(
+      z.object({ idOrcamento: z.number().int() }).passthrough(),
+      linha,
+      'orcamento',
+    ).idOrcamento;
   }
 
   private async buscarOuFalhar(idPedido: number): Promise<Pedido> {

@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { pedidosApi } from '@/api';
+import { precisaDecidirRascunho, rotaDoRascunho } from '@/lib/rascunhoDoPedido';
 import { formatarBRL } from '@/lib/dinheiro';
 import { DataState } from '@/components/DataState';
 import { rotuloCondicaoPagamento } from '@/components/orcamento';
@@ -28,7 +29,10 @@ export default function AnalisePedido() {
   const id = Number(useParams().id);
   const navegar = useNavigate();
   const consulta = useQuery({ queryKey: ['pedidos', id], queryFn: () => pedidosApi.obter(id) });
+  const queryClient = useQueryClient();
   const [negando, setNegando] = useState(false);
+  const [devolvendo, setDevolvendo] = useState(false);
+  const [decisaoAdiada, setDecisaoAdiada] = useState(false);
   const [motivo, setMotivo] = useState('');
 
   const aprovar = useMutation({
@@ -40,10 +44,19 @@ export default function AnalisePedido() {
     onSuccess: () => navegar('/pedidos'),
   });
 
+  const devolver = useMutation({
+    mutationFn: () => pedidosApi.devolver(id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['pedidos'] });
+      navegar('/pedidos');
+    },
+  });
+
   return (
     <DataState consulta={consulta}>
       {(p) => {
         const bloqueadoPorDivida = p.situacaoCliente.dividaEmAberto > 0;
+        const decidindoRascunho = precisaDecidirRascunho(p) && !decisaoAdiada && !aprovar.isPending;
         return (
           <Pagina titulo={<>Análise do pedido {p.numero}</>} acoes={<Badge status={p.status} />}>
             <div className="mb-4 grid grid-cols-1 gap-3 xl:grid-cols-3">
@@ -135,22 +148,81 @@ export default function AnalisePedido() {
               </Secao>
             </div>
 
-            {(aprovar.isError || negar.isError) && (
-              <Alerta className="mt-3">{mensagemDeErro(aprovar.error ?? negar.error)}</Alerta>
+            {(aprovar.isError || negar.isError || devolver.isError) && (
+              <Alerta className="mt-3">
+                {mensagemDeErro(aprovar.error ?? negar.error ?? devolver.error)}
+              </Alerta>
             )}
 
             <div className="mt-5 flex flex-wrap gap-3">
               <BotaoPrimario
                 disabled={bloqueadoPorDivida || aprovar.isPending}
-                onClick={() => aprovar.mutate()}
+                onClick={() =>
+                  precisaDecidirRascunho(p) ? setDecisaoAdiada(false) : aprovar.mutate()
+                }
               >
                 Aprovar e montar orçamento
               </BotaoPrimario>
               <BotaoSecundario onClick={() => setNegando(true)}>Negar pedido</BotaoSecundario>
-              <BotaoSecundario onClick={() => navegar('/pedidos')}>
-                Devolver à lista
-              </BotaoSecundario>
+              {p.status === 'EM_ANALISE' ? (
+                <BotaoSecundario disabled={devolver.isPending} onClick={() => setDevolvendo(true)}>
+                  Devolver à lista
+                </BotaoSecundario>
+              ) : (
+                <BotaoSecundario onClick={() => navegar('/pedidos')}>
+                  Voltar à lista
+                </BotaoSecundario>
+              )}
             </div>
+
+            {decidindoRascunho && p.idOrcamentoRascunho !== null && (
+              <Modal
+                titulo="Orçamento em rascunho encontrado"
+                aoFechar={() => setDecisaoAdiada(true)}
+                acoes={
+                  <>
+                    <BotaoSecundario onClick={() => aprovar.mutate()}>Começar novo</BotaoSecundario>
+                    <BotaoConfirmacao
+                      onClick={() => navegar(rotaDoRascunho(p.idOrcamentoRascunho as number))}
+                    >
+                      Retomar rascunho
+                    </BotaoConfirmacao>
+                  </>
+                }
+              >
+                <p>
+                  Este pedido já tem um orçamento em rascunho, criado antes de ser devolvido à
+                  lista. Retomar abre esse rascunho. Começar novo cria outro orçamento e mantém o
+                  anterior como está.
+                </p>
+              </Modal>
+            )}
+
+            {devolvendo && (
+              <Modal
+                titulo="Devolver pedido à lista"
+                aoFechar={() => setDevolvendo(false)}
+                acoes={
+                  <>
+                    <BotaoSecundario onClick={() => setDevolvendo(false)}>Voltar</BotaoSecundario>
+                    <BotaoConfirmacao
+                      disabled={devolver.isPending}
+                      onClick={() => {
+                        setDevolvendo(false);
+                        devolver.mutate();
+                      }}
+                    >
+                      {devolver.isPending ? 'Devolvendo…' : 'Confirmar devolução'}
+                    </BotaoConfirmacao>
+                  </>
+                }
+              >
+                <p>
+                  O pedido volta a SOLICITADO e fica disponível para qualquer operador assumir. Você
+                  deixa de ser o responsável pela análise.
+                </p>
+              </Modal>
+            )}
 
             {negando && (
               <Modal

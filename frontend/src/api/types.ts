@@ -117,6 +117,8 @@ export interface PedidoDetalhe extends PedidoResumo {
   transportadoraIndicada: string | null;
   observacoes: string | null;
   situacaoCliente: SituacaoCliente;
+  /** Orçamento em RASCUNHO já vinculado ao pedido (criado antes de uma devolução); null se não houver. */
+  idOrcamentoRascunho: number | null;
 }
 
 // ---- Clientes (UC02, UC03) ----

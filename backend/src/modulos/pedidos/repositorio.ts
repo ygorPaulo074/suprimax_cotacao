@@ -30,6 +30,7 @@ export const OPERACOES_DE_PEDIDOS = {
   BUSCAR: 'UC10-buscar-pedido',
   ASSUMIR: 'UC10-assumir-pedido',
   NEGAR: 'UC10-negar-pedido',
+  DEVOLVER: 'UC10-devolver-pedido',
 } as const;
 
 const TABELA_DE_PEDIDOS = 'pedido';
@@ -152,6 +153,31 @@ export class RepositorioDePedidos {
       },
       OPERACOES_DE_PEDIDOS.NEGAR,
     );
+  }
+
+  /**
+   * Devolve o pedido à lista (EM_ANALISE → SOLICITADO, UC10-A3) e limpa o operador de atendimento.
+   * A condição de status (e do operador, quando informado) vai no próprio filtro da gravação, então
+   * dois pedidos simultâneos não se atropelam. Devolve `false` se nenhuma linha atendeu ao filtro.
+   */
+  async devolver(idPedido: number, idOperadorAssumiu: number | null): Promise<boolean> {
+    const condicoes: [string, '=', string | number][] = [
+      ['id_pedido', '=', idPedido],
+      ['status', '=', 'EM_ANALISE'],
+    ];
+    if (idOperadorAssumiu !== null) {
+      condicoes.push(['id_operador_atendimento', '=', idOperadorAssumiu]);
+    }
+    const resposta = await this.proxy.executar<{ afetados?: number }>(
+      'dados.atualizar',
+      {
+        tabela: TABELA_DE_PEDIDOS,
+        filtros: { e: condicoes },
+        valores: { status: 'SOLICITADO', id_operador_atendimento: null },
+      },
+      OPERACOES_DE_PEDIDOS.DEVOLVER,
+    );
+    return (resposta.afetados ?? 0) > 0;
   }
 
   private async contar(tabela: string, filtros: FiltroDoProxy): Promise<number> {

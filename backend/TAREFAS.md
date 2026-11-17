@@ -27,6 +27,7 @@ As tarefas do módulo de cálculo estão em [`services/calculo/TAREFAS.md`](serv
 - [x] **7. Respostas do cliente:** processar respostas pendentes (UC20), tratar e emitir nova versão (UC21).
 - [x] **8. Demais módulos:** análise de crédito (UC07), dívidas (UC23), estoque e entrada de mercadoria (UC04/UC24), e dados agregados para o Sistema 3 (RF17).
 - [x] **9. Jobs agendados:** expirações e avisos (seção 11.4), combinados com o responsável pelo banco. Entregue. O job que apaga rascunho expirado chama a função `proxy_job_expirar_rascunhos` por `dados.rpc` (o `ON DELETE CASCADE` já existia; o que barrava eram os gatilhos). A rodada também processa as respostas pendentes (UC20). Ponto aberto: escolher e configurar o cron externo de `POST /jobs/executar` (ou ligar `JOBS_AGENDADOS_HABILITADOS`).
+- [x] **10a. Devolver pedido à lista (UC10-A3):** `POST /pedidos/:id/devolver` (EM_ANALISE → SOLICITADO), só para quem assumiu e ADMIN. Entregue. `GET /pedidos/:id` informa `idOrcamentoRascunho` para a tela oferecer retomar o rascunho ou começar novo.
 - [x] **10. Integração com o frontend:** implementar as rotas de `docs/frontend-api.md` e validar fluxo a fluxo com as telas. Entregue; falta no frontend a tela de redefinição de senha e abrir o anexo pela URL assinada. UC07 sem arquivo digital e UC08 só registra evento (sem e-mail).
 
 ## Definição de pronto de cada item
