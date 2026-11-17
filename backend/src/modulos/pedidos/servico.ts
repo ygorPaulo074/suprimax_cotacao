@@ -60,6 +60,12 @@ export interface PedidoDetalhado extends PedidoResumo {
   readonly transportadoraIndicada: string | null;
   readonly observacoes: string | null;
   readonly situacaoCliente: SituacaoCliente;
+  /**
+   * Orçamento em RASCUNHO já vinculado ao pedido (criado antes de uma devolução à lista), o mais
+   * recente; `null` se não houver. A tela pergunta se o operador retoma esse rascunho ou começa um
+   * novo (UC10-A3).
+   */
+  readonly idOrcamentoRascunho: number | null;
 }
 
 /** Os quatro indicadores da tela 2. É o tipo `IndicadoresPedidos` do frontend. */
@@ -146,10 +152,11 @@ export class ServicoDePedidos {
    */
   async obterDetalhe(idPedido: number, sessao: Sessao): Promise<PedidoDetalhado> {
     const pedido = await this.buscarOuFalhar(idPedido);
-    const [itensDoPedido, usuarios, cliente] = await Promise.all([
+    const [itensDoPedido, usuarios, cliente, idOrcamentoRascunho] = await Promise.all([
       this.pedidos.listarItens(idPedido),
       this.mapaDeUsuarios(),
       this.clientes.buscarPorId(pedido.idCliente),
+      this.buscarRascunhoVinculado(idPedido),
     ]);
     const resumo = this.paraResumo(
       pedido,
@@ -182,6 +189,7 @@ export class ServicoDePedidos {
       transportadoraIndicada: pedido.transportadoraIndicada,
       observacoes: pedido.observacoes,
       situacaoCliente,
+      idOrcamentoRascunho,
     };
   }
 
@@ -271,6 +279,33 @@ export class ServicoDePedidos {
       'Orçamento montado a partir do pedido.',
     );
     return { idOrcamento };
+  }
+
+  /** Id do orçamento RASCUNHO mais recente vinculado ao pedido; `null` se não houver. */
+  private async buscarRascunhoVinculado(idPedido: number): Promise<number | null> {
+    const [linha] = await consultar(
+      this.proxy,
+      {
+        tabela: 'orcamento',
+        filtros: {
+          e: [
+            ['id_pedido', '=', idPedido],
+            ['status', '=', 'RASCUNHO'],
+          ],
+        },
+        ordenacao: [['id_orcamento', 'desc']],
+        limite: 1,
+      },
+      'UC10-rascunho-do-pedido',
+    );
+    if (linha === undefined) {
+      return null;
+    }
+    return validarLinha(
+      z.object({ idOrcamento: z.number().int() }).passthrough(),
+      linha,
+      'orcamento',
+    ).idOrcamento;
   }
 
   private async buscarOuFalhar(idPedido: number): Promise<Pedido> {

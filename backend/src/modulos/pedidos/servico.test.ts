@@ -171,6 +171,41 @@ describe('ServicoDePedidos', () => {
       });
     });
 
+    it('informa o orçamento em RASCUNHO vinculado ao pedido devolvido (o mais recente)', async () => {
+      const cenario = montarCenarioDeCadastros();
+      const servico = montarServico(cenario);
+      const idOperador = cenario.semearUsuario('OPERADOR', 'quem-consulta');
+      const { idPedido } = semearPedido(cenario, { status: 'SOLICITADO' });
+      const outroPedido = semearPedido(cenario).idPedido;
+      const idCliente = cenario.banco.linhas('pedido')[0]?.id_cliente;
+      const semear = (status: string, idDoPedido: number) =>
+        cenario.banco.semear('orcamento', {
+          id_cliente: idCliente,
+          id_operador: idOperador,
+          id_pedido: idDoPedido,
+          status,
+        })[0]?.id_orcamento;
+      semear('RASCUNHO', idPedido);
+      const maisRecente = semear('RASCUNHO', idPedido);
+      semear('CANCELADO', idPedido);
+      semear('RASCUNHO', outroPedido);
+
+      const detalhe = await servico.obterDetalhe(idPedido, sessaoDoOperador(idOperador, 'x'));
+
+      expect(detalhe.idOrcamentoRascunho).toBe(maisRecente);
+    });
+
+    it('devolve idOrcamentoRascunho nulo quando o pedido não tem rascunho', async () => {
+      const cenario = montarCenarioDeCadastros();
+      const servico = montarServico(cenario);
+      const idOperador = cenario.semearUsuario('OPERADOR', 'quem-consulta');
+      const { idPedido } = semearPedido(cenario);
+
+      const detalhe = await servico.obterDetalhe(idPedido, sessaoDoOperador(idOperador, 'x'));
+
+      expect(detalhe.idOrcamentoRascunho).toBeNull();
+    });
+
     it('rejeita um pedido inexistente', async () => {
       const cenario = montarCenarioDeCadastros();
       const servico = montarServico(cenario);
