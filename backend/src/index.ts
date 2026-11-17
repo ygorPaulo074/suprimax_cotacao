@@ -9,9 +9,9 @@ import {
   type ClienteDeProxy,
 } from './dados';
 import { criarNotificadoresDeEmail } from './email/notificadores';
-import { createApp, type DependenciasDoApp } from './http/app';
+import { CHAVE_LOCAL_AGENDADOR_DE_JOBS, createApp, type DependenciasDoApp } from './http/app';
+import type { AgendadorDeJobs } from './modulos/jobs';
 import { RepositorioDeSessoesEmMemoria } from './modulos/auth/sessoes';
-import { criarModuloDeJobs } from './modulos/jobs';
 import { criarLogger, type Logger, type OpcoesDoLogger } from './log';
 
 /** Tempo para as requisições em andamento terminarem antes de as conexões serem derrubadas. */
@@ -40,6 +40,7 @@ export class ServidorHttpError extends Error {
  */
 export class ServidorHttp {
   private servidor?: Server;
+  private agendador?: AgendadorDeJobs;
   private encerramento?: Promise<void>;
 
   private readonly config: Config;
@@ -70,6 +71,19 @@ export class ServidorHttp {
   }
 
   /**
+   * Agendador de jobs da aplicação (o mesmo da rota `POST /jobs/executar`); quem decide ligá-lo é
+   * `principal`.
+   *
+   * @throws {ServidorHttpError} Se o servidor ainda não foi iniciado.
+   */
+  get agendadorDeJobs(): AgendadorDeJobs {
+    if (!this.agendador) {
+      throw new ServidorHttpError('O servidor ainda não foi iniciado.');
+    }
+    return this.agendador;
+  }
+
+  /**
    * Sobe o servidor na porta da configuração.
    *
    * @throws {ServidorHttpError} Se o servidor já foi iniciado.
@@ -80,6 +94,7 @@ export class ServidorHttp {
       throw new ServidorHttpError('O servidor já foi iniciado.');
     }
     const app = createApp(this.dependencias);
+    this.agendador = app.locals[CHAVE_LOCAL_AGENDADOR_DE_JOBS] as AgendadorDeJobs;
     this.servidor = await new Promise<Server>((resolve, reject) => {
       const servidor = app.listen(this.config.porta);
       servidor.once('error', reject);
@@ -96,6 +111,7 @@ export class ServidorHttp {
    * Pode ser chamado mais de uma vez; sem servidor iniciado, não faz nada.
    */
   encerrar(): Promise<void> {
+    this.agendador?.parar();
     this.encerramento ??= this.servidor ? this.fechar(this.servidor) : Promise.resolve();
     return this.encerramento;
   }
@@ -180,16 +196,10 @@ export async function principal(
     await servidor.iniciar();
     servidor.registrarEncerramento(processo);
     // Item 9 — agendador in-process dos jobs de expiração/protesto, desligado por padrão
-    // (JOBS_AGENDADOS_HABILITADOS): ver o comentário de `criarModuloDeJobs` em `http/app.ts`
+    // (JOBS_AGENDADOS_HABILITADOS): ver o comentário de `createApp` em `http/app.ts`
     // sobre a outra forma de disparo (POST /jobs/executar, para um cron externo).
     if (config.jobsAgendadosHabilitados) {
-      const jobs = criarModuloDeJobs({
-        proxy,
-        sessoes,
-        logger,
-        intervaloDoAgendadorMs: config.jobsAgendadosIntervaloMs,
-      });
-      jobs.agendador.iniciar();
+      servidor.agendadorDeJobs.iniciar();
     }
   } catch (erro) {
     if (erro instanceof ConfigInvalidaError) {

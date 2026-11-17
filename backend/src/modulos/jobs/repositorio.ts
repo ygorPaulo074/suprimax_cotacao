@@ -15,10 +15,7 @@ import type { ClienteDeProxy } from '../../dados';
 export const OPERACOES_DE_JOBS = {
   LISTAR_RASCUNHOS_PARA_EXPIRAR: 'JOB01-listar-rascunhos-para-expirar',
   EXPIRAR_RASCUNHOS: 'JOB01-expirar-rascunhos',
-  LISTAR_RASCUNHOS_EXPIRADOS_PARA_APAGAR: 'JOB02-listar-rascunhos-expirados',
-  EXCLUIR_ITENS_DO_ORCAMENTO: 'JOB02-excluir-itens-do-orcamento',
-  EXCLUIR_ANEXOS_DO_ORCAMENTO: 'JOB02-excluir-anexos-do-orcamento',
-  EXCLUIR_ORCAMENTO: 'JOB02-excluir-orcamento',
+  APAGAR_RASCUNHOS_EXPIRADOS: 'JOB02-apagar-rascunhos-expirados',
   LISTAR_ORCAMENTOS_EMITIDOS_VENCIDOS: 'JOB03-listar-orcamentos-emitidos-vencidos',
   EXPIRAR_ORCAMENTOS_EMITIDOS: 'JOB03-expirar-orcamentos-emitidos',
   REGISTRAR_HISTORICO_DE_EXPIRACAO: 'JOB-registrar-historico-de-expiracao',
@@ -28,9 +25,9 @@ export const OPERACOES_DE_JOBS = {
   PROTESTAR_DIVIDAS: 'JOB05-protestar-dividas',
 } as const;
 
+/** Função do banco que expira e apaga rascunhos (migration 20261112002000). */
+const FUNCAO_EXPIRAR_RASCUNHOS = 'proxy_job_expirar_rascunhos';
 const TABELA_DE_ORCAMENTOS = 'orcamento';
-const TABELA_DE_ITENS = 'item_orcamento';
-const TABELA_DE_ANEXOS = 'anexo_orcamento';
 const TABELA_DE_HISTORICO = 'historico_orcamento';
 const TABELA_DE_RESERVAS = 'reserva_estoque';
 const TABELA_DE_DIVIDAS = 'divida_inadimplencia';
@@ -145,73 +142,33 @@ export class RepositorioDeJobs {
   // ---- Job 2: apagar o rascunho expirado (RN25; docs/13, "Duração do rascunho") ----
 
   /**
-   * Orçamentos EXPIRADO por RASCUNHO, encerrados antes de `antesDe` (ISO, UTC) — prontos para
-   * apagar. Orçamentos emitidos nunca entram aqui: só chegam a EXPIRADO por RASCUNHO os que nunca
-   * tiveram número (RN25).
-   */
-  async listarRascunhosExpiradosParaApagar(antesDe: string): Promise<number[]> {
-    const linhas = await consultarTodas(
-      this.proxy,
-      {
-        tabela: TABELA_DE_ORCAMENTOS,
-        campos: ['id_orcamento'],
-        filtros: {
-          e: [
-            ['status', '=', STATUS_EXPIRADO],
-            ['motivo_expiracao', '=', MOTIVOS_DE_EXPIRACAO.RASCUNHO],
-            ['data_encerramento', '<', antesDe],
-          ],
-        },
-      },
-      OPERACOES_DE_JOBS.LISTAR_RASCUNHOS_EXPIRADOS_PARA_APAGAR,
-    );
-    return linhas.map(
-      (linha) => validarLinha(esquemaDoIdOrcamento, linha, TABELA_DE_ORCAMENTOS).idOrcamento,
-    );
-  }
-
-  /**
-   * Apaga um rascunho expirado: itens e anexos primeiro (dependem dele por FK), depois o próprio
-   * orçamento — nessa ordem, e um orçamento por vez, nunca em lote.
+   * Apaga os rascunhos EXPIRADO há mais de 30 dias chamando a função do banco
+   * `proxy_job_expirar_rascunhos` por `dados.rpc` (escopo `rpc:*` do Sistema 2, docs/12, seção
+   * 12.8.5).
    *
-   * Um orçamento por vez por dois motivos: (a) o escopo de exclusão do Sistema 2 no proxy
-   * (docs/12, seção 12.8.3) é `item_orcamento`, `anexo_orcamento`, `endereco_cliente` e `orcamento
-   * em RASCUNHO` — apagar os itens/anexos de vários orçamentos de uma vez por `id_orcamento em
-   * [...]` poderia facilmente passar de 50 linhas afetadas (RISCO_ESTRUTURAL) mesmo com um bloco
-   * de 50 orçamentos, já que cada um pode ter vários itens; (b) cada orçamento tem, desde a
-   * criação, pelo menos um registro em `historico_orcamento` (UC14), tabela que não está no
-   * escopo de exclusão do Sistema 2 — então este método pode falhar na exclusão do `orcamento`
-   * por violação de chave estrangeira, e essa falha precisa ficar isolada a um id por vez, nunca
-   * derrubando o lote inteiro. Ver o apontamento sobre este ponto na entrega do item 9.
+   * Não dá para apagar por `dados.excluir`: os gatilhos `suprimax_validar_orcamento` e
+   * `suprimax_validar_item_orcamento` só deixam apagar orçamento EXPIRADO com a flag de sessão
+   * `suprimax.allow_expired_draft_delete`, que só a própria função liga. Ela também faz o
+   * `ON DELETE CASCADE` já existente na migration inicial levar itens, anexos, histórico e
+   * reservas junto. A função tem o corte de 30 dias embutido e, antes de apagar, expira quem
+   * passou do prazo de inatividade; o número devolvido soma expirados e removidos (na rodada
+   * normal o job 1 já expirou, então é praticamente só o de removidos).
    *
-   * @returns true se o orçamento foi de fato apagado.
+   * @returns O inteiro que a função devolve.
    */
-  async apagarRascunho(idOrcamento: number): Promise<boolean> {
-    await this.proxy.executar(
-      'dados.excluir',
-      { tabela: TABELA_DE_ITENS, filtros: { e: [['id_orcamento', '=', idOrcamento]] } },
-      OPERACOES_DE_JOBS.EXCLUIR_ITENS_DO_ORCAMENTO,
+  async apagarRascunhosExpirados(): Promise<number> {
+    const resposta = await this.proxy.executar<{ resultado?: readonly Record<string, unknown>[] }>(
+      'dados.rpc',
+      { funcao: FUNCAO_EXPIRAR_RASCUNHOS, argumentos: {} },
+      OPERACOES_DE_JOBS.APAGAR_RASCUNHOS_EXPIRADOS,
     );
-    await this.proxy.executar(
-      'dados.excluir',
-      { tabela: TABELA_DE_ANEXOS, filtros: { e: [['id_orcamento', '=', idOrcamento]] } },
-      OPERACOES_DE_JOBS.EXCLUIR_ANEXOS_DO_ORCAMENTO,
-    );
-    const resposta = await this.proxy.executar<{ afetados: number }>(
-      'dados.excluir',
-      {
-        tabela: TABELA_DE_ORCAMENTOS,
-        filtros: {
-          e: [
-            ['id_orcamento', '=', idOrcamento],
-            ['status', '=', STATUS_EXPIRADO],
-            ['motivo_expiracao', '=', MOTIVOS_DE_EXPIRACAO.RASCUNHO],
-          ],
-        },
-      },
-      OPERACOES_DE_JOBS.EXCLUIR_ORCAMENTO,
-    );
-    return resposta.afetados > 0;
+    const linha = resposta.resultado?.[0];
+    const valor = linha ? Object.values(linha)[0] : undefined;
+    const total = typeof valor === 'string' ? Number(valor) : valor;
+    if (typeof total !== 'number' || !Number.isInteger(total) || total < 0) {
+      throw new Error(`Resposta inesperada de ${FUNCAO_EXPIRAR_RASCUNHOS}.`);
+    }
+    return total;
   }
 
   // ---- Job 3: expirar o orçamento emitido (RF16; docs/13, "Prazo de atualização de status") ----

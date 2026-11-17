@@ -34,6 +34,12 @@ export interface DependenciasDoServicoDeJobs {
   readonly logger: Logger;
   /** Relógio; por padrão, a hora do sistema. Os testes passam um relógio controlado. */
   readonly agora?: () => Date;
+  /**
+   * Processa as respostas PENDENTE do cliente (UC20) e devolve quantas foram processadas. Entra
+   * como sexto passo de `executarTodos`; vem do módulo de respostas (`ServicoDeRespostas`), que
+   * isola a falha de cada resposta.
+   */
+  readonly processarRespostasPendentes?: () => Promise<number>;
 }
 
 /** Resultado de um job dentro de `executarTodos`. */
@@ -54,11 +60,13 @@ export class ServicoDeJobsAgendados {
   private readonly jobs: RepositorioDeJobs;
   private readonly logger: Logger;
   private readonly agora: () => Date;
+  private readonly processarRespostasPendentes?: () => Promise<number>;
 
   constructor(dependencias: DependenciasDoServicoDeJobs) {
     this.jobs = dependencias.jobs;
     this.logger = dependencias.logger;
     this.agora = dependencias.agora ?? (() => new Date());
+    this.processarRespostasPendentes = dependencias.processarRespostasPendentes;
   }
 
   /** Job 1 — RASCUNHO/PENDENTE_CREDITO sem edição há 30 dias → EXPIRADO (RN25). */
@@ -88,25 +96,16 @@ export class ServicoDeJobsAgendados {
   }
 
   /**
-   * Job 2 — rascunho EXPIRADO há 30 dias → apagado (RN25).
-   *
-   * Depende de o esquema do banco apagar em cascata (ou liberar) o histórico do orçamento: o
-   * escopo de exclusão do Sistema 2 no proxy não inclui `historico_orcamento`, e todo orçamento
-   * tem pelo menos um registro de histórico desde a criação (UC14). Sem isso, a exclusão do
-   * orçamento falha por violação de chave estrangeira — ponto a confirmar com o responsável pelo
-   * banco antes deste job ir para produção (ver o apontamento na entrega do item 9).
+   * Job 2 — rascunho EXPIRADO há 30 dias → apagado (RN25), pela função `proxy_job_expirar_rascunhos`
+   * do banco (`dados.rpc`). O banco apaga item, anexo, histórico e reservas em cascata (o
+   * `ON DELETE CASCADE` já existe na migration inicial); o que impedia o `DELETE` direto eram os
+   * gatilhos de exclusão, que exigem a flag ligada dentro da função. O corte de 30 dias é o da
+   * função (`DIAS_PARA_APAGAR_RASCUNHO_EXPIRADO` documenta o mesmo valor).
    */
   async apagarRascunhosExpirados(): Promise<number> {
-    const limite = subtrairDias(this.agora(), DIAS_PARA_APAGAR_RASCUNHO_EXPIRADO).toISOString();
-    const candidatos = await this.jobs.listarRascunhosExpiradosParaApagar(limite);
-    let apagados = 0;
-    for (const idOrcamento of candidatos) {
-      if (await this.jobs.apagarRascunho(idOrcamento)) {
-        apagados += 1;
-      }
-    }
+    const apagados = await this.jobs.apagarRascunhosExpirados();
     this.logger.info(
-      { evento: 'job_apagar_rascunhos_expirados', candidatos: candidatos.length, apagados },
+      { evento: 'job_apagar_rascunhos_expirados', processados: apagados },
       'Rascunhos expirados apagados.',
     );
     return apagados;
@@ -167,11 +166,11 @@ export class ServicoDeJobsAgendados {
   }
 
   /**
-   * Executa os cinco jobs em sequência. Um job que falhar é registrado no log e no resumo, sem
-   * impedir os demais — a falha mais previsível hoje é a do job 2 (ver o aviso no seu método).
+   * Executa os cinco jobs (e o processamento das respostas pendentes, UC20, quando ligado) em sequência. Um job que falhar é registrado no log e no resumo, sem
+   * impedir os demais — as falhas ficam isoladas por job.
    */
   async executarTodos(): Promise<ResumoDoJob[]> {
-    const jobs: readonly [string, () => Promise<number>][] = [
+    const jobs: [string, () => Promise<number>][] = [
       [
         'expirar_rascunhos_e_pendentes_de_credito',
         () => this.expirarRascunhosEPendentesDeCredito(),
@@ -181,6 +180,11 @@ export class ServicoDeJobsAgendados {
       ['expirar_reservas', () => this.expirarReservas()],
       ['marcar_protesto_de_dividas', () => this.marcarProtestoDeDividas()],
     ];
+    // UC20: a resposta do cliente gravada pelo Sistema 1 só vira ACEITO/RECUSADO/aguardando
+    // operador quando alguém a processa; este passo é o disparo automático.
+    if (this.processarRespostasPendentes) {
+      jobs.push(['processar_respostas_pendentes', this.processarRespostasPendentes]);
+    }
     const resumo: ResumoDoJob[] = [];
     for (const [job, executar] of jobs) {
       try {

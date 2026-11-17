@@ -22,6 +22,8 @@ export interface DependenciasDoModuloDeJobs {
   readonly intervaloDoAgendadorMs?: number;
   /** Segredo de máquina de `POST /jobs/executar`; sem ele, só a sessão de GESTOR/ADMIN vale. */
   readonly jobsToken?: string;
+  /** UC20: processa as respostas PENDENTE a cada rodada (`ServicoDeRespostas.processarPendentes`). */
+  readonly processarRespostasPendentes?: () => Promise<number>;
 }
 
 /** Módulo de jobs agendados montado. */
@@ -38,6 +40,7 @@ export function criarModuloDeJobs(dependencias: DependenciasDoModuloDeJobs): Mod
     jobs: new RepositorioDeJobs(dependencias.proxy),
     logger: dependencias.logger,
     agora: dependencias.agora,
+    processarRespostasPendentes: dependencias.processarRespostasPendentes,
   });
   const agendador = new AgendadorDeJobs({
     servico,
