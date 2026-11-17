@@ -65,6 +65,10 @@ Fonte do contrato (código): `frontend/src/api/types.ts` (tipos) e um arquivo po
 | 17 · UC25 Usuários | `GET /usuarios` · `POST /usuarios` | `Usuario[]` · `UsuarioNovo` | Chefe, Admin |
 | | `PATCH /usuarios/:id` | `{perfil?, status?, idNovoVendedor?}`; `422 NOVO_VENDEDOR_OBRIGATORIO`; `403` ao mexer em `ADMIN` sem ser `ADMIN` | Chefe, Admin |
 
+### Jobs agendados (UC20, operação; sem tela no frontend)
+
+`POST /jobs/executar` dispara uma rodada imediata dos jobs de expiração e avisos e responde `200 {resumo}`. Aceita **a sessão** de Gestor/Admin ou **autenticação de máquina**: `Authorization: Bearer <JOBS_TOKEN>` (segredo do backend, comparado em tempo constante; para o cron externo). Sem token, token errado ou sessão inválida: `401 NAO_AUTENTICADO`; sessão de perfil sem permissão: `403 ACESSO_NEGADO`. Sem `JOBS_TOKEN` configurado, a via por token fica desligada. O token nunca vai para log.
+
 ## Pontos a confirmar com o time de backend
 
 - **Nomes das rotas:** a documentação não define as rotas REST do Sistema 2 (só as operações do proxy). Se o backend preferir outro desenho, basta ajustar os arquivos de `frontend/src/api/`.

@@ -20,6 +20,8 @@ export interface DependenciasDoModuloDeJobs {
   readonly agora?: () => Date;
   /** Intervalo entre rodadas do agendador in-process; por padrão, `INTERVALO_PADRAO_MINUTOS`. */
   readonly intervaloDoAgendadorMs?: number;
+  /** Segredo de máquina de `POST /jobs/executar`; sem ele, só a sessão de GESTOR/ADMIN vale. */
+  readonly jobsToken?: string;
 }
 
 /** Módulo de jobs agendados montado. */
@@ -43,7 +45,11 @@ export function criarModuloDeJobs(dependencias: DependenciasDoModuloDeJobs): Mod
     intervaloMs: dependencias.intervaloDoAgendadorMs,
   });
   return {
-    rotas: criarRotasDeJobs({ agendador, sessoes: dependencias.sessoes }),
+    rotas: criarRotasDeJobs({
+      agendador,
+      sessoes: dependencias.sessoes,
+      jobsToken: dependencias.jobsToken,
+    }),
     servico,
     agendador,
   };

@@ -135,7 +135,7 @@ export function createApp({
   // O agendador deste módulo não é ligado aqui (createApp não decide o que roda em segundo
   // plano) — só a rota de disparo manual/externo (item 9, `POST /jobs/executar`). Quem liga o
   // agendador in-process é `index.ts` (`principal`), por `JOBS_AGENDADOS_HABILITADOS`.
-  app.use(criarModuloDeJobs({ ...comuns, agora }).rotas);
+  app.use(criarModuloDeJobs({ ...comuns, agora, jobsToken: config.jobsToken }).rotas);
   app.use(criarModuloDeUsuarios({ ...comuns, senhas, agora, notificador }).rotas);
   app.use(orcamentos.rotas);
   app.use(criarModuloDePedidos({ ...comuns, agora, orcamentos: orcamentos.servico }).rotas);
