@@ -1,4 +1,5 @@
 import { Pool, types, type PoolClient } from 'pg';
+import { AppError } from '../erros';
 import { ErroBanco, type Consulta, type Executor, type ResultadoConsulta } from './executor';
 
 // Executor sobre o Postgres do Supabase. NÃO foi testado contra um banco real: aguarda o schema
@@ -42,7 +43,8 @@ export class ExecutorPg extends ExecutorCliente {
       return resultado;
     } catch (e) {
       await cliente.query('ROLLBACK').catch(() => undefined);
-      throw e instanceof ErroBanco ? e : traduzir(e);
+      // Erros de negócio (AppError) e já traduzidos passam intactos; só erros do driver são traduzidos.
+      throw e instanceof ErroBanco || e instanceof AppError ? e : traduzir(e);
     } finally {
       cliente.release();
     }
