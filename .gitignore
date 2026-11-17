@@ -16,3 +16,6 @@ scripts/*_*_*/
 # estado e segredos locais dos testes NFR (token de sessão)
 tests-nfr/.estado-*.json
 tests-nfr/.env*
+
+# credenciais temporárias entregues a outros times (nunca commitar)
+docs/referencias/INFO_SISTEMA*.md
