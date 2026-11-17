@@ -42,6 +42,7 @@ Fonte do contrato (código): `frontend/src/api/types.ts` (tipos) e um arquivo po
 | | `GET /orcamentos/:id/anexos/:idAnexo` | — → `{ url, expiraEm }` (URL assinada); `404 ANEXO_NAO_ENCONTRADO` | idem |
 | | `POST /orcamentos/:id/emitir` | `orcamento.emitir`; `422` com bloqueio (ex.: `ESTOQUE_INSUFICIENTE`) | idem |
 | | `GET /produtos/busca?q&marca&tamanhoEmbalagem&categoria&idCliente` | `Produto[]` com preço da tabela do cliente | idem |
+| 4 · UC14 Ficha do cliente | `POST /orcamentos` | `OrcamentoNovo` (`idCliente`; opcionais `idEnderecoEntrega`, `numeroSolicitacaoCompra`, `contatoSolicitacao`, `prazoEntregaDias`) → `201 OrcamentoDetalhe` (RASCUNHO) | Operador, Chefe |
 | 7 · UC03 Lista | `GET /orcamentos?status&cliente&cnpj&numero&de&ate` | `OrcamentoResumo[]` | Operador, Chefe |
 | 8 · UC08/19 Detalhe | `GET /orcamentos/:id/pdf` | arquivo PDF | Operador, Chefe |
 | | `POST /orcamentos/:id/enviar` · `POST /orcamentos/:id/cancelar` | 204 · `{justificativa?}` → 204 | Operador, Chefe |

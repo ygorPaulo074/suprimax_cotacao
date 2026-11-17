@@ -5,6 +5,7 @@ import type {
   ItemAdicionar,
   OrcamentoCabecalhoAtualizar,
   OrcamentoDetalhe,
+  OrcamentoNovo,
   OrcamentoResumo,
   TipoAnexo,
 } from './types';
@@ -17,6 +18,9 @@ export const orcamentosApi = {
   listar: (filtro: FiltroOrcamentos = {}) =>
     api.get<OrcamentoResumo[]>('/orcamentos', { query: { ...filtro } }),
   obter: (id: number) => api.get<OrcamentoDetalhe>(`/orcamentos/${id}`),
+
+  /** UC14: cria o rascunho (201) já com o `idOrcamento`; só OPERADOR e OPERADOR_CHEFE (ADMIN também, no backend). */
+  criar: (dados: OrcamentoNovo) => api.post<OrcamentoDetalhe>('/orcamentos', dados),
 
   // Rascunho (UC05, UC14–UC19)
   atualizarCabecalho: (id: number, dados: OrcamentoCabecalhoAtualizar) =>
