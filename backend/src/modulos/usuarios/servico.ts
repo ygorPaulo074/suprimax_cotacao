@@ -1,6 +1,7 @@
 // UC25 — gestão de usuários pelo operador chefe: criar, mudar o perfil, inativar e reativar.
 import { randomBytes } from 'node:crypto';
 import {
+  ErroDeAcessoNegado,
   ErroDeAlteracaoDoProprioUsuario,
   ErroDeNovoVendedorObrigatorio,
   ErroDeUsuarioJaCadastrado,
@@ -10,7 +11,7 @@ import {
 } from '../../erros';
 import type { Logger } from '../../log';
 import type { ServicoDeSenha } from '../auth/senha';
-import type { RepositorioDeSessoes, Sessao } from '../auth/sessoes';
+import { PERFIL_ADMIN, type Perfil, type RepositorioDeSessoes, type Sessao } from '../auth/sessoes';
 import { gerarTokenDeSenha } from '../auth/tokenDeSenha';
 import type { DadosDoUsuarioAtualizar, DadosDoUsuarioNovo } from './esquemas';
 import type { NotificadorDeEmail } from './notificador';
@@ -27,6 +28,7 @@ export const VALIDADE_DO_LINK_DE_DEFINICAO_DE_SENHA_MS = 24 * 60 * 60 * 1000;
 
 /** Bytes da senha aleatória gravada até o usuário definir a própria. */
 const BYTES_DA_SENHA_PROVISORIA = 32;
+const MENSAGEM_SO_ADMIN_GERENCIA_ADMIN = 'Somente um administrador pode gerenciar usuários ADMIN.';
 const CAMPO_NOVO_VENDEDOR = 'idNovoVendedor';
 const MENSAGEM_NOVO_VENDEDOR_INVALIDO =
   'O novo vendedor responsável deve ser outro usuário ativo com perfil de vendedor.';
@@ -83,10 +85,12 @@ export class ServicoDeUsuarios {
    * definir a própria pelo link. Se o envio do e-mail falhar, o usuário continua criado e pode
    * pedir um novo link pela recuperação de senha.
    *
-   * @param autor Operador chefe que fez o cadastro.
+   * @param autor Operador chefe ou ADMIN que fez o cadastro.
+   * @throws {ErroDeAcessoNegado} Se um não-ADMIN tentar criar um usuário ADMIN.
    * @throws {ErroDeUsuarioJaCadastrado} Se o nome de usuário ou o e-mail já existir (UC25-E2).
    */
   async criar(dados: DadosDoUsuarioNovo, autor: Sessao): Promise<Usuario> {
+    this.exigirAdminParaAdmin(autor, dados.perfil);
     if (await this.usuarios.existeComUsuarioOuEmail(dados.usuario, dados.email)) {
       throw new ErroDeUsuarioJaCadastrado();
     }
@@ -118,7 +122,8 @@ export class ServicoDeUsuarios {
    * a carteira passa ao vendedor indicado em `idNovoVendedor`. As sessões abertas do usuário são
    * encerradas quando ele é inativado ou muda de perfil.
    *
-   * @param autor Operador chefe que fez a alteração.
+   * @param autor Operador chefe ou ADMIN que fez a alteração.
+   * @throws {ErroDeAcessoNegado} Se um não-ADMIN mexer em usuário ADMIN ou promover alguém a ADMIN.
    * @throws {ErroDeUsuarioNaoEncontrado} Se o usuário não existir.
    * @throws {ErroDeAlteracaoDoProprioUsuario} Se o autor tentar inativar ou rebaixar a si mesmo.
    * @throws {ErroDeNovoVendedorObrigatorio} Ao inativar vendedor com carteira sem indicar o novo
@@ -136,6 +141,8 @@ export class ServicoDeUsuarios {
     if (!atual) {
       throw new ErroDeUsuarioNaoEncontrado();
     }
+    // Anti-escalada: só ADMIN mexe em ADMIN (editar, inativar) ou promove alguém a ADMIN.
+    this.exigirAdminParaAdmin(autor, atual.perfil, dados.perfil);
     const alteracao = this.calcularAlteracao(atual, dados);
     if (alteracao.perfil === undefined && alteracao.status === undefined) {
       // Nada muda: o pedido repete o que já está gravado.
@@ -177,6 +184,13 @@ export class ServicoDeUsuarios {
       ...alteracao,
       clientesNaCarteira: deixaACarteira ? 0 : await this.usuarios.contarClientesDe(idOperador),
     };
+  }
+
+  /** Um não-ADMIN não cria, promove nem altera usuário ADMIN (403 ACESSO_NEGADO). */
+  private exigirAdminParaAdmin(autor: Sessao, ...perfis: (Perfil | undefined)[]): void {
+    if (autor.perfil !== PERFIL_ADMIN && perfis.includes(PERFIL_ADMIN)) {
+      throw new ErroDeAcessoNegado(MENSAGEM_SO_ADMIN_GERENCIA_ADMIN);
+    }
   }
 
   /** Só entram na alteração os campos pedidos que diferem do valor atual. */

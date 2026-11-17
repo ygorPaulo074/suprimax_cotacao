@@ -33,6 +33,8 @@ const OPERADORES = [
   ['fiscal', 'FISCAL'],
   ['financeiro', 'FINANCEIRO'],
   ['gestor', 'GESTOR'],
+  // ADMIN: acesso total. Usa a mesma senha de demonstração (SENHA_DEMO); NUNCA reutilizar em produção.
+  ['adm', 'ADMIN'],
 ];
 
 // [cnpj, razão social, fantasia, contato, telefone, tipo_unidade, vendedor]
@@ -102,6 +104,9 @@ async function main() {
         [usuario, `${usuario}@demo.suprimax.local`, hash, perfil],
       );
       contagem.operador += r.rowCount;
+      if (usuario === 'adm') {
+        console.warn('AVISO: usuário adm com senha de demonstração: NÃO use em produção; troque a senha.');
+      }
       ids[usuario] = (await db.query('SELECT id_operador FROM operador WHERE usuario = $1', [usuario])).rows[0].id_operador;
     }
 
