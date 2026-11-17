@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { pedidosApi } from '@/api';
+import { precisaDecidirRascunho, rotaDoRascunho } from '@/lib/rascunhoDoPedido';
 import { formatarBRL } from '@/lib/dinheiro';
 import { DataState } from '@/components/DataState';
 import { rotuloCondicaoPagamento } from '@/components/orcamento';
@@ -31,6 +32,7 @@ export default function AnalisePedido() {
   const queryClient = useQueryClient();
   const [negando, setNegando] = useState(false);
   const [devolvendo, setDevolvendo] = useState(false);
+  const [decisaoAdiada, setDecisaoAdiada] = useState(false);
   const [motivo, setMotivo] = useState('');
 
   const aprovar = useMutation({
@@ -54,6 +56,7 @@ export default function AnalisePedido() {
     <DataState consulta={consulta}>
       {(p) => {
         const bloqueadoPorDivida = p.situacaoCliente.dividaEmAberto > 0;
+        const decidindoRascunho = precisaDecidirRascunho(p) && !decisaoAdiada && !aprovar.isPending;
         return (
           <Pagina titulo={<>Análise do pedido {p.numero}</>} acoes={<Badge status={p.status} />}>
             <div className="mb-4 grid grid-cols-1 gap-3 xl:grid-cols-3">
@@ -154,7 +157,9 @@ export default function AnalisePedido() {
             <div className="mt-5 flex flex-wrap gap-3">
               <BotaoPrimario
                 disabled={bloqueadoPorDivida || aprovar.isPending}
-                onClick={() => aprovar.mutate()}
+                onClick={() =>
+                  precisaDecidirRascunho(p) ? setDecisaoAdiada(false) : aprovar.mutate()
+                }
               >
                 Aprovar e montar orçamento
               </BotaoPrimario>
@@ -169,6 +174,29 @@ export default function AnalisePedido() {
                 </BotaoSecundario>
               )}
             </div>
+
+            {decidindoRascunho && p.idOrcamentoRascunho !== null && (
+              <Modal
+                titulo="Orçamento em rascunho encontrado"
+                aoFechar={() => setDecisaoAdiada(true)}
+                acoes={
+                  <>
+                    <BotaoSecundario onClick={() => aprovar.mutate()}>Começar novo</BotaoSecundario>
+                    <BotaoConfirmacao
+                      onClick={() => navegar(rotaDoRascunho(p.idOrcamentoRascunho as number))}
+                    >
+                      Retomar rascunho
+                    </BotaoConfirmacao>
+                  </>
+                }
+              >
+                <p>
+                  Este pedido já tem um orçamento em rascunho, criado antes de ser devolvido à
+                  lista. Retomar abre esse rascunho. Começar novo cria outro orçamento e mantém o
+                  anterior como está.
+                </p>
+              </Modal>
+            )}
 
             {devolvendo && (
               <Modal
