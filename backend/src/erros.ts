@@ -195,6 +195,14 @@ export const CATALOGO_DE_ERROS = {
     status: STATUS_HTTP.NAO_PROCESSAVEL,
     mensagem: 'Não é possível criar uma nova versão para este orçamento.',
   },
+  IDEMPOTENCY_KEY_REUSADA: {
+    status: STATUS_HTTP.NAO_PROCESSAVEL,
+    mensagem: 'Esta chave de idempotência já foi usada com outra requisição.',
+  },
+  REQUISICAO_EM_ANDAMENTO: {
+    status: STATUS_HTTP.CONFLITO,
+    mensagem: 'Uma requisição com esta chave de idempotência ainda está em andamento.',
+  },
   PAYLOAD_TOO_LARGE: {
     status: STATUS_HTTP.CORPO_GRANDE_DEMAIS,
     mensagem: 'Os dados enviados excedem o tamanho permitido.',
