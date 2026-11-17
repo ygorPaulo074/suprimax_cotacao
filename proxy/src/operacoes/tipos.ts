@@ -33,6 +33,11 @@ export interface OperacaoPreparada {
   escopos: string[];
   /** Domínio registrado na fila de escrita (tabela, rpc ou operação). */
   dominio: string;
+  /**
+   * A operação marcada `escrita` pode, em casos específicos, dispensar a fila (dados.lote com todos
+   * os passos de leitura). Decidido pelo proxy a partir das operações conhecidas, nunca pelo cliente.
+   */
+  somenteLeitura?: boolean;
   executar(): Promise<ResultadoOperacao>;
 }
 

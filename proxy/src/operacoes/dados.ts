@@ -257,9 +257,13 @@ export const dadosLote: Operacao = {
       def.escopos(analisar(def.schema, passo.payload)),
     );
 
+    // Só leitura quando TODOS os passos são operações conhecidas marcadas `escrita: false`.
+    const somenteLeitura = planejados.every(({ def }) => !def.escrita);
+
     return {
       escopos: [...new Set(escopos)],
       dominio: 'lote',
+      somenteLeitura,
       executar: () =>
         ctx.banco.transacao(async (tx) => {
           const sub: ContextoOperacao = { ...ctx, banco: tx };
