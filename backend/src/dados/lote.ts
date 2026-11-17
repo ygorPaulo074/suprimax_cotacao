@@ -1,7 +1,7 @@
 // Item 5 do backend/TAREFAS.md — gravações que precisam valer juntas: `dados.lote` executa os
 // passos em uma transação única (comunicacao-backend-proxy.md, seção 4; docs/12, seção 12.8.2).
 import { ErroInterno } from '../erros';
-import { linhasDe } from './consultas';
+import { emBlocos, linhasDe } from './consultas';
 import type { ClienteDeProxy } from './proxyCliente';
 
 /** Máximo de passos de um `dados.lote`. */
@@ -102,4 +102,100 @@ export function agruparEmLotes(grupos: readonly (readonly PassoDoLote[])[]): Pas
     lotes.push(atual);
   }
   return lotes;
+}
+
+/** Operação de leitura que o {@link LeitorEmLote} agrupa. */
+const OPERACAO_DE_LEITURA = 'dados.consultar';
+
+interface LeituraPendente {
+  readonly payload: Readonly<Record<string, unknown>>;
+  readonly resolver: (resposta: unknown) => void;
+  readonly rejeitar: (erro: unknown) => void;
+}
+
+/**
+ * Cliente do proxy que junta as leituras (`dados.consultar`) pedidas ao mesmo tempo em um único
+ * `dados.lote` (RNF03): cada rodada de leituras independentes, por exemplo as de um `Promise.all`,
+ * custa uma chamada ao proxy em vez de uma por leitura. Uma leitura que depende do resultado de
+ * outra cai na rodada seguinte, como já cairia sem o agrupamento.
+ *
+ * - Passa direto qualquer operação que não seja `dados.consultar`.
+ * - Uma rodada com uma só leitura vai como `dados.consultar` comum (mantém a repetição
+ *   automática de leituras do cliente); com mais de uma, vai como lote, em blocos de até
+ *   MAXIMO_DE_PASSOS_DO_LOTE passos.
+ * - Cada leitura recebe a mesma resposta que receberia sozinha (`{ dados, proximoCursor }`), então
+ *   os repositórios e `consultarTodas` funcionam sem mudança. Se o lote falhar, todas as leituras
+ *   da rodada recebem o erro.
+ * - A rodada fecha no fim do turno atual do laço de eventos (`setTimeout` de 0 ms): tudo o que as
+ *   funções em andamento pedirem sem esperar I/O entra nela.
+ */
+export class LeitorEmLote implements ClienteDeProxy {
+  private pendentes: LeituraPendente[] = [];
+  private agendado = false;
+
+  constructor(
+    private readonly proxy: ClienteDeProxy,
+    /** Identificador de auditoria do lote (o das leituras avulsas continua o de cada leitura). */
+    private readonly operationIdDoLote: string,
+  ) {}
+
+  async executar<T = unknown>(
+    operacao: string,
+    payload: Readonly<Record<string, unknown>>,
+    operationId: string,
+  ): Promise<T> {
+    if (operacao !== OPERACAO_DE_LEITURA) {
+      return this.proxy.executar<T>(operacao, payload, operationId);
+    }
+    return new Promise<T>((resolver, rejeitar) => {
+      this.pendentes.push({ payload, resolver: resolver as (resposta: unknown) => void, rejeitar });
+      if (!this.agendado) {
+        this.agendado = true;
+        setTimeout(() => void this.fecharRodada(operationId), 0);
+      }
+    });
+  }
+
+  private async fecharRodada(operationIdDaPrimeira: string): Promise<void> {
+    const rodada = this.pendentes;
+    this.pendentes = [];
+    this.agendado = false;
+    if (rodada.length === 1) {
+      const [unica] = rodada as [LeituraPendente];
+      try {
+        unica.resolver(
+          await this.proxy.executar(OPERACAO_DE_LEITURA, unica.payload, operationIdDaPrimeira),
+        );
+      } catch (erro) {
+        unica.rejeitar(erro);
+      }
+      return;
+    }
+    await Promise.all(
+      emBlocos(rodada, MAXIMO_DE_PASSOS_DO_LOTE).map((bloco) => this.executarBloco(bloco)),
+    );
+  }
+
+  private async executarBloco(bloco: readonly LeituraPendente[]): Promise<void> {
+    const passos: PassoDoLote[] = bloco.map((leitura, indice) => ({
+      id: `leitura_${indice}`,
+      operacao: OPERACAO_DE_LEITURA,
+      payload: leitura.payload,
+    }));
+    try {
+      const resultados = await executarLote(this.proxy, passos, this.operationIdDoLote);
+      bloco.forEach((leitura, indice) => {
+        const resultado = resultados[`leitura_${indice}`];
+        if (resultado === undefined) {
+          leitura.rejeitar(
+            new ErroInterno(new Error(`O lote ${this.operationIdDoLote} não devolveu o passo.`)),
+          );
+        } else {
+          leitura.resolver(resultado);
+        }
+      });
+    } catch (erro) {
+      bloco.forEach((leitura) => leitura.rejeitar(erro));
+    }
+  }
 }
