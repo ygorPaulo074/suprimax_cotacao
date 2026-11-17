@@ -810,4 +810,74 @@ describe('ServicoDeOrcamentos', () => {
       });
     });
   });
+  describe('obter: chamadas ao proxy (RNF03)', () => {
+    const LIMITE_DE_CHAMADAS = 4;
+
+    async function contarChamadasDoDetalhe(quantidadeDeItens: number): Promise<number> {
+      const cenario = montarCenarioDeCadastros();
+      const servico = montarServico(cenario);
+      const idOperador = cenario.semearUsuario('OPERADOR', 'quem-conta');
+      const sessao = sessaoDoOperador(idOperador, 'quem-conta');
+      const idCliente = semearCliente(cenario);
+      const { idOrcamento } = await servico.criar(
+        { idCliente, numeroSolicitacaoCompra: null, contatoSolicitacao: null },
+        sessao,
+      );
+      for (let indice = 0; indice < quantidadeDeItens; indice += 1) {
+        const { idVariacao } = semearVariacao(cenario);
+        await servico.adicionarItem(
+          idOrcamento,
+          { idVariacao, granularidade: 'AVULSO', quantidade: 10 },
+          sessao,
+        );
+      }
+      const antes = cenario.proxy.chamadas.length;
+      const detalhe = await servico.obter(idOrcamento);
+      expect(detalhe.itens).toHaveLength(quantidadeDeItens);
+      return cenario.proxy.chamadas.length - antes;
+    }
+
+    it.each([1, 10])('faz no máximo 4 chamadas com %i item(ns)', async (quantidade) => {
+      expect(await contarChamadasDoDetalhe(quantidade)).toBeLessThanOrEqual(LIMITE_DE_CHAMADAS);
+    });
+
+    it('emitir monta o detalhe uma só vez (historico lido uma vez)', async () => {
+      const cenario = montarCenarioDeCadastros();
+      const servico = montarServico(cenario);
+      const idOperador = cenario.semearUsuario('OPERADOR', 'quem-emite-conta');
+      const sessao = sessaoDoOperador(idOperador, 'quem-emite-conta');
+      const idCliente = semearCliente(cenario);
+      const { idVariacao } = semearVariacao(cenario, { precoUnitario: 600 });
+      const { idOrcamento } = await servico.criar(
+        { idCliente, numeroSolicitacaoCompra: null, contatoSolicitacao: null },
+        sessao,
+      );
+      await servico.adicionarItem(
+        idOrcamento,
+        { idVariacao, granularidade: 'AVULSO', quantidade: 1 },
+        sessao,
+      );
+      await servico.atualizarCondicoes(
+        idOrcamento,
+        { condicaoPagamento: 'ADIANTADO_100', origemTransportadora: 'SUPRIMAX' },
+        sessao,
+      );
+      const antes = cenario.proxy.chamadas.length;
+
+      const detalhe = await servico.emitir(idOrcamento, sessao);
+
+      expect(detalhe.status).toBe('ABERTO');
+      const lidas = cenario.proxy.chamadas
+        .slice(antes)
+        .flatMap((chamada) =>
+          chamada.operacao === 'dados.lote'
+            ? (chamada.payload.passos as { payload: { tabela: string } }[]).map(
+                (passo) => passo.payload.tabela,
+              )
+            : [(chamada.payload as { tabela?: string }).tabela],
+        );
+      // O histórico e os anexos só entram no detalhe devolvido, que é montado uma vez.
+      expect(lidas.filter((tabela) => tabela === 'anexo_orcamento')).toHaveLength(1);
+    });
+  });
 });
