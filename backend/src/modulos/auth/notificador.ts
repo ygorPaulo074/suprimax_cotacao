@@ -1,4 +1,6 @@
 // UC13 — aviso por e-mail ao operador que pediu a recuperação de senha, com o link para redefinir.
+import type { EnviadorDeEmail } from '../../email/enviador';
+import { montarEmailDeSenha } from '../../email/linkDeSenha';
 import type { Logger } from '../../log';
 
 /** O que o e-mail de recuperação de senha precisa. */
@@ -12,16 +14,34 @@ export interface RecuperacaoDeSenha {
 }
 
 /**
- * Envio dos e-mails de recuperação de senha. A implementação que usa o Resend ainda não foi
- * configurada (sem `RESEND_API_KEY`); por ora, só o notificador que registra em log.
+ * Envio dos e-mails de recuperação de senha: por e-mail (Resend) quando `RESEND_API_KEY` está
+ * configurada; sem ela, o notificador mudo, que só registra em log.
  */
 export interface NotificadorDeRecuperacaoDeSenha {
   /** Envia ao usuário o link de redefinição de senha. */
   enviarRecuperacaoDeSenha(recuperacao: RecuperacaoDeSenha): Promise<void>;
 }
 
+/** Envia o link de redefinição pela interface única de e-mail; falha do provedor propaga o erro. */
+export class NotificadorDeRecuperacaoDeSenhaPorEmail implements NotificadorDeRecuperacaoDeSenha {
+  constructor(
+    private readonly enviador: EnviadorDeEmail,
+    private readonly frontendUrl: string,
+  ) {}
+
+  enviarRecuperacaoDeSenha({ usuario, email, token, validade }: RecuperacaoDeSenha): Promise<void> {
+    return this.enviador.enviar(
+      montarEmailDeSenha(
+        { usuario, email, token, validade, frontendUrl: this.frontendUrl },
+        'SupriMax: redefinição de senha',
+        'Recebemos um pedido para redefinir a sua senha. Use o link abaixo para escolher uma nova:',
+      ),
+    );
+  }
+}
+
 /**
- * Implementação provisória: não envia nada, só registra em log que o e-mail deixou de ser
+ * Sem provedor configurado: não envia nada, só registra em log que o e-mail deixou de ser
  * enviado. O log leva o identificador do usuário e a validade; o token e o endereço ficam de fora.
  */
 export class NotificadorDeRecuperacaoDeSenhaMudo implements NotificadorDeRecuperacaoDeSenha {
