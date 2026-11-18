@@ -21,7 +21,8 @@ Origem: o protótipo do Figma foi trazido para `frontend/` e reconstruído como 
 - [x] Backend implementar as rotas de [frontend-api.md](../docs/frontend-api.md) e validar o contrato. Conferido em 2026-11-16: toda rota de `frontend-api.md` existe no backend.
 - [x] "Devolver à lista" (UC10-A3) chama `POST /pedidos/:id/devolver`, com confirmação, carregando e erro; pedido com rascunho vinculado pergunta se retoma ou começa novo.
 - [ ] Teste ponta a ponta de cada fluxo (login → pedido → orçamento → emissão → resposta) com backend real.
-- [ ] Alinhar com o backend a paginação das listas (hoje as rotas devolvem a lista completa).
+- [ ] Alinhar com o backend a paginação das listas (a lista de clientes já é paginada, `GET /clientes`; as demais devolvem a lista completa).
+- [x] Clientes: lista paginada com busca e filtro de status, e endereço de entrega adicional na ficha (UC03, UC02-A1).
 
 ## 3. Cálculos fora da tela
 

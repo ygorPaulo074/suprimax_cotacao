@@ -8,15 +8,23 @@ import {
 import type { Logger } from '../../log';
 import type { Sessao } from '../auth/sessoes';
 import { PERFIL_VENDEDOR, STATUS_ATIVO, type RepositorioDeUsuarios } from '../usuarios/repositorio';
-import type { DadosDoClienteNovo } from './esquemas';
+import {
+  MAXIMO_DE_ENDERECOS_POR_CLIENTE,
+  type ConsultaDeListaDeClientes,
+  type DadosDoClienteNovo,
+  type DadosDoEndereco,
+} from './esquemas';
 import type {
   ClienteCadastrado,
+  PaginaDeClientes,
   EnderecoDoCliente,
   RepositorioDeClientes,
   StatusDoCliente,
   TipoDeUnidade,
 } from './repositorio';
 
+const CAMPO_ENDERECOS = 'enderecos';
+const MENSAGEM_ENDERECOS_DEMAIS = `O cliente pode ter no máximo ${MAXIMO_DE_ENDERECOS_POR_CLIENTE} endereços.`;
 const CAMPO_VENDEDOR = 'idOperadorVendedor';
 const MENSAGEM_VENDEDOR_INVALIDO =
   'O vendedor responsável deve ser um usuário ativo com perfil de vendedor.';
@@ -142,6 +150,49 @@ export class ServicoDeClientes {
       'Cliente cadastrado.',
     );
     return this.buscarFichaPorCnpj(dados.cnpj);
+  }
+
+  /** Página de clientes para a tela Clientes, com busca por texto/CNPJ e filtro de status (UC03). */
+  listar(consulta: ConsultaDeListaDeClientes): Promise<PaginaDeClientes> {
+    return this.clientes.listar(consulta);
+  }
+
+  /**
+   * Acrescenta um endereço (em geral de entrega) a um cliente já cadastrado (UC02-A1) e devolve
+   * a ficha atualizada.
+   *
+   * @throws {ErroDeClienteNaoEncontrado} Se o cliente não existir.
+   * @throws {ErroDeValidacao} Se o cliente já tiver o máximo de endereços.
+   */
+  async adicionarEndereco(
+    idCliente: number,
+    endereco: DadosDoEndereco,
+    autor: Sessao,
+  ): Promise<ClienteFicha> {
+    const cliente = await this.clientes.buscarPorId(idCliente);
+    if (!cliente) {
+      throw new ErroDeClienteNaoEncontrado();
+    }
+    if (cliente.enderecos.length >= MAXIMO_DE_ENDERECOS_POR_CLIENTE) {
+      throw new ErroDeValidacao({
+        mensagem: MENSAGEM_ENDERECOS_DEMAIS,
+        detalhes: { campos: [CAMPO_ENDERECOS] },
+      });
+    }
+    const idEndereco = await this.clientes.inserirEndereco(idCliente, endereco);
+    this.logger.info(
+      {
+        evento: 'endereco_de_cliente_adicionado',
+        idCliente,
+        idEndereco,
+        idAutor: autor.idOperador,
+      },
+      'Endereço adicionado ao cliente.',
+    );
+    return this.montarFicha({
+      ...cliente,
+      enderecos: [...cliente.enderecos, { idEndereco, ...endereco }],
+    });
   }
 
   /** Vendedores ativos, para o campo "vendedor responsável" do cadastro. */

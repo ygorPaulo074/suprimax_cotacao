@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ApiError,
@@ -282,18 +282,32 @@ export default function OrcamentoMontagem({ orcamento }: { orcamento: OrcamentoD
                 value={contato}
                 onChange={(e) => setContato(e.target.value)}
               />
-              <Selecao
-                rotulo="Endereço de entrega"
-                value={endereco}
-                onChange={(e) => setEndereco(e.target.value)}
-              >
-                <option value="">Selecione…</option>
-                {orcamento.enderecosEntrega.map((e) => (
-                  <option key={e.idEndereco} value={e.idEndereco}>
-                    {e.logradouro}, {e.numero} — {e.cidade}/{e.uf}
-                  </option>
-                ))}
-              </Selecao>
+              {orcamento.enderecosEntrega.length === 0 ? (
+                <Dado rotulo="Endereço de entrega">
+                  <span className="text-sm">
+                    Este cliente não tem endereço de entrega cadastrado.{' '}
+                    <Link
+                      className="font-semibold text-petroleo underline"
+                      to={`/clientes?cnpj=${orcamento.cnpj.replace(/\D/g, '')}`}
+                    >
+                      Abrir a ficha para adicionar
+                    </Link>
+                  </span>
+                </Dado>
+              ) : (
+                <Selecao
+                  rotulo="Endereço de entrega"
+                  value={endereco}
+                  onChange={(e) => setEndereco(e.target.value)}
+                >
+                  <option value="">Selecione…</option>
+                  {orcamento.enderecosEntrega.map((e) => (
+                    <option key={e.idEndereco} value={e.idEndereco}>
+                      {e.logradouro}, {e.numero} — {e.cidade}/{e.uf}
+                    </option>
+                  ))}
+                </Selecao>
+              )}
               <Campo
                 rotulo="Prazo de entrega (dias)"
                 type="number"

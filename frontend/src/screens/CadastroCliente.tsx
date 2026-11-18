@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { clientesApi, type EnderecoCliente, type TipoUnidade } from '@/api';
+import { EnderecoCampos, enderecoCompleto, enderecoVazio } from '@/components/EnderecoCampos';
 import {
   Alerta,
   BotaoPrimario,
@@ -13,17 +14,6 @@ import {
   Secao,
   Selecao,
 } from '@/components/ui';
-
-const enderecoVazio = (tipo: EnderecoCliente['tipo']): EnderecoCliente => ({
-  tipo,
-  logradouro: '',
-  numero: '',
-  complemento: '',
-  bairro: '',
-  cidade: '',
-  uf: '',
-  cep: '',
-});
 
 /** Tela 5 — UC02 – Cadastro de cliente. Salvar fica desabilitado até o aceite LGPD (RF20). */
 export default function CadastroCliente() {
@@ -70,9 +60,7 @@ export default function CadastroCliente() {
     razaoSocial.trim() &&
     nomeContato.trim() &&
     idVendedor &&
-    enderecos.every(
-      (e) => e.logradouro && e.numero && e.bairro && e.cidade && e.uf.length === 2 && e.cep,
-    );
+    enderecos.every(enderecoCompleto);
 
   const enviar = (e: FormEvent) => {
     e.preventDefault();
@@ -141,54 +129,11 @@ export default function CadastroCliente() {
         <Secao titulo="Endereços">
           <div className="flex flex-col gap-3">
             {enderecos.map((e, i) => (
-              <Cartao key={i} className="grid grid-cols-1 gap-3 md:grid-cols-4">
-                <Selecao
-                  rotulo="Tipo"
-                  value={e.tipo}
-                  onChange={(ev) => alterarEndereco(i, 'tipo', ev.target.value)}
-                >
-                  <option value="CADASTRAL">Cadastral</option>
-                  <option value="ENTREGA">Entrega</option>
-                </Selecao>
-                <div className="md:col-span-2">
-                  <Campo
-                    rotulo="Logradouro"
-                    value={e.logradouro}
-                    onChange={(ev) => alterarEndereco(i, 'logradouro', ev.target.value)}
-                  />
-                </div>
-                <Campo
-                  rotulo="Número"
-                  value={e.numero}
-                  onChange={(ev) => alterarEndereco(i, 'numero', ev.target.value)}
-                />
-                <Campo
-                  rotulo="Complemento"
-                  opcional
-                  value={e.complemento ?? ''}
-                  onChange={(ev) => alterarEndereco(i, 'complemento', ev.target.value)}
-                />
-                <Campo
-                  rotulo="Bairro"
-                  value={e.bairro}
-                  onChange={(ev) => alterarEndereco(i, 'bairro', ev.target.value)}
-                />
-                <Campo
-                  rotulo="Cidade"
-                  value={e.cidade}
-                  onChange={(ev) => alterarEndereco(i, 'cidade', ev.target.value)}
-                />
-                <Campo
-                  rotulo="UF"
-                  maxLength={2}
-                  value={e.uf}
-                  onChange={(ev) => alterarEndereco(i, 'uf', ev.target.value.toUpperCase())}
-                />
-                <Campo
-                  rotulo="CEP"
-                  value={e.cep}
-                  onChange={(ev) => alterarEndereco(i, 'cep', ev.target.value)}
-                />
+              <EnderecoCampos
+                key={i}
+                endereco={e}
+                aoAlterar={(campo, valor) => alterarEndereco(i, campo, valor)}
+              >
                 {enderecos.length > 1 && (
                   <div className="md:col-span-4">
                     <BotaoSecundario
@@ -198,7 +143,7 @@ export default function CadastroCliente() {
                     </BotaoSecundario>
                   </div>
                 )}
-              </Cartao>
+              </EnderecoCampos>
             ))}
             <div>
               <BotaoSecundario

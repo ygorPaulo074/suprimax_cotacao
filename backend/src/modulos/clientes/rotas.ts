@@ -6,12 +6,18 @@ import { rotaAssincrona } from '../../http/rotaAssincrona';
 import { validarEntrada } from '../../http/validacao';
 import type { RepositorioDeSessoes } from '../auth/sessoes';
 import { esquemaDeParametroId } from '../comum/campos';
-import { esquemaDeBuscaPorCnpj, esquemaDeClienteNovo } from './esquemas';
+import {
+  esquemaDeBuscaPorCnpj,
+  esquemaDeClienteNovo,
+  esquemaDeEndereco,
+  esquemaDeListaDeClientes,
+} from './esquemas';
 import type { ServicoDeClientes } from './servico';
 
 export const ROTAS_DE_CLIENTES = {
   COLECAO: '/clientes',
   BUSCA: '/clientes/busca',
+  ENDERECOS: '/clientes/:id/enderecos',
   ORCAMENTOS_EM_ABERTO: '/clientes/:id/orcamentos-em-aberto',
   HISTORICO_DE_COMPRAS: '/clientes/:id/historico-compras',
   VENDEDORES: '/vendedores',
@@ -24,6 +30,8 @@ export interface DependenciasDasRotasDeClientes {
 
 /**
  * Rotas de clientes, para OPERADOR e OPERADOR_CHEFE:
+ * - `GET /clientes?q&status&pagina&tamanho`: página de clientes (`{clientes, pagina, tamanho, temMais}`);
+ * - `POST /clientes/:id/enderecos`: endereço adicional (UC02-A1) → 201 com a ficha; 404 sem cliente;
  * - `GET /clientes/busca?cnpj=`: ficha do cliente; `404 CLIENTE_NAO_ENCONTRADO`;
  * - `POST /clientes`: cadastro com `aceiteLgpd: true` → 201 com a ficha;
  * - `GET /clientes/:id/orcamentos-em-aberto` e `/historico-compras`: listas (vazias até o item 6);
@@ -39,6 +47,30 @@ export function criarRotasDeClientes({ servico, sessoes }: DependenciasDasRotasD
     rotaAssincrona(async (req, res) => {
       const { cnpj } = validarEntrada(esquemaDeBuscaPorCnpj, req.query);
       res.status(STATUS_HTTP.OK).json(await servico.buscarFichaPorCnpj(cnpj));
+    }),
+  );
+
+  rotas.get(
+    ROTAS_DE_CLIENTES.COLECAO,
+    operador,
+    rotaAssincrona(async (req, res) => {
+      const consulta = validarEntrada(esquemaDeListaDeClientes, req.query);
+      const { clientes, temMais } = await servico.listar(consulta);
+      res
+        .status(STATUS_HTTP.OK)
+        .json({ clientes, pagina: consulta.pagina, tamanho: consulta.tamanho, temMais });
+    }),
+  );
+
+  rotas.post(
+    ROTAS_DE_CLIENTES.ENDERECOS,
+    operador,
+    rotaAssincrona(async (req, res) => {
+      const { id } = validarEntrada(esquemaDeParametroId, req.params);
+      const endereco = validarEntrada(esquemaDeEndereco, req.body);
+      res
+        .status(STATUS_HTTP.CRIADO)
+        .json(await servico.adicionarEndereco(id, endereco, obterSessao(res)));
     }),
   );
 
