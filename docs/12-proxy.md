@@ -34,6 +34,8 @@ Escopos do token: têm o formato tabela:acao, com acao em consultar, inserir, at
 
 **Headers obrigatórios em toda requisição ao proxy:** Authorization (Bearer <token do integrante>); X-Timestamp (horário de envio da requisição, usado para rejeitar requisições repetidas/atrasadas além de uma tolerância definida — proteção contra replay); X-Service-Id (identificação do sistema requisitante); X-Operation-Id (identificação do processo/operação requisitado, usada no log de auditoria).
 
+**Header opcional:** X-User-Id (usuário que originou a operação no sistema requisitante; no Sistema 2, o id_operador da sessão). Só é lido depois da autenticação e vai apenas para log_auditoria.id_usuario. Formato restrito: de 1 a 40 caracteres entre letras, dígitos, `_` e `-`; fora disso a requisição é recusada com PAYLOAD_INVALIDO (400), o que impede gravar ali um token, um hash de sessão (64 caracteres) ou uma senha. Ausente, id_usuario fica nulo (ex.: jobs, login). O valor é declarado pelo integrante, que já é confiável pelo token: serve para rastrear, não para autorizar.
+
 ## 12.4 Segurança
 
 A segurança do proxy é composta de conjunto de contramedidas complementares, cada uma cobrindo um vetor de ataque diferente.
@@ -53,6 +55,8 @@ Como o proxy é o único autorizado a escrever no banco compartilhado, ele preci
 
 **Schema da tabela fila_escrita:** id; sistema_origem; dominio; operacao; payload (jsonb); status (pendente | processando | concluido | erro); tentativas; criado_em; atualizado_em; erro_mensagem.
 
+**Exatamente uma vez e retomada após reinício.** O id do item (chave primária de fila_escrita) é a chave de idempotência. Antes de executar, o proxy marca o item `processando` e soma uma tentativa só se ele ainda estiver `pendente` ou `processando`. A escrita roda numa transação que começa travando a linha do item (`SELECT ... FOR UPDATE`, seguindo só se ele estiver `processando`) e termina marcando-o `concluido`: a escrita e a conclusão são confirmadas juntas. Se o proxy cair no meio, a transação é desfeita, e o item fica `processando` sem efeito no banco. Ao subir, antes de aceitar requisições (no máximo 30 s de espera pelo banco), o proxy retoma em ordem de chegada os itens `pendente` e `processando` (até 500 por início): prepara de novo a operação a partir do payload gravado, com os escopos atuais do integrante (sistema_origem), e a executa pela fila com as mesmas garantias. Um item já `concluido` nunca é repetido, e duas instâncias (ex.: sobreposição num deploy) se excluem pela trava da linha. Viram `erro` com `erro_mensagem` "não retomado após reinício: <motivo>", sem executar: item criado há mais de 15 minutos (quem pediu já recebeu erro há muito tempo); item com 3 tentativas (evita laço de quedas); operação da administração ou sigilosa (`integrante.*`, `sessao.*`), cujo payload não é gravado na fila; operação desconhecida; integrante revogado, expirado ou inexistente; payload ou escopo que não passa mais na validação. Cada retomada gera uma entrada de auditoria com request_id = id do item e id_usuario nulo (fila_escrita não guarda o usuário). Para o chamador nada muda: quem perdeu a resposta por causa da queda continua devendo ler o estado antes de repetir a escrita, e o verá já com o efeito da retomada.
+
 Operações síncronas: o chamador aguarda a conclusão da gravação. As escritas (dados.inserir, dados.atualizar, dados.excluir, dados.lote com ao menos um passo de escrita, dados.rpc que altere dados e as operações nomeadas) passam pela fila; dados.consultar e dados.lote formado só por passos dados.consultar não (o proxy decide pela lista de operações conhecidas, nunca por declaração do cliente). A fila garante a ordem das escritas, mas a resposta só é devolvida depois de gravada. pedido.assumir, orcamento.emitir e resposta.processar são operações únicas, executadas em transação, que devolvem o resultado ao chamador; pedido.assumir só tem efeito se o pedido ainda estiver SOLICITADO, o que impede dois operadores de assumirem o mesmo pedido.
 
 ## 12.6 Tratamento de erros
@@ -67,7 +71,7 @@ O log de auditoria faz o tracing das interações (timestamp, origem, operação
 
 Decisão de infraestrutura: o Render (plano gratuito) tem sistema de arquivos efêmero — um arquivo de log local seria apagado sempre que o serviço reinicia ou hiberna por inatividade. Por isso, os logs não são gravados em arquivo local: winston/pino são configurados com um transporte que grava cada entrada diretamente em uma tabela do Supabase (ex.: log_auditoria), garantindo persistência independentemente de reinícios ou hibernação do serviço.
 
-**Schema da tabela log_auditoria:** id; timestamp; sistema_origem; operacao; resultado_verificacao_risco; status_execucao; duracao_ms; request_id; resultado; id_usuario; ip_origem.
+**Schema da tabela log_auditoria:** id; timestamp; sistema_origem; operacao; resultado_verificacao_risco; status_execucao; duracao_ms; request_id; resultado; id_usuario; ip_origem. O id_usuario vem do header opcional X-User-Id (seção 12.3) e fica nulo sem ele ou quando a autenticação falha. A auditoria nunca grava token, chave, hash de sessão, senha nem payload.
 
 **Schema da tabela integrantes_proxy:** id; nome_sistema; chave_hash; escopos; ativo; criado_em; expira_em.
 

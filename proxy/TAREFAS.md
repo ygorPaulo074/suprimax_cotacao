@@ -36,8 +36,8 @@ A parte que não depende do banco está implementada e testada (83 testes, com b
 - [ ] **Decisões em aberto** (detalhes no `README.md`):
   - atualizar a seção 12.3 da documentação com `DATABASE_URL`;
   - [x] código de erro próprio para violação de regra do banco: `REGRA_DE_NEGOCIO` (422) com `detalhes.regra`;
-  - origem do `id_usuario` na auditoria (hoje nulo);
-  - reprocessar itens pendentes da fila após reinício;
+  - [x] origem do `id_usuario` na auditoria: cabeçalho opcional `X-User-Id` (formato restrito, só após autenticar), enviado pelo backend com o `id_operador` da sessão;
+  - [x] reprocessar itens pendentes da fila após reinício: escrita e `concluido` na mesma transação, com a linha do item travada; retomada no início, antes de aceitar requisições (`src/fila/retomada.ts`). Sem `id_usuario` nas retomadas (a tabela não o guarda);
   - rate limit compartilhado se houver mais de uma instância.
 - [ ] **CHANGELOG** do proxy atualizado a cada PR.
 
