@@ -1048,6 +1048,53 @@ describe('ServicoDeOrcamentos', () => {
     });
   });
 
+  describe('aviso de edição de rascunho: responsável e alteração de outro operador', () => {
+    it('informa o responsável e nenhuma alteração de terceiros quando só o dono mexeu', async () => {
+      const cenario = montarCenarioDeCadastros();
+      const servico = montarServico(cenario);
+      const idDono = cenario.semearUsuario('OPERADOR', 'dono-rascunho');
+      const idCliente = semearCliente(cenario);
+      const { idOrcamento } = await servico.criar(
+        { idCliente, numeroSolicitacaoCompra: null, contatoSolicitacao: null },
+        sessaoDoOperador(idDono, 'dono-rascunho'),
+      );
+
+      const detalhe = await servico.obter(idOrcamento);
+
+      expect(detalhe.responsavel).toEqual({ idOperador: idDono, nome: 'dono-rascunho' });
+      expect(detalhe.ultimaAlteracaoDeOutro).toBeNull();
+    });
+
+    it('informa quem e quando, se outro operador registrou evento no histórico', async () => {
+      const cenario = montarCenarioDeCadastros();
+      const servico = montarServico(cenario);
+      const idDono = cenario.semearUsuario('OPERADOR', 'dono-rascunho');
+      const idOutro = cenario.semearUsuario('OPERADOR', 'colega');
+      const idCliente = semearCliente(cenario);
+      const { idOrcamento } = await servico.criar(
+        { idCliente, numeroSolicitacaoCompra: null, contatoSolicitacao: null },
+        sessaoDoOperador(idDono, 'dono-rascunho'),
+      );
+      await new RepositorioDeOrcamentos(cenario.proxy).registrarHistorico({
+        idOrcamento,
+        idOperador: idOutro,
+        tipoEvento: 'ATUALIZACAO_FOLLOWUP',
+        statusAnterior: 'RASCUNHO',
+        statusNovo: 'RASCUNHO',
+        observacao: null,
+      });
+
+      const detalhe = await servico.obter(idOrcamento);
+
+      expect(detalhe.responsavel.nome).toBe('dono-rascunho');
+      expect(detalhe.ultimaAlteracaoDeOutro).toEqual({
+        idOperador: idOutro,
+        nome: 'colega',
+        data: expect.any(String),
+      });
+    });
+  });
+
   describe('cancelar', () => {
     it('cancela o orçamento com a justificativa', async () => {
       const cenario = montarCenarioDeCadastros();
