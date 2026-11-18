@@ -3,10 +3,13 @@ import { useQueryClient } from '@tanstack/react-query';
 import {
   assinarFila,
   configurarFila,
+  descartarItem,
+  itemComFalha,
   lerOrcamentoAberto,
   processarFila,
   quantidadePendente,
   salvarOrcamentoAberto,
+  tentarNovamente,
   versaoDaFila,
   type OrcamentoDetalhe,
 } from '@/api';
@@ -23,6 +26,7 @@ export default function AlteracoesPendentes() {
   const [avisos, setAvisos] = useState<{ id: number; texto: string }[]>([]);
   useSyncExternalStore(assinarFila, versaoDaFila);
   const pendentes = quantidadePendente();
+  const falha = itemComFalha();
 
   useEffect(() => {
     configurarFila({
@@ -53,14 +57,16 @@ export default function AlteracoesPendentes() {
         salvarOrcamentoAberto(chave[1], e.query.state.data as OrcamentoDetalhe);
     });
     const tentar = () => void processarFila();
-    window.addEventListener('online', tentar);
+    // Rede de volta: não vale esperar o backoff de falhas anteriores do servidor.
+    const aoVoltarRede = () => void processarFila({ ignorarEspera: true });
+    window.addEventListener('online', aoVoltarRede);
     const timer = window.setInterval(() => {
       if (quantidadePendente() > 0) tentar();
     }, INTERVALO_REENVIO_MS);
     tentar();
     return () => {
       cancelar();
-      window.removeEventListener('online', tentar);
+      window.removeEventListener('online', aoVoltarRede);
       window.clearInterval(timer);
     };
   }, [queryClient]);
@@ -75,6 +81,31 @@ export default function AlteracoesPendentes() {
           <span aria-hidden="true">⟳</span>
           {pendentes === 1 ? '1 alteração pendente' : `${pendentes} alterações pendentes`}
         </span>
+      )}
+      {falha && (
+        <div className="fixed bottom-4 left-4 z-20 max-w-sm bg-white shadow-md">
+          <Alerta>
+            <span>
+              Uma alteração guardada neste aparelho não foi aceita pelo servidor após várias
+              tentativas{falha.ultimoErro ? ` (${falha.ultimoErro})` : ''}. Nada foi perdido: tente
+              de novo ou descarte a alteração.
+            </span>
+            <button
+              type="button"
+              className="ml-2 text-xs underline"
+              onClick={() => tentarNovamente(falha.chave)}
+            >
+              Tentar de novo
+            </button>
+            <button
+              type="button"
+              className="ml-2 text-xs underline"
+              onClick={() => descartarItem(falha.chave)}
+            >
+              Descartar
+            </button>
+          </Alerta>
+        </div>
       )}
       {avisos.length > 0 && (
         <div className="fixed bottom-4 right-4 z-20 flex max-w-sm flex-col gap-2">
