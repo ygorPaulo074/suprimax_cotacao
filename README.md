@@ -39,7 +39,7 @@ proxy/                     proxy central de acesso ao banco (serviço próprio)
 tests-nfr/                 testes não funcionais
 docs/                      documentação completa (comece por docs/README.md)
 .github/CODEOWNERS         revisão obrigatória por pasta (preencher os @times)
-scripts/                    gerar-env.cjs (gera os .env) e seed-demo.cjs; cada serviço tem o seu .env.example
+${L}
 ```
 
 ## Documentação
