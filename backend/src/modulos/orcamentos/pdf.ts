@@ -262,19 +262,36 @@ function tabelaDeProdutos(doc: PDFKit.PDFDocument, detalhe: OrcamentoDetalhado):
 }
 
 function totalizadoresERegras(doc: PDFKit.PDFDocument, detalhe: OrcamentoDetalhado): void {
-  const { valorTotalItens, valorTotalImposto, valorTotalProposta, creditoStatus } =
+  const { valorTotalItens, valorTotalImposto, valorTotalProposta, valorFrete, creditoStatus } =
     detalhe.condicoes;
+  // `valorTotalItens` já traz o imposto; a linha "sem impostos" só subtrai, para as linhas somarem.
+  const produtosSemImposto =
+    valorTotalItens === null || valorTotalImposto === null
+      ? null
+      : valorTotalItens - valorTotalImposto;
   tituloDaSecao(doc, 'Totais e regras');
   doc
-    .text(`Valor total dos produtos: ${formatarCentavos(valorTotalItens)}`)
-    .text(`Valor total de impostos: ${formatarCentavos(valorTotalImposto)}`)
-    .text(`Valor total da proposta (com impostos): ${formatarCentavos(valorTotalProposta)}`)
-    .text(textoDoFrete(detalhe))
+    .text(`Valor total dos produtos (sem impostos): ${formatarCentavos(produtosSemImposto)}`)
     .text(
-      `Faturamento mínimo a prazo: ${formatarCentavos(
-        VALOR_MINIMO_PARA_FATURAMENTO_A_PRAZO_CENTAVOS,
-      )}; abaixo disso, exige-se pagamento adiantado.`,
+      `Valor total de impostos (${ALIQUOTA_DE_IMPOSTO_EXIBIDA}): ${formatarCentavos(valorTotalImposto)}`,
     );
+  if (valorFrete !== null) {
+    doc.font('Helvetica-Bold').text(textoDoFrete(detalhe)).font('Helvetica');
+  }
+  doc
+    .font('Helvetica-Bold')
+    .text(
+      `Valor total da proposta (com impostos inclusos${valorFrete !== null ? ' e frete' : ''}): ${formatarCentavos(valorTotalProposta)}`,
+    )
+    .font('Helvetica');
+  if (valorFrete === null) {
+    doc.text(textoDoFrete(detalhe));
+  }
+  doc.text(
+    `Faturamento mínimo a prazo: ${formatarCentavos(
+      VALOR_MINIMO_PARA_FATURAMENTO_A_PRAZO_CENTAVOS,
+    )}; abaixo disso, exige-se pagamento adiantado.`,
+  );
   if (creditoStatus !== 'NAO_EXIGIDO') {
     doc.text(
       creditoStatus === 'PENDENTE'

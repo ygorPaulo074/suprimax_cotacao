@@ -35,7 +35,7 @@ function item(indice: number, sobrescrita: Partial<ItemDetalhado> = {}): ItemDet
   };
 }
 
-function detalhe(quantidadeDeItens: number): OrcamentoDetalhado {
+function detalhe(quantidadeDeItens: number, valorFrete: number | null = null): OrcamentoDetalhado {
   return {
     numeroOrcamento: 3,
     cliente: 'Cliente Fictício de Nome Muito Comprido para Testar Quebra de Linha Ltda ME',
@@ -67,11 +67,11 @@ function detalhe(quantidadeDeItens: number): OrcamentoDetalhado {
       modalidadeFrete: 'CIF',
       origemTransportadora: 'SUPRIMAX',
       transportadora: null,
-      valorFrete: null,
+      valorFrete,
       freteProvisorio: false,
       valorTotalItens: 500_000_000_000,
       valorTotalImposto: 90_000_000_000,
-      valorTotalProposta: 500_000_000_000,
+      valorTotalProposta: 500_000_000_000 + (valorFrete ?? 0),
       creditoStatus: 'NAO_EXIGIDO',
     },
   } as unknown as OrcamentoDetalhado;
@@ -131,8 +131,31 @@ describe('gerarPdfDeOrcamento (UC19)', () => {
   it('mantém totais e avisos legíveis na largura da página (sem coluna estreita)', async () => {
     const texto = textoPorPagina(await gerarPdfDeOrcamento(detalhe(2), EMPRESA)).join(' ');
     // Antes do conserto cada palavra quebrava em linha própria; a frase inteira cabe em um trecho.
-    expect(texto).toContain('Valor total da proposta (com impostos): R$ 5.000.000.000,00');
+    expect(texto).toContain('Valor total da proposta (com impostos inclusos): R$ 5.000.000.000,00');
     expect(texto).toContain('Lei Geral de');
+  });
+
+  it('totais somam à vista: produtos sem impostos + impostos = proposta (sem frete)', async () => {
+    const texto = normalizar(
+      textoPorPagina(await gerarPdfDeOrcamento(detalhe(1), EMPRESA)).join(' '),
+    );
+    expect(texto).toContain('Valor total dos produtos (sem impostos): R$ 4.100.000.000,00');
+    expect(texto).toContain('Valor total de impostos (18%): R$ 900.000.000,00');
+    expect(texto).toContain('Frete CIF, por conta da SupriMax.');
+    expect(texto).toContain('Valor total da proposta (com impostos inclusos): R$ 5.000.000.000,00');
+    expect(410_000_000_000 + 90_000_000_000).toBe(500_000_000_000);
+  });
+
+  it('com frete, destaca a linha de frete e a proposta soma produtos + impostos + frete', async () => {
+    const texto = normalizar(
+      textoPorPagina(await gerarPdfDeOrcamento(detalhe(1, 123_456), EMPRESA)).join(' '),
+    );
+    expect(texto).toContain('Valor total dos produtos (sem impostos): R$ 4.100.000.000,00');
+    expect(texto).toContain('valor R$ 1.234,56');
+    expect(texto).toContain(
+      'Valor total da proposta (com impostos inclusos e frete): R$ 5.000.001.234,56',
+    );
+    expect(410_000_000_000 + 90_000_000_000 + 123_456).toBe(500_000_123_456);
   });
 
   it('não perde nenhum item e repete o cabeçalho da tabela em cada página', async () => {
