@@ -68,7 +68,7 @@ Fonte do contrato (código): `frontend/src/api/types.ts` (tipos) e um arquivo po
 | 15 · UC04 Entrada | `POST /entradas-mercadoria` | `EntradaMercadoriaNova`; `422 ENTRADA_DIVERGENTE`; `403 LIBERACAO_NEGADA` | Operador, Chefe |
 | 16 · UC22 Fornecedores | `GET /fornecedores` · `POST /fornecedores` | `Fornecedor[]` · `FornecedorNovo` | Chefe (`GET` também Operador) |
 | 17 · UC25 Usuários | `GET /usuarios` · `POST /usuarios` | `Usuario[]` · `UsuarioNovo` | Chefe, Admin |
-| | `PATCH /usuarios/:id` | `{perfil?, status?, idNovoVendedor?}`; `422 NOVO_VENDEDOR_OBRIGATORIO`; `403` ao mexer em `ADMIN` sem ser `ADMIN` | Chefe, Admin |
+| | `PATCH /usuarios/:id` | `{perfil?, status?, email?, idNovoVendedor?}` (ao menos um de perfil, status ou email); `email` é aparado, guardado em minúsculas e não reenvia convite nem encerra sessões; `409 USUARIO_JA_CADASTRADO` se o e-mail já for de outro usuário; `422 NOVO_VENDEDOR_OBRIGATORIO`; `403` ao mexer em `ADMIN` sem ser `ADMIN` | Chefe, Admin |
 
 ### Jobs agendados (UC20, operação; sem tela no frontend)
 

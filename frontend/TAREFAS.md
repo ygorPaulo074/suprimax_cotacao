@@ -40,6 +40,7 @@ Origem: o protótipo do Figma foi trazido para `frontend/` e reconstruído como 
 - [x] Botão "Novo orçamento" na ficha do cliente (UC14): `POST /orcamentos`, abre `/orcamentos/:id`, desabilitado com motivo se há dívida ou cliente inativo.
 - [x] "Novo orçamento" também desabilitado para cliente BLOQUEADO (decisão do usuário; UC14).
 - [x] Faixa de aviso de edição de rascunho na montagem do orçamento (UC14 a UC17): `lib/avisoDeRascunho.ts`. Depende do backend registrar quem edita itens e condições (hoje só status e follow-up).
+- [x] Tela de Usuários: "Editar e-mail" por linha em modal (UC25).
 - [x] Página 404 própria (hoje volta à rota inicial). `NaoEncontrada.tsx` (PR #24).
 
 ## 5. Perfis e menu

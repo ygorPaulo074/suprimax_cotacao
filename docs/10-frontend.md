@@ -337,6 +337,7 @@ Figura 10.16 — Tela 16 (UC22 – Fornecedores): exemplo visual.
 
 Gestão de usuários pelo operador chefe. A lista mostra usuário, e-mail, perfil (VENDEDOR, OPERADOR, OPERADOR_CHEFE, FISCAL, FINANCEIRO, GESTOR, ADMIN; exibidos em português, p.ex. Administrador) e status (ATIVO, INATIVO); o formulário pede usuário, e-mail e perfil.
 
+- Editar e-mail (UC25): ação por linha que abre um modal com o campo de e-mail, botão Salvar (estado “Salvando…”) e erro do servidor no alerta; e-mail já usado por outro usuário mostra “Já existe um usuário com este e-mail.”. A troca não reenvia convite nem encerra sessões.
 - Inativação de vendedor com clientes na carteira: modal solicitando o novo vendedor responsável.
 
 ![fig21.png](assets/fig21.png)
