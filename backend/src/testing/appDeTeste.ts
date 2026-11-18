@@ -21,6 +21,7 @@ export const CONFIG_DE_TESTE: Config = {
   nivelLog: 'info',
   corsOrigens: [ORIGEM_DE_TESTE],
   sessaoInatividadeMs: 30 * 60 * 1000,
+  sessoesNoBanco: false,
   trustProxy: 0,
   jobsAgendadosHabilitados: false,
   jobsAgendadosIntervaloMs: 60 * 60 * 1000,

@@ -379,6 +379,38 @@ describe('operações nomeadas', () => {
     ).toBe(400);
   });
 
+  it('sessao.*: exige o escopo, a busca sem renovar não usa a fila e o hash não vai para a fila', async () => {
+    const hash = 'cd'.repeat(32);
+    const sem = await integrante(['*:consultar', '*:atualizar']);
+    expect((await chamar('sessao.buscar', { token_hash: hash }, como(sem))).status).toBe(403);
+
+    const fila = jest.spyOn(FilaEscrita.prototype, 'executar');
+    try {
+      const i = await integrante(['operacao:sessao.buscar', 'operacao:sessao.encerrar']);
+      const antes = fila.mock.calls.length;
+      banco.responder = () => ({ linhas: [], contagem: 0 });
+      const vazia = await chamar('sessao.buscar', { token_hash: hash }, como(i));
+      expect(vazia.corpo).toEqual({ ok: true, dados: null });
+      expect(fila.mock.calls.length).toBe(antes);
+
+      const renovada = await chamar(
+        'sessao.buscar',
+        { token_hash: hash, renovar_segundos: 1800 },
+        como(i),
+      );
+      expect(renovada.status).toBe(200);
+      const fim = await chamar('sessao.encerrar', { token_hash: hash }, como(i));
+      expect(fim.corpo).toEqual({ ok: true, afetados: 0 });
+      const chamadas = fila.mock.calls.slice(antes);
+      expect(chamadas.map(([meta]) => [meta.operacao, meta.payload])).toEqual([
+        ['sessao.buscar', null],
+        ['sessao.encerrar', null],
+      ]);
+    } finally {
+      fila.mockRestore();
+    }
+  });
+
   it('orcamento.emitir traduz o erro de negócio da função do banco', async () => {
     const i = await integrante(['operacao:orcamento.emitir']);
     const chave = 'a'.repeat(32);

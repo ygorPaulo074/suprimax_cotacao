@@ -28,6 +28,7 @@ model Operador {
   rel_movimentacao_estoque_id_operador_children          MovimentacaoEstoque[] @relation("Rel_movimentacao_estoque_id_operador")
   rel_divida_inadimplencia_id_operador_registro_children DividaInadimplencia[] @relation("Rel_divida_inadimplencia_id_operador_registro")
   rel_analise_credito_id_operador_fiscal_children        AnaliseCredito[]      @relation("Rel_analise_credito_id_operador_fiscal")
+  rel_sessao_id_operador_children                        Sessao[]              @relation("Rel_sessao_id_operador")
 
   @@map("operador")
 }
@@ -513,4 +514,17 @@ model LogAuditoria {
   @@index([timestamp])
   @@index([sistema_origem])
   @@map("log_auditoria")
+}
+
+// Sessões de login (UC13, RN02): só o SHA-256 do token. Acesso apenas pelas operações sessao.* do proxy.
+model Sessao {
+  token_hash      String   @id @db.Char(64)
+  id_operador     Int      @db.Integer
+  expira_em       DateTime @db.Timestamptz(6)
+  criado_em       DateTime @default(now()) @db.Timestamptz(6)
+  rel_id_operador Operador @relation("Rel_sessao_id_operador", fields: [id_operador], references: [id_operador], onDelete: Cascade)
+
+  @@index([id_operador])
+  @@index([expira_em])
+  @@map("sessao")
 }

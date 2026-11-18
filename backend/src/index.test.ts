@@ -2,13 +2,16 @@ import { EventEmitter } from 'node:events';
 import { ErroDeServicoIndisponivel } from './erros';
 import {
   criarClienteDeProxy,
+  criarRepositorioDeSessoes,
   principal,
   ServidorHttp,
   ServidorHttpError,
   type ProcessoEncerravel,
 } from './index';
 import { criarLogger } from './log';
+import { RepositorioDeSessoesEmMemoria, RepositorioDeSessoesNoProxy } from './modulos/auth/sessoes';
 import { CONFIG_DE_TESTE, montarAppDeTeste } from './testing/appDeTeste';
+import { ProxyClienteFalso } from './testing/proxyClienteFalso';
 
 // Porta 0: o sistema operacional escolhe uma porta livre, então o teste não depende de porta fixa.
 const { dependencias: DEPENDENCIAS } = montarAppDeTeste({ config: { nivelLog: 'silent' } });
@@ -108,5 +111,42 @@ describe('criarClienteDeProxy', () => {
     };
 
     expect(criarClienteDeProxy(config, logger).constructor.name).toBe('ClienteProxy');
+  });
+});
+
+describe('criarRepositorioDeSessoes', () => {
+  const logger = criarLogger({ nivel: 'silent' });
+  const comProxy = {
+    ...CONFIG_DE_TESTE,
+    proxyUrl: 'https://proxy.teste',
+    proxyServiceId: 'sistema2-backend',
+    proxyServiceToken: 'tok-123',
+  };
+  const proxy = new ProxyClienteFalso();
+
+  it('por padrão, guarda as sessões em memória, com a limpeza por temporizador ligada', () => {
+    const sessoes = criarRepositorioDeSessoes(comProxy, proxy, logger);
+
+    expect(sessoes).toBeInstanceOf(RepositorioDeSessoesEmMemoria);
+    expect((sessoes as RepositorioDeSessoesEmMemoria)['temporizador']).toBeDefined();
+    (sessoes as RepositorioDeSessoesEmMemoria).pararLimpeza();
+  });
+
+  it('com SESSOES_NO_BANCO e o proxy configurado, guarda no banco e oferece a limpeza aos jobs', () => {
+    const sessoes = criarRepositorioDeSessoes({ ...comProxy, sessoesNoBanco: true }, proxy, logger);
+
+    expect(sessoes).toBeInstanceOf(RepositorioDeSessoesNoProxy);
+    expect(sessoes.limparExpiradas).toBeDefined();
+  });
+
+  it('com SESSOES_NO_BANCO mas sem proxy (dev), cai na memória', () => {
+    const sessoes = criarRepositorioDeSessoes(
+      { ...CONFIG_DE_TESTE, sessoesNoBanco: true },
+      proxy,
+      logger,
+    );
+
+    expect(sessoes).toBeInstanceOf(RepositorioDeSessoesEmMemoria);
+    (sessoes as RepositorioDeSessoesEmMemoria).pararLimpeza();
   });
 });

@@ -47,6 +47,11 @@ export interface Operacao {
   admin?: boolean;
   /** Escritas passam pela fila (docs/12, seção 12.5); consultas não. */
   escrita: boolean;
+  /**
+   * O payload tem dado sigiloso (ex.: hash do token de sessão) e não é gravado na fila de escrita,
+   * como já acontece com as operações da administração.
+   */
+  sigilosa?: boolean;
   /** Valida o payload e devolve o que precisa ser autorizado e executado. */
   preparar(payload: unknown, ctx: ContextoOperacao): OperacaoPreparada;
 }

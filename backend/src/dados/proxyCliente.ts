@@ -17,8 +17,14 @@ export const CABECALHOS_DO_PROXY = {
   ID_DA_OPERACAO: 'X-Operation-Id',
 } as const;
 
-/** Leituras: as únicas operações que o cliente repete sozinho, porque repetir não altera dados. */
-export const OPERACOES_DE_LEITURA: ReadonlySet<string> = new Set(['dados.consultar']);
+/**
+ * Operações que o cliente repete sozinho, porque repetir não muda o resultado: a leitura e a busca
+ * da sessão (UC13), cuja renovação só empurra o prazo para agora + inatividade (idempotente).
+ */
+export const OPERACOES_DE_LEITURA: ReadonlySet<string> = new Set([
+  'dados.consultar',
+  'sessao.buscar',
+]);
 
 /** Operação cujo retorno é indexado pelo id de cada passo, que não é nome de coluna. */
 const OPERACAO_LOTE = 'dados.lote';

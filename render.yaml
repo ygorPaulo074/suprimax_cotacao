@@ -66,6 +66,10 @@ services:
         value: "1"
       - key: SESSAO_INATIVIDADE_MINUTOS
         value: "30"
+      # Sessões no banco (UC13): "true" só depois do `prisma migrate deploy` da migration
+      # 20261118000000_sessao e do deploy do proxy com as operações sessao.*. Ausente = false (memória).
+      - key: SESSOES_NO_BANCO
+        sync: false
       # Em produção o backend recusa localhost e valores de exemplo nestas quatro.
       - key: CORS_ORIGENS # URL do frontend na Vercel, sem barra final
         sync: false

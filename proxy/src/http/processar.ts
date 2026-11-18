@@ -139,7 +139,7 @@ export async function processar(deps: DepsServidor, req: Requisicao): Promise<Re
               sistemaOrigem: sistema,
               dominio: preparada.dominio,
               operacao: op.id,
-              payload: op.admin ? null : envelope.payload,
+              payload: op.admin || op.sigilosa ? null : envelope.payload,
             },
             preparada.executar,
           )
