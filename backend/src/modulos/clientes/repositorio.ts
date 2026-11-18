@@ -4,12 +4,15 @@
 import { z } from 'zod';
 import {
   consultar,
+  linhasDe,
   decimalParaCentavos,
   executarLote,
   linhasDoPasso,
   referenciaAoPasso,
   validarLinha,
   type ClienteDeProxy,
+  type CondicaoDeFiltro,
+  type FiltroDoProxy,
 } from '../../dados';
 import { ErroInterno } from '../../erros';
 
@@ -36,6 +39,9 @@ export const OPERACOES_DE_CLIENTES = {
   BUSCAR: 'UC03-buscar-cliente',
   SOMAR_DIVIDA: 'UC03-somar-divida',
   CADASTRAR: 'UC02-cadastrar-cliente',
+  LISTAR: 'UC03-listar-clientes',
+  DIVIDAS_DA_LISTA: 'UC03-dividas-da-lista',
+  ADICIONAR_ENDERECO: 'UC02-adicionar-endereco',
 } as const;
 
 const TABELA_DE_CLIENTES = 'cliente';
@@ -52,6 +58,7 @@ const COLUNAS_DO_CLIENTE = [
   'status',
   'id_operador_vendedor',
 ];
+const COLUNAS_DA_LISTA = [...COLUNAS_DO_CLIENTE, 'nome_fantasia'];
 const PASSO_DO_CLIENTE = 'cliente';
 const PASSO_DOS_ENDERECOS = 'enderecos';
 const ALIAS_DO_TOTAL = 'total';
@@ -119,6 +126,59 @@ const esquemaDoCliente = z.object({
   // Com `incluir`, o proxy devolve as linhas filhas em uma lista com o nome da tabela.
   enderecoCliente: z.array(esquemaDoEndereco),
 });
+
+const esquemaDoClienteDaLista = esquemaDoCliente.extend({ nomeFantasia: z.string().nullable() });
+const esquemaDoIdDoClienteComDivida = z.object({ idCliente: z.number().int() });
+const esquemaDoIdDoEndereco = z.object({ idEndereco: z.number().int() });
+const PADRAO_DE_CNPJ_PARCIAL = /^[\d.\-/\s]+$/;
+const PADRAO_DA_MASCARA_DE_CNPJ = /[.\-/\s]/g;
+
+/** Cliente na listagem, com o endereço cadastral e o sinal de dívida em aberto. */
+export interface ClienteDaLista {
+  readonly idCliente: number;
+  readonly razaoSocial: string;
+  readonly nomeFantasia: string | null;
+  readonly cnpj: string;
+  readonly status: StatusDoCliente;
+  readonly cidade: string | null;
+  readonly uf: string | null;
+  readonly temDividaEmAberto: boolean;
+}
+
+/** Uma página da listagem de clientes. */
+export interface PaginaDeClientes {
+  readonly clientes: readonly ClienteDaLista[];
+  readonly temMais: boolean;
+}
+
+/** Filtros e posição da listagem (`pagina` a partir de 1). */
+export interface FiltroDaListaDeClientes {
+  readonly q?: string;
+  readonly status?: StatusDoCliente;
+  readonly pagina: number;
+  readonly tamanho: number;
+}
+
+/** Cursor do proxy: o deslocamento (offset) em JSON, em base64url (proxy/src/sql/consultar.ts). */
+function cursorNoDeslocamento(deslocamento: number): string {
+  return Buffer.from(JSON.stringify({ o: deslocamento })).toString('base64url');
+}
+
+function filtroDaLista({ q, status }: FiltroDaListaDeClientes): FiltroDoProxy | undefined {
+  const condicoes: (CondicaoDeFiltro | FiltroDoProxy)[] = [];
+  if (status !== undefined) {
+    condicoes.push(['status', '=', status]);
+  }
+  if (q !== undefined) {
+    const digitos = q.replace(PADRAO_DA_MASCARA_DE_CNPJ, '');
+    const porCnpj: CondicaoDeFiltro[] =
+      PADRAO_DE_CNPJ_PARCIAL.test(q) && digitos !== '' ? [['cnpj', 'contem', digitos]] : [];
+    condicoes.push({
+      ou: [['razao_social', 'contem', q], ['nome_fantasia', 'contem', q], ...porCnpj],
+    });
+  }
+  return condicoes.length === 0 ? undefined : { e: condicoes };
+}
 
 const esquemaDoTotalDaDivida = z.object({ total: z.string().nullable() });
 const esquemaDoIdDoCliente = z.object({ idCliente: z.number().int() });
@@ -253,5 +313,110 @@ export class RepositorioDeClientes {
     );
     const { total } = validarLinha(esquemaDoTotalDaDivida, linha, TABELA_DE_DIVIDAS);
     return total === null ? 0 : decimalParaCentavos(total);
+  }
+
+  /**
+   * Uma página de clientes em ordem alfabética da razão social, com o endereço cadastral.
+   * O proxy só pagina por cursor (deslocamento); a página N parte de `(N - 1) * tamanho`.
+   */
+  async listar(filtro: FiltroDaListaDeClientes): Promise<PaginaDeClientes> {
+    const filtros = filtroDaLista(filtro);
+    const deslocamento = (filtro.pagina - 1) * filtro.tamanho;
+    const resposta = await this.proxy.executar<{ proximoCursor?: string | null }>(
+      'dados.consultar',
+      {
+        tabela: TABELA_DE_CLIENTES,
+        campos: COLUNAS_DA_LISTA,
+        ...(filtros && { filtros }),
+        incluir: [TABELA_DE_ENDERECOS],
+        ordenacao: [
+          ['razao_social', 'asc'],
+          ['id_cliente', 'asc'],
+        ],
+        limite: filtro.tamanho,
+        ...(deslocamento > 0 && { cursor: cursorNoDeslocamento(deslocamento) }),
+      },
+      OPERACOES_DE_CLIENTES.LISTAR,
+    );
+    const linhas = linhasDe(resposta).map((linha) =>
+      validarLinha(esquemaDoClienteDaLista, linha, TABELA_DE_CLIENTES),
+    );
+    const comDivida = await this.idsComDividaEmAberto(linhas.map(({ idCliente }) => idCliente));
+    const clientes = linhas.map(({ enderecoCliente, ...cliente }): ClienteDaLista => {
+      const cadastral = enderecoCliente
+        .filter((endereco) => endereco.tipo === 'CADASTRAL')
+        .sort((a, b) => a.idEndereco - b.idEndereco)[0];
+      return {
+        idCliente: cliente.idCliente,
+        razaoSocial: cliente.razaoSocial,
+        nomeFantasia: cliente.nomeFantasia,
+        cnpj: cliente.cnpj,
+        status: cliente.status,
+        cidade: cadastral?.cidade ?? null,
+        uf: cadastral?.uf ?? null,
+        temDividaEmAberto: comDivida.has(cliente.idCliente),
+      };
+    });
+    return { clientes, temMais: typeof resposta.proximoCursor === 'string' };
+  }
+
+  /** Quais dos clientes informados (até 100) têm dívida em aberto ou protestada (RN06). */
+  private async idsComDividaEmAberto(idsDosClientes: readonly number[]): Promise<Set<number>> {
+    if (idsDosClientes.length === 0) {
+      return new Set();
+    }
+    const linhas = await consultar(
+      this.proxy,
+      {
+        tabela: TABELA_DE_DIVIDAS,
+        campos: ['id_cliente'],
+        filtros: {
+          e: [
+            ['id_cliente', 'em', [...idsDosClientes]],
+            ['status', 'em', [...STATUS_DE_DIVIDA_QUE_BLOQUEIAM]],
+          ],
+        },
+      },
+      OPERACOES_DE_CLIENTES.DIVIDAS_DA_LISTA,
+    );
+    return new Set(
+      linhas.map(
+        (linha) => validarLinha(esquemaDoIdDoClienteComDivida, linha, TABELA_DE_DIVIDAS).idCliente,
+      ),
+    );
+  }
+
+  /** Grava um endereço adicional do cliente (UC02-A1) e devolve o identificador. */
+  async inserirEndereco(idCliente: number, endereco: EnderecoAInserir): Promise<number> {
+    const resultados = await executarLote(
+      this.proxy,
+      [
+        {
+          id: PASSO_DOS_ENDERECOS,
+          operacao: 'dados.inserir',
+          payload: {
+            tabela: TABELA_DE_ENDERECOS,
+            valores: {
+              id_cliente: idCliente,
+              tipo: endereco.tipo,
+              logradouro: endereco.logradouro,
+              numero: endereco.numero,
+              complemento: endereco.complemento,
+              bairro: endereco.bairro,
+              cidade: endereco.cidade,
+              uf: endereco.uf,
+              cep: endereco.cep,
+            },
+            retornar: ['id_endereco'],
+          },
+        },
+      ],
+      OPERACOES_DE_CLIENTES.ADICIONAR_ENDERECO,
+    );
+    const [linha] = linhasDoPasso(resultados, PASSO_DOS_ENDERECOS);
+    if (linha === undefined) {
+      throw new ErroInterno(new Error('O endereço não devolveu o identificador.'));
+    }
+    return validarLinha(esquemaDoIdDoEndereco, linha, TABELA_DE_ENDERECOS).idEndereco;
   }
 }

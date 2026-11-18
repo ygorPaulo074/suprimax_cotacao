@@ -454,6 +454,8 @@ describe('autorização das rotas de clientes', () => {
   const ROTAS = [
     ['get', `/clientes/busca?cnpj=${CNPJ}`],
     ['post', '/clientes'],
+    ['get', '/clientes'],
+    ['post', '/clientes/1/enderecos'],
     ['get', '/clientes/1/orcamentos-em-aberto'],
     ['get', '/clientes/1/historico-compras'],
     ['get', '/vendedores'],
@@ -494,5 +496,237 @@ describe('autorização das rotas de clientes', () => {
 
     expect((await cadastrar(clienteNovo(), chefe.autorizacao)).status).toBe(201);
     expect((await buscar(CNPJ, chefe.autorizacao)).status).toBe(200);
+  });
+});
+
+describe('GET /clientes (UC03, lista)', () => {
+  async function montarComClientes() {
+    const contexto = await montar();
+    const { cadastrar, clienteNovo, idVendedor } = contexto;
+    await cadastrar(clienteNovo({ cnpj: '11222333000181', razaoSocial: 'Papelaria Alfa Ltda' }));
+    await cadastrar(
+      clienteNovo({
+        cnpj: '22333444000172',
+        razaoSocial: 'Bazar Beta',
+        enderecos: [{ ...ENDERECO, cidade: 'Anápolis' }],
+        idOperadorVendedor: idVendedor,
+      }),
+    );
+    await cadastrar(clienteNovo({ cnpj: '33444555000163', razaoSocial: 'Corte Gama ME' }));
+    const listar = (
+      consulta: Record<string, string> = {},
+      autorizacao = contexto.operador.autorizacao,
+    ) => request(contexto.app).get('/clientes').query(consulta).set('Authorization', autorizacao);
+    return { ...contexto, listar };
+  }
+  const clienteDoBanco = (idVendedor: number): Linha => ({
+    cnpj: '44555666000154',
+    razao_social: 'Delta Embalagens',
+    nome_contato: 'Ana',
+    tipo_unidade: 'MATRIZ',
+    id_operador_vendedor: idVendedor,
+    aceite_lgpd: true,
+    data_aceite_lgpd: AGORA.toISOString(),
+  });
+  const ids = (corpo: { clientes: { idCliente: number }[] }) =>
+    corpo.clientes.map((cliente) => cliente.idCliente);
+  const razoes = (corpo: { clientes: { razaoSocial: string }[] }) =>
+    corpo.clientes.map((cliente) => cliente.razaoSocial);
+
+  it('devolve a lista enxuta em ordem de razão social, com cidade/UF e sinal de dívida', async () => {
+    const { listar, banco, semearUsuario } = await montarComClientes();
+    banco.semear('divida_inadimplencia', {
+      id_cliente: 2,
+      id_operador_registro: semearUsuario('FINANCEIRO', 'fabio'),
+      valor_divida: '10.00',
+      status: 'EM_ABERTO',
+      data_vencimento_original: '2026-09-30',
+    });
+
+    const resposta = await listar();
+
+    expect(resposta.status).toBe(200);
+    expect(resposta.body).toEqual({
+      clientes: [
+        {
+          idCliente: 2,
+          razaoSocial: 'Bazar Beta',
+          nomeFantasia: null,
+          cnpj: '22333444000172',
+          status: 'ATIVO',
+          cidade: 'Anápolis',
+          uf: 'GO',
+          temDividaEmAberto: true,
+        },
+        expect.objectContaining({ razaoSocial: 'Corte Gama ME', temDividaEmAberto: false }),
+        expect.objectContaining({ razaoSocial: 'Papelaria Alfa Ltda', cidade: 'Goiânia' }),
+      ],
+      pagina: 1,
+      tamanho: 20,
+      temMais: false,
+    });
+    expect(resposta.text).not.toContain('nomeContato');
+  });
+
+  it('ignora dívidas quitadas no sinal de dívida', async () => {
+    const { listar, banco, semearUsuario } = await montarComClientes();
+    banco.semear('divida_inadimplencia', {
+      id_cliente: 1,
+      id_operador_registro: semearUsuario('FINANCEIRO', 'fabio'),
+      valor_divida: '10.00',
+      status: 'QUITADA',
+      data_vencimento_original: '2026-09-30',
+    });
+
+    const resposta = await listar();
+
+    expect(
+      resposta.body.clientes.some(
+        (cliente: { temDividaEmAberto: boolean }) => cliente.temDividaEmAberto,
+      ),
+    ).toBe(false);
+  });
+
+  it('pagina: a página 2 parte do deslocamento e temMais indica a continuação', async () => {
+    const { listar } = await montarComClientes();
+
+    const primeira = await listar({ tamanho: '2' });
+    const segunda = await listar({ tamanho: '2', pagina: '2' });
+
+    expect(razoes(primeira.body)).toEqual(['Bazar Beta', 'Corte Gama ME']);
+    expect(primeira.body).toMatchObject({ pagina: 1, tamanho: 2, temMais: true });
+    expect(razoes(segunda.body)).toEqual(['Papelaria Alfa Ltda']);
+    expect(segunda.body).toMatchObject({ pagina: 2, temMais: false });
+  });
+
+  it('filtra por trecho da razão social, sem diferenciar maiúsculas', async () => {
+    const { listar } = await montarComClientes();
+
+    expect(ids((await listar({ q: 'bazar' })).body)).toEqual([2]);
+  });
+
+  it('filtra por nome fantasia', async () => {
+    const { listar, banco, idVendedor } = await montarComClientes();
+    banco.semear('cliente', { ...clienteDoBanco(idVendedor), nome_fantasia: 'Gamão Cortes' });
+
+    expect(ids((await listar({ q: 'gamão' })).body)).toEqual([4]);
+  });
+
+  it('filtra por CNPJ parcial, com ou sem máscara', async () => {
+    const { listar } = await montarComClientes();
+
+    expect(ids((await listar({ q: '2233344' })).body)).toEqual([2]);
+    expect(ids((await listar({ q: '22.333.444/0001' })).body)).toEqual([2]);
+  });
+
+  it('filtra por status', async () => {
+    const { listar, banco, idVendedor } = await montarComClientes();
+    banco.semear('cliente', { ...clienteDoBanco(idVendedor), status: 'BLOQUEADO' });
+
+    expect(ids((await listar({ status: 'BLOQUEADO' })).body)).toEqual([4]);
+  });
+
+  it('devolve lista vazia quando nada confere', async () => {
+    const { listar } = await montarComClientes();
+
+    const resposta = await listar({ q: 'inexistente' });
+
+    expect(resposta.status).toBe(200);
+    expect(resposta.body).toMatchObject({ clientes: [], temMais: false });
+  });
+
+  it.each([
+    ['tamanho acima do teto', { tamanho: '51' }, 'tamanho'],
+    ['tamanho zero', { tamanho: '0' }, 'tamanho'],
+    ['página zero', { pagina: '0' }, 'pagina'],
+    ['página com letras', { pagina: 'a' }, 'pagina'],
+    ['status desconhecido', { status: 'ZUMBI' }, 'status'],
+  ])('responde 400 com %s', async (_caso, consulta, campo) => {
+    const { listar } = await montarComClientes();
+
+    const resposta = await listar(consulta);
+
+    expect(resposta.status).toBe(400);
+    expect(resposta.body.detalhes).toEqual({ campos: [campo] });
+  });
+});
+
+describe('POST /clientes/:id/enderecos (UC02-A1)', () => {
+  const ENTREGA = { ...ENDERECO, tipo: 'ENTREGA', logradouro: 'Rua 7', numero: '45' };
+
+  async function montarComCliente() {
+    const contexto = await montar();
+    await contexto.cadastrar(contexto.clienteNovo());
+    const adicionar = (
+      id: number | string,
+      corpo: unknown,
+      autorizacao = contexto.operador.autorizacao,
+    ) =>
+      request(contexto.app)
+        .post(`/clientes/${id}/enderecos`)
+        .set('Authorization', autorizacao)
+        .send(corpo as object);
+    return { ...contexto, adicionar };
+  }
+
+  it('responde 201 com a ficha já com o novo endereço e grava a linha', async () => {
+    const { adicionar, banco } = await montarComCliente();
+
+    const resposta = await adicionar(1, { ...ENTREGA, cep: '74.000-100', uf: 'go' });
+
+    expect(resposta.status).toBe(201);
+    expect(resposta.body.idCliente).toBe(1);
+    expect(resposta.body.enderecos).toEqual([
+      { idEndereco: 1, ...ENDERECO },
+      { idEndereco: 2, ...ENTREGA, cep: '74000100' },
+    ]);
+    expect(banco.linhas('endereco_cliente')).toHaveLength(2);
+    expect(banco.linhas('endereco_cliente')[1]).toMatchObject({ id_cliente: 1, tipo: 'ENTREGA' });
+  });
+
+  it('responde 404 CLIENTE_NAO_ENCONTRADO para cliente inexistente', async () => {
+    const { adicionar, banco } = await montarComCliente();
+
+    const resposta = await adicionar(99, ENTREGA);
+
+    expect(resposta.status).toBe(404);
+    expect(resposta.body.codigo).toBe('CLIENTE_NAO_ENCONTRADO');
+    expect(banco.linhas('endereco_cliente')).toHaveLength(1);
+  });
+
+  it('responde 400 quando o cliente já tem o máximo de endereços', async () => {
+    const { adicionar, banco } = await montarComCliente();
+    const [base] = banco.linhas('endereco_cliente');
+    banco.semear(
+      'endereco_cliente',
+      Array.from({ length: 49 }, () => ({ ...base!, id_endereco: undefined })),
+    );
+
+    const resposta = await adicionar(1, ENTREGA);
+
+    expect(resposta.status).toBe(400);
+    expect(resposta.body.detalhes).toEqual({ campos: ['enderecos'] });
+    expect(banco.linhas('endereco_cliente')).toHaveLength(50);
+  });
+
+  it.each([
+    ['sem logradouro', { ...ENTREGA, logradouro: '' }, 'logradouro'],
+    ['com UF inválida', { ...ENTREGA, uf: 'XX' }, 'uf'],
+    ['com CEP curto', { ...ENTREGA, cep: '123' }, 'cep'],
+    ['com tipo inválido', { ...ENTREGA, tipo: 'OUTRO' }, 'tipo'],
+  ])('responde 400 %s', async (_caso, corpo, campo) => {
+    const { adicionar, banco } = await montarComCliente();
+
+    const resposta = await adicionar(1, corpo);
+
+    expect(resposta.status).toBe(400);
+    expect(resposta.body.detalhes).toEqual({ campos: [campo] });
+    expect(banco.linhas('endereco_cliente')).toHaveLength(1);
+  });
+
+  it('responde 400 com id da rota inválido', async () => {
+    const { adicionar } = await montarComCliente();
+
+    expect((await adicionar('abc', ENTREGA)).status).toBe(400);
   });
 });
