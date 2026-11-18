@@ -141,10 +141,10 @@ async function main() {
     for (const [cnpj, tipo, logradouro, numero, complemento, bairro, cidade, uf, cep] of ENDERECOS) {
       const r = await db.query(
         `INSERT INTO endereco_cliente (id_cliente, tipo, logradouro, numero, complemento, bairro, cidade, uf, cep)
-         SELECT c.id_cliente, $2, $3, $4, $5, $6, $7, $8, $9 FROM cliente c
+         SELECT c.id_cliente, $2::varchar, $3::varchar, $4::varchar, $5::varchar, $6::varchar, $7::varchar, $8::char(2), $9::char(8) FROM cliente c
           WHERE c.cnpj = $1
             AND NOT EXISTS (SELECT 1 FROM endereco_cliente e
-                             WHERE e.id_cliente = c.id_cliente AND e.tipo = $2 AND e.logradouro = $3 AND e.numero = $4)`,
+                             WHERE e.id_cliente = c.id_cliente AND e.tipo = $2::varchar AND e.logradouro = $3::varchar AND e.numero = $4::varchar)`,
         [cnpj, tipo, logradouro, numero, complemento, bairro, cidade, uf, cep],
       );
       contagem.endereco += r.rowCount;
