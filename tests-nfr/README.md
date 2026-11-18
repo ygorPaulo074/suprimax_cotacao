@@ -18,16 +18,34 @@ Os scripts que usam o banco exigem `DIRECT_URL` com host local (recusam qualquer
 
 ## Scripts
 
-| Arquivo | Testes | RNF |
-|---|---|---|
-| `t01-03-concorrencia.mjs` | 1 (10 operadores emitindo, sem número duplicado), 2 (`pedido.assumir` simultâneo), 3 (reservas concorrentes) | RNF09 |
-| `t04-06-desempenho.mjs` | 4 (busca CNPJ), 5 (cálculo 5 itens), 6 (emissão + PDF); p50/p95/p99 | RNF03 |
-| `t08-persistencia.mjs gravar` / `ler` | 8 (rascunho sobrevive ao reinício do backend e do proxy) | RNF04 |
-| `t11-14-15-seguranca.mjs roles` / `replay` / `ratelimit` | 11 (403 entre papéis), 14 (replay e timestamp), 15 (rate limit) | RNF01, RNF05 |
-| `subir-ambiente.sh` | sobe/derruba proxy e backend locais | - |
-| `lib.mjs` | utilitários (login, medição, estatística) | - |
+| Arquivo                                                  | Testes                                                                                                       | RNF          |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | ------------ |
+| `t01-03-concorrencia.mjs`                                | 1 (10 operadores emitindo, sem número duplicado), 2 (`pedido.assumir` simultâneo), 3 (reservas concorrentes) | RNF09        |
+| `t04-06-desempenho.mjs`                                  | 4 (busca CNPJ), 5 (cálculo 5 itens), 6 (emissão + PDF); p50/p95/p99                                          | RNF03        |
+| `t08-persistencia.mjs gravar` / `ler`                    | 8 (rascunho sobrevive ao reinício do backend e do proxy)                                                     | RNF04        |
+| `t11-14-15-seguranca.mjs roles` / `replay` / `ratelimit` | 11 (403 entre papéis), 14 (replay e timestamp), 15 (rate limit)                                              | RNF01, RNF05 |
+| `subir-ambiente.sh`                                      | sobe/derruba proxy e backend locais                                                                          | -            |
+| `lib.mjs`                                                | utilitários (login, medição, estatística)                                                                    | -            |
 
 Rodar o 8: `node tests-nfr/t08-persistencia.mjs gravar; tests-nfr/subir-ambiente.sh parar; tests-nfr/subir-ambiente.sh; node tests-nfr/t08-persistencia.mjs ler`.
 Rodar o 14: exporte `PROXY_SERVICE_ID` e `PROXY_SERVICE_TOKEN` (de `backend/.env` local) e rode `replay`.
 
-Os testes 12 (URL assinada do anexo expira) exige Supabase Storage e não foi automatizado; 13 e 18 são revisões de `render.yaml` e dos `.env.example`.
+O teste 12 (URL assinada do anexo expira) exige Supabase Storage e não foi automatizado; 13 e 18 são revisões de `render.yaml` e dos `.env.example`.
+
+## Evidência por RNF
+
+Onde cada requisito não funcional (docs/03, seção 3.1) é verificado hoje. "Automatizado" roda sem intervenção; "manual" depende de pessoa e navegador; "pendente" ainda não tem evidência. Os resultados numéricos dependem do ambiente local descrito acima e não valem para o Render gratuito.
+
+| RNF                                                          | Evidência                                                                                                                                                                                                | Tipo             | Situação                                                                                     |
+| ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- | -------------------------------------------------------------------------------------------- |
+| RNF01 (senha criptografada, acesso individual)               | `backend/src/modulos/auth/senha.ts` (bcrypt, custo 12) e `senha.test.ts`; `exigirPerfil` com `autenticacao.test.ts`; teste 11 (403 entre papéis) em `t11-14-15-seguranca.mjs roles`                      | Jest + script    | Automatizado                                                                                 |
+| RNF02 (no máximo 10 cliques do pedido à emissão com 5 itens) | Nenhuma                                                                                                                                                                                                  | Manual           | Pendente: contar os cliques no navegador e registrar aqui                                    |
+| RNF03 (CNPJ 1 s, cálculo 2 s, emissão com PDF 5 s)           | `t04-06-desempenho.mjs` (p50/p95/p99, testes 4 a 6); no backend, `lote.test.ts` conta as chamadas ao proxy no detalhe do orçamento                                                                       | Script + Jest    | Automatizado (local); medir no Render ativo antes de dar por cumprido                        |
+| RNF04 (dados salvos não se perdem)                           | `t08-persistencia.mjs gravar` / `ler` (rascunho sobrevive ao reinício do backend e do proxy)                                                                                                             | Script           | Automatizado                                                                                 |
+| RNF05 (tudo passa pelo proxy)                                | Teste 14 (replay e timestamp) e 15 (rate limit) em `t11-14-15-seguranca.mjs`; o backend só tem cliente do proxy (`backend/src/dados/`); testes 13 e 18 são revisão de `render.yaml` e dos `.env.example` | Script + revisão | Automatizado em parte; 13 e 18 manuais                                                       |
+| RNF06 (fila offline e reenvio)                               | `frontend/src/api/filaOffline.test.ts`; `backend/src/http/middlewares/idempotencia.test.ts` (reenvio sem duplicar)                                                                                       | Jest             | Automatizado; falta teste manual no navegador com a rede cortada (ver `frontend/TAREFAS.md`) |
+| RNF07 (host único padronizado)                               | Decisão de infraestrutura (Vercel e Render, docs/03, seção 3.2); `render.yaml`                                                                                                                           | Revisão          | Sem teste                                                                                    |
+| RNF08 (Chrome, Edge e Firefox, 1280 px ou mais)              | Nenhuma                                                                                                                                                                                                  | Manual           | Pendente (ver `frontend/TAREFAS.md`)                                                         |
+| RNF09 (10 operadores simultâneos, sem número duplicado)      | `t01-03-concorrencia.mjs` (testes 1 a 3)                                                                                                                                                                 | Script           | Automatizado                                                                                 |
+
+O teste 12 (URL assinada do anexo expira) exige Supabase Storage e também não foi automatizado.
