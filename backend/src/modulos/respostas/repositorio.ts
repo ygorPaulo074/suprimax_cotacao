@@ -157,6 +157,26 @@ export class RepositorioDeRespostas {
     return linhas.map((linha) => validarLinha(esquemaDaResposta, linha, TABELA_DE_RESPOSTAS));
   }
 
+  /**
+   * Valor total aceito (centavos) por orçamento, lido de `valor_total_aceito`, que só o ramo de
+   * aceite de `resposta.processar` grava (UC20). Orçamento sem resposta aceita fica fora do mapa.
+   */
+  async valoresAceitosPorOrcamento(
+    idsDosOrcamentos: readonly number[],
+  ): Promise<Map<number, number>> {
+    const valores = new Map<number, number>();
+    if (idsDosOrcamentos.length === 0) {
+      return valores;
+    }
+    const respostas = await this.listar({ e: [['id_orcamento', 'em', [...idsDosOrcamentos]]] });
+    for (const resposta of respostas) {
+      if (resposta.valorTotalAceito !== null) {
+        valores.set(resposta.idOrcamento, resposta.valorTotalAceito);
+      }
+    }
+    return valores;
+  }
+
   /** Busca a resposta pelo identificador; `null` se não existir. */
   async buscarPorId(idResposta: number): Promise<RespostaDoOrcamento | null> {
     const [linha] = await consultar(

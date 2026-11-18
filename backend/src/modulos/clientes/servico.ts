@@ -156,11 +156,8 @@ export class ServicoDeClientes {
   }
 
   /**
-   * Histórico de compras do cliente (RF04, RF07): orçamentos ACEITO.
-   *
-   * TODO item 7: `valorTotalAceito` repete o valor total proposto, porque o valor efetivamente
-   * aceito item a item só existe a partir de `resposta_orcamento`/`item_resposta_orcamento`
-   * (UC20/21), que ainda não foram implementados.
+   * Histórico de compras do cliente (RF04, RF07): orçamentos ACEITO, com o valor efetivamente
+   * aceito (`valor_total_aceito`, UC20).
    */
   listarHistoricoDeCompras(idCliente: number): Promise<readonly HistoricoDeCompraDoCliente[]> {
     return this.orcamentos.listarHistoricoDeCompras(idCliente);
