@@ -234,7 +234,26 @@ export interface AnexoDetalhado {
   readonly nomeArquivo: string;
 }
 
+/** Operador identificado no aviso de edição de rascunho (nome de exibição = nome de usuário). */
+export interface OperadorIdentificado {
+  readonly idOperador: number;
+  readonly nome: string;
+}
+
+/** Última alteração registrada no histórico por um operador que não é o responsável. */
+export interface AlteracaoDeOutroOperador extends OperadorIdentificado {
+  readonly data: string;
+}
+
 export interface OrcamentoDetalhado extends OrcamentoResumido {
+  /** Operador responsável (`orcamento.id_operador`); `nome` vem do cadastro de usuários. */
+  readonly responsavel: OperadorIdentificado;
+  /**
+   * Evento mais recente do histórico feito por outro operador que não o responsável, ou `null`.
+   * Hoje só há evento de histórico em mudança de status e follow-up; edições de itens e condições
+   * do rascunho não gravam quem editou (exigiria migration), então não aparecem aqui.
+   */
+  readonly ultimaAlteracaoDeOutro: AlteracaoDeOutroOperador | null;
   readonly idPedido: number | null;
   readonly numeroPedido: string | null;
   readonly chaveSeguranca: string | null;
@@ -1476,14 +1495,30 @@ export class ServicoDeOrcamentos
         leitores.orcamentos.listarHistorico(orcamento.idOrcamento),
         leitores.orcamentos.listarVersoes(orcamento),
         leitores.orcamentos.listarAnexos(orcamento.idOrcamento),
-      ]).then(async ([historico, versoes, anexos]) => ({
-        historicoDetalhado: await this.detalharHistorico(historico, leitores.usuarios),
-        versoes,
-        anexosDoOrcamento: anexos,
-      })),
+      ]).then(async ([historico, versoes, anexos]) => {
+        const nomes = await this.nomesDosOperadores(
+          [orcamento.idOperador, ...historico.map((evento) => evento.idOperador)],
+          leitores.usuarios,
+        );
+        return {
+          historicoDetalhado: this.detalharHistorico(historico, nomes),
+          responsavel: {
+            idOperador: orcamento.idOperador,
+            nome: nomes.get(orcamento.idOperador) ?? '',
+          },
+          ultimaAlteracaoDeOutro: this.ultimaAlteracaoDeOutro(
+            orcamento.idOperador,
+            historico,
+            nomes,
+          ),
+          versoes,
+          anexosDoOrcamento: anexos,
+        };
+      }),
     ]);
     const { cliente } = base;
-    const { historicoDetalhado, versoes, anexosDoOrcamento } = complementos;
+    const { historicoDetalhado, versoes, anexosDoOrcamento, responsavel, ultimaAlteracaoDeOutro } =
+      complementos;
     const itens = this.detalharItens(base.itensDoOrcamento, base.variacoes);
     const condicoes = this.avaliarCondicoes(orcamento, base);
     return {
@@ -1498,6 +1533,8 @@ export class ServicoDeOrcamentos
             ])
           : new Map(),
       ),
+      responsavel,
+      ultimaAlteracaoDeOutro,
       idPedido: orcamento.idPedido,
       numeroPedido: null,
       chaveSeguranca: orcamento.chaveSeguranca,
@@ -1532,22 +1569,24 @@ export class ServicoDeOrcamentos
     };
   }
 
-  /** Resolve o `usuario` (login) de cada evento, para exibição (UC06). */
-  private async detalharHistorico(
-    eventos: readonly EventoDoHistorico[],
+  /** Nome de usuário (login) de cada id, para exibição (UC06, aviso de edição de rascunho). */
+  private async nomesDosOperadores(
+    ids: readonly (number | null)[],
     usuarios: RepositorioDeUsuarios,
-  ): Promise<EventoDeHistoricoDetalhado[]> {
-    const idsDosOperadores = [
-      ...new Set(
-        eventos.map((evento) => evento.idOperador).filter((id): id is number => id !== null),
-      ),
-    ];
-    const encontrados = await Promise.all(idsDosOperadores.map((id) => usuarios.buscarPorId(id)));
-    const nomesPorId = new Map(
+  ): Promise<Map<number, string>> {
+    const unicos = [...new Set(ids.filter((id): id is number => id !== null))];
+    const encontrados = await Promise.all(unicos.map((id) => usuarios.buscarPorId(id)));
+    return new Map(
       encontrados
         .filter((usuario): usuario is NonNullable<typeof usuario> => usuario !== null)
         .map((usuario) => [usuario.idOperador, usuario.usuario]),
     );
+  }
+
+  private detalharHistorico(
+    eventos: readonly EventoDoHistorico[],
+    nomesPorId: ReadonlyMap<number, string>,
+  ): EventoDeHistoricoDetalhado[] {
     return eventos.map((evento) => ({
       tipoEvento: evento.tipoEvento,
       statusAnterior: evento.statusAnterior,
@@ -1556,6 +1595,22 @@ export class ServicoDeOrcamentos
       usuario: evento.idOperador === null ? null : (nomesPorId.get(evento.idOperador) ?? null),
       dataRegistro: evento.dataRegistro,
     }));
+  }
+
+  /** Evento mais recente de um operador diferente do responsável, ou `null` (aviso de edição). */
+  private ultimaAlteracaoDeOutro(
+    idResponsavel: number,
+    eventos: readonly EventoDoHistorico[],
+    nomesPorId: ReadonlyMap<number, string>,
+  ): AlteracaoDeOutroOperador | null {
+    let ultimo: { idOperador: number; data: string } | null = null;
+    for (const evento of eventos) {
+      if (evento.idOperador === null || evento.idOperador === idResponsavel) continue;
+      if (ultimo === null || evento.dataRegistro > ultimo.data) {
+        ultimo = { idOperador: evento.idOperador, data: evento.dataRegistro };
+      }
+    }
+    return ultimo === null ? null : { ...ultimo, nome: nomesPorId.get(ultimo.idOperador) ?? '' };
   }
 
   private detalharItens(
