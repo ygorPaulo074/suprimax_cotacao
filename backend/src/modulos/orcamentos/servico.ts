@@ -76,6 +76,7 @@ import type {
   DadosDoItemAdicionar,
   DadosDoOrcamentoNovo,
 } from './esquemas';
+import { numeroDoPedido } from '../pedidos/numero';
 import { gerarPdfDeOrcamento } from './pdf';
 
 const OPERACAO_SITUACAO_CLIENTE = 'UC14-situacao-cliente';
@@ -1026,14 +1027,7 @@ SupriMax`,
     await this.orcamentos.emitir(idOrcamento, autor.idOperador, () =>
       randomBytes(BYTES_DA_CHAVE_DE_SEGURANCA).toString('hex'),
     );
-    await this.orcamentos.registrarHistorico({
-      idOrcamento,
-      idOperador: autor.idOperador,
-      tipoEvento: 'MUDANCA_STATUS',
-      statusAnterior: orcamento.status,
-      statusNovo: 'ABERTO',
-      observacao: null,
-    });
+    // O gatilho orcamento_status_auditar já grava RASCUNHO -> ABERTO (com o operador): não repetir.
     this.logger.info({ evento: 'orcamento_emitido', idOrcamento, idAutor: autor.idOperador });
     return this.obter(idOrcamento);
   }
@@ -1893,7 +1887,7 @@ SupriMax`,
       responsavel,
       ultimaAlteracaoDeOutro,
       idPedido: orcamento.idPedido,
-      numeroPedido: null,
+      numeroPedido: orcamento.idPedido === null ? null : numeroDoPedido(orcamento.idPedido),
       chaveSeguranca: orcamento.chaveSeguranca,
       numeroSolicitacaoCompra: orcamento.numeroSolicitacaoCompra,
       contato: orcamento.contatoSolicitacao,
@@ -1944,7 +1938,7 @@ SupriMax`,
     eventos: readonly EventoDoHistorico[],
     nomesPorId: ReadonlyMap<number, string>,
   ): EventoDeHistoricoDetalhado[] {
-    return eventos.map((evento) => ({
+    return deduplicarHistorico(eventos).map((evento) => ({
       tipoEvento: evento.tipoEvento,
       statusAnterior: evento.statusAnterior,
       statusNovo: evento.statusNovo,
@@ -2012,4 +2006,43 @@ SupriMax`,
       };
     });
   }
+}
+
+/** Janela em que duas mudanças de status iguais contam como a mesma (gatilho do banco + backend). */
+const JANELA_DE_DUPLICIDADE_EM_MS = 5000;
+
+/**
+ * Colapsa mudanças de status idênticas (mesma origem e destino) registradas com menos de 5 s de
+ * diferença: o gatilho `orcamento_status_auditar` e o registro manual do backend gravavam o mesmo
+ * evento em dobro. Preserva a ordem e prefere o evento com observação (sem perder o operador).
+ */
+export function deduplicarHistorico(eventos: readonly EventoDoHistorico[]): EventoDoHistorico[] {
+  const saida: EventoDoHistorico[] = [];
+  for (const evento of eventos) {
+    const indice = evento.tipoEvento === 'MUDANCA_STATUS' ? indiceDoDuplicado(saida, evento) : -1;
+    const existente = saida[indice];
+    if (existente === undefined) {
+      saida.push(evento);
+    } else if (evento.observacao && !existente.observacao) {
+      saida[indice] = { ...evento, idOperador: evento.idOperador ?? existente.idOperador };
+    }
+  }
+  return saida;
+}
+
+function indiceDoDuplicado(saida: readonly EventoDoHistorico[], evento: EventoDoHistorico): number {
+  for (let i = saida.length - 1; i >= 0; i -= 1) {
+    const anterior = saida[i];
+    if (
+      anterior !== undefined &&
+      anterior.tipoEvento === evento.tipoEvento &&
+      anterior.statusAnterior === evento.statusAnterior &&
+      anterior.statusNovo === evento.statusNovo &&
+      Math.abs(Date.parse(evento.dataRegistro) - Date.parse(anterior.dataRegistro)) <
+        JANELA_DE_DUPLICIDADE_EM_MS
+    ) {
+      return i;
+    }
+  }
+  return -1;
 }
