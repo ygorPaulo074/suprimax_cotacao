@@ -56,6 +56,29 @@ describe('EmailViaResend', () => {
     });
   });
 
+  it('envia anexos em base64 no campo attachments (UC08)', async () => {
+    const { chamadas, fetchDeEmail } = fetchFalso(ok);
+    const enviador = new EmailViaResend({
+      chaveDaApi: CHAVE,
+      remetente: 'a@b.com',
+      fetch: fetchDeEmail,
+    });
+
+    await enviador.enviar({
+      para: EMAIL,
+      assunto: 'a',
+      texto: 't',
+      html: 'h',
+      anexos: [{ nomeArquivo: 'orcamento-1.pdf', conteudo: Buffer.from('%PDF-x') }],
+    });
+
+    expect(JSON.parse(String(chamadas[0]?.init.body))).toMatchObject({
+      attachments: [
+        { filename: 'orcamento-1.pdf', content: Buffer.from('%PDF-x').toString('base64') },
+      ],
+    });
+  });
+
   it('lança erro sem endereço nem chave quando o Resend recusa', async () => {
     const { fetchDeEmail } = fetchFalso(() => new Response(`{"to":"${EMAIL}"}`, { status: 422 }));
     const enviador = new EmailViaResend({

@@ -2,6 +2,7 @@
 import type { Router } from 'express';
 import type { DadosDaEmpresaEmissora } from '../../config';
 import type { ClienteDeProxy } from '../../dados';
+import type { EnviadorDeEmail } from '../../email/enviador';
 import { ArmazenamentoViaProxy, type ArmazenamentoDeArquivos } from '../../dados/armazenamento';
 import type { Logger } from '../../log';
 import type { RepositorioDeSessoes } from '../auth/sessoes';
@@ -25,6 +26,8 @@ export interface DependenciasDoModuloDeOrcamentos {
   readonly armazenamento?: ArmazenamentoDeArquivos;
   /** Cabeçalho/rodapé do PDF de orçamento (UC19, docs/09). */
   readonly empresaEmissora: DadosDaEmpresaEmissora;
+  /** Envia o PDF por e-mail (UC08); sem ele, `enviar` só registra em log. */
+  readonly enviadorDeEmail?: EnviadorDeEmail;
   readonly agora?: () => Date;
 }
 
@@ -48,6 +51,7 @@ export function criarModuloDeOrcamentos(
     logger: dependencias.logger,
     empresaEmissora: dependencias.empresaEmissora,
     agora: dependencias.agora,
+    enviadorDeEmail: dependencias.enviadorDeEmail,
   });
   return { rotas: criarRotasDeOrcamentos({ servico, sessoes: dependencias.sessoes }), servico };
 }

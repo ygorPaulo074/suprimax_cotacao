@@ -1,4 +1,10 @@
 // UC13, UC25 — interface única de envio de e-mail e a implementação por Resend (fetch, sem SDK).
+/** Arquivo anexado a um e-mail (UC08). */
+export interface AnexoDeEmail {
+  readonly nomeArquivo: string;
+  readonly conteudo: Buffer;
+}
+
 /** Um e-mail pronto para sair. */
 export interface MensagemDeEmail {
   /** Endereço do destinatário. Nunca registre em log. */
@@ -6,6 +12,8 @@ export interface MensagemDeEmail {
   readonly assunto: string;
   readonly texto: string;
   readonly html: string;
+  /** Anexos opcionais; o Resend limita a mensagem inteira a 40 MB (já em base64). */
+  readonly anexos?: readonly AnexoDeEmail[];
 }
 
 /** Envio de e-mail do sistema. Os notificadores dependem só desta interface. */
@@ -46,7 +54,7 @@ export class EmailViaResend implements EnviadorDeEmail {
     this.fetch = opcoes.fetch ?? ((url, init) => fetch(url, init));
   }
 
-  async enviar({ para, assunto, texto, html }: MensagemDeEmail): Promise<void> {
+  async enviar({ para, assunto, texto, html, anexos }: MensagemDeEmail): Promise<void> {
     let resposta: Response;
     try {
       resposta = await this.fetch(URL_DO_RESEND, {
@@ -61,6 +69,13 @@ export class EmailViaResend implements EnviadorDeEmail {
           subject: assunto,
           text: texto,
           html,
+          ...(anexos !== undefined &&
+            anexos.length > 0 && {
+              attachments: anexos.map((anexo) => ({
+                filename: anexo.nomeArquivo,
+                content: anexo.conteudo.toString('base64'),
+              })),
+            }),
         }),
         signal: AbortSignal.timeout(PRAZO_DO_RESEND_MS),
       });

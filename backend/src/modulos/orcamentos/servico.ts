@@ -19,9 +19,11 @@ import {
   ErroDeOrcamentoNaoEditavel,
   ErroDeOrcamentoNaoEncontrado,
   ErroDePdfIndisponivel,
+  ErroDeServicoIndisponivel,
   ErroDeValidacao,
   ErroDeVariacaoNaoEncontrada,
 } from '../../erros';
+import type { EnviadorDeEmail } from '../../email/enviador';
 import type { Logger } from '../../log';
 import type { Sessao } from '../auth/sessoes';
 import { RepositorioDeClientes, type ClienteCadastrado } from '../clientes/repositorio';
@@ -44,7 +46,7 @@ import {
   type ResultadoFaturamento,
 } from '../cotacao/calculoAdapter';
 import type { GestorDeOrcamentoParaCredito } from '../credito/servico';
-import type { ItemDePedido, Pedido } from '../pedidos/repositorio';
+import { RepositorioDePedidos, type ItemDePedido, type Pedido } from '../pedidos/repositorio';
 import type { MontadorDeOrcamentos } from '../pedidos/servico';
 import {
   RepositorioDeProdutos,
@@ -81,6 +83,10 @@ const OPERACAO_DETALHE = 'UC15-detalhe-orcamento';
 const BYTES_DA_CHAVE_DE_SEGURANCA = 24;
 /** Observação do evento de histórico registrado por `enviar` (UC08, variação A1). */
 const MENSAGEM_DO_HISTORICO_DE_ENVIO = 'Documento enviado ao cliente.';
+
+function escaparHtml(texto: string): string {
+  return texto.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+}
 /** Valor abaixo do qual um resultado de crédito reprovado não bloqueia (50% adiantado cobre). */
 const STATUS_PENDENTE_CREDITO: StatusDoOrcamento = 'PENDENTE_CREDITO';
 /** Compra fechada (RF04, RF17): orçamento com todos os itens aprovados pelo cliente. */
@@ -291,6 +297,8 @@ export interface DependenciasDoServicoDeOrcamentos {
   readonly logger: Logger;
   /** Cabeçalho/rodapé do PDF de orçamento (UC19, docs/09). */
   readonly empresaEmissora: DadosDaEmpresaEmissora;
+  /** Envia o PDF por e-mail (UC08). Ausente (sem `RESEND_API_KEY`): só registra em log. */
+  readonly enviadorDeEmail?: EnviadorDeEmail;
   readonly agora?: () => Date;
 }
 
@@ -314,10 +322,12 @@ export class ServicoDeOrcamentos
   private readonly clientes: RepositorioDeClientes;
   private readonly produtos: RepositorioDeProdutos;
   private readonly usuarios: RepositorioDeUsuarios;
+  private readonly pedidos: RepositorioDePedidos;
   private readonly proxy: ClienteDeProxy;
   private readonly armazenamento: ArmazenamentoDeArquivos;
   private readonly logger: Logger;
   private readonly empresaEmissora: DadosDaEmpresaEmissora;
+  private readonly enviadorDeEmail: EnviadorDeEmail | undefined;
   private readonly agora: () => Date;
   private analiseDeCredito?: GestorDeAnaliseDeCredito;
 
@@ -326,10 +336,12 @@ export class ServicoDeOrcamentos
     this.clientes = dependencias.clientes;
     this.produtos = dependencias.produtos;
     this.usuarios = dependencias.usuarios;
+    this.pedidos = new RepositorioDePedidos(dependencias.proxy);
     this.proxy = dependencias.proxy;
     this.armazenamento = dependencias.armazenamento;
     this.logger = dependencias.logger;
     this.empresaEmissora = dependencias.empresaEmissora;
+    this.enviadorDeEmail = dependencias.enviadorDeEmail;
     this.agora = dependencias.agora ?? (() => new Date());
   }
 
@@ -676,17 +688,61 @@ export class ServicoDeOrcamentos
   }
 
   /**
-   * Disponibiliza o orçamento ao vendedor (UC08, variação A1). O backend só confere a precondição
-   * e registra o evento no histórico: "salvar, imprimir ou enviar o documento ao cliente" é
-   * manual, feito pelo operador fora do sistema — não há e-mail nem coluna "enviado" no banco.
+   * Envia o PDF do orçamento por e-mail ao vendedor responsável e registra o evento no histórico
+   * (UC08, variação A1). O vendedor responsável é o da carteira do cliente
+   * (`cliente.id_operador_vendedor`, o mesmo do pedido de origem); o e-mail vem de `operador`. Sem
+   * vendedor utilizável (inexistente ou INATIVO), o envio vai ao próprio operador.
    *
-   * @throws {ErroDeEnvioNaoPermitido} Se o orçamento ainda não foi emitido, ou tem pendência de
-   * crédito (422, UC08-E1).
+   * Ordem: o e-mail sai ANTES de gravar o evento. Se o provedor falhar, nada é gravado e a
+   * resposta é 503 (repetir é seguro). Se o e-mail sair e a gravação falhar, o vendedor já tem o
+   * PDF e o operador pode repetir; preferimos isso a registrar um envio que não aconteceu.
+   * Sem `enviadorDeEmail` (modo mudo), o fluxo segue e só há log, sem endereço nem conteúdo.
+   *
+   * @throws {ErroDeEnvioNaoPermitido} Se o orçamento não estiver ABERTO (emitido e vigente) ou
+   * tiver pendência de crédito (422, UC08-E1).
+   * @throws {ErroDeServicoIndisponivel} Se o provedor de e-mail falhar (503).
    */
-  async enviar(idOrcamento: number, autor: Sessao): Promise<OrcamentoDetalhado> {
+  async enviar(idOrcamento: number, autor: Sessao): Promise<void> {
     const detalhe = await this.obter(idOrcamento);
-    if (detalhe.numeroOrcamento === null || detalhe.condicoes.creditoStatus === 'PENDENTE') {
+    if (
+      detalhe.numeroOrcamento === null ||
+      detalhe.status !== STATUS_ABERTO ||
+      detalhe.condicoes.creditoStatus === 'PENDENTE'
+    ) {
       throw new ErroDeEnvioNaoPermitido();
+    }
+    if (this.enviadorDeEmail === undefined) {
+      this.logger.warn(
+        { evento: 'email_nao_enviado', tipo: 'orcamento', idOrcamento },
+        'E-mail do orçamento não enviado: o envio de e-mails não está configurado.',
+      );
+    } else {
+      const destinatario = await this.descobrirDestinatarioDoEnvio(
+        detalhe.idPedido,
+        detalhe.idCliente,
+        autor,
+      );
+      const numero = detalhe.numeroOrcamento;
+      const pdf = await gerarPdfDeOrcamento(detalhe, this.empresaEmissora);
+      try {
+        await this.enviadorDeEmail.enviar({
+          para: destinatario,
+          assunto: `Orçamento ${numero} - SupriMax`,
+          texto: `Olá,
+
+segue em anexo o orçamento ${numero}, emitido por ${autor.usuario}.
+
+SupriMax`,
+          html: `<p>Olá,</p><p>segue em anexo o orçamento <strong>${numero}</strong>, emitido por ${escaparHtml(autor.usuario)}.</p><p>SupriMax</p>`,
+          anexos: [{ nomeArquivo: `orcamento-${idOrcamento}.pdf`, conteudo: pdf }],
+        });
+      } catch (erro) {
+        this.logger.error(
+          { evento: 'orcamento_email_falhou', idOrcamento, err: erro },
+          'o provedor de e-mail não enviou o orçamento',
+        );
+        throw new ErroDeServicoIndisponivel({ causa: erro });
+      }
     }
     await this.orcamentos.registrarHistorico({
       idOrcamento,
@@ -697,7 +753,42 @@ export class ServicoDeOrcamentos
       observacao: MENSAGEM_DO_HISTORICO_DE_ENVIO,
     });
     this.logger.info({ evento: 'orcamento_enviado', idOrcamento, idAutor: autor.idOperador });
-    return this.obter(idOrcamento);
+  }
+
+  /**
+   * Destinatário do envio (UC08-A1), em cascata e lendo só o necessário: (1) vendedor do pedido de
+   * origem, se o orçamento tem pedido; (2) vendedor da carteira do cliente; (3) o operador logado.
+   * Um vendedor só serve se estiver ATIVO e com e-mail.
+   */
+  private async descobrirDestinatarioDoEnvio(
+    idPedido: number | null,
+    idCliente: number,
+    autor: Sessao,
+  ): Promise<string> {
+    if (idPedido !== null) {
+      const pedido = await this.pedidos.buscarPorId(idPedido);
+      const email = pedido && (await this.emailDoVendedor(pedido.idOperadorVendedor));
+      if (email) {
+        return email;
+      }
+    }
+    const cliente = await this.clientes.buscarPorId(idCliente);
+    const email = cliente && (await this.emailDoVendedor(cliente.idOperadorVendedor));
+    if (email) {
+      return email;
+    }
+    this.logger.warn(
+      { evento: 'orcamento_envio_sem_vendedor', idCliente },
+      'vendedor responsável sem e-mail utilizável; o orçamento vai ao operador',
+    );
+    return autor.email;
+  }
+
+  private async emailDoVendedor(idOperador: number): Promise<string | null> {
+    const vendedor = await this.usuarios.buscarPorId(idOperador);
+    return vendedor !== null && vendedor.status === 'ATIVO' && vendedor.email !== ''
+      ? vendedor.email
+      : null;
   }
 
   /**

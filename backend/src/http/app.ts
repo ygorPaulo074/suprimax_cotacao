@@ -5,6 +5,7 @@ import helmet from 'helmet';
 import type { Config } from '../config';
 import type { ClienteDeProxy } from '../dados';
 import type { ArmazenamentoDeArquivos } from '../dados/armazenamento';
+import type { EnviadorDeEmail } from '../email/enviador';
 import type { Logger } from '../log';
 import {
   criarModuloDeAuth,
@@ -62,6 +63,8 @@ export interface DependenciasDoApp {
   readonly notificador?: NotificadorDeEmail;
   /** Envio do e-mail de recuperação de senha; por padrão, só registra em log. */
   readonly notificadorDeRecuperacao?: NotificadorDeRecuperacaoDeSenha;
+  /** Envio de e-mail com anexo (UC08). Sem ele, o envio do orçamento só registra em log. */
+  readonly enviadorDeEmail?: EnviadorDeEmail;
 }
 
 /** Chave de `app.locals` onde `createApp` deixa o `AgendadorDeJobs` para o `index.ts` ligar. */
@@ -83,6 +86,7 @@ export function createApp({
   auth,
   notificador,
   notificadorDeRecuperacao,
+  enviadorDeEmail,
 }: DependenciasDoApp): Express {
   const app = express();
   // Define de onde vem o IP do cliente (req.ip), usado no limite de tentativas de login.
@@ -114,6 +118,7 @@ export function createApp({
     agora,
     armazenamento,
     empresaEmissora: config.empresaEmissora,
+    enviadorDeEmail,
   });
   app.use(criarModuloDeClientes({ ...comuns, agora, orcamentos: orcamentos.servico }).rotas);
   app.use(criarModuloDeProdutos(comuns).rotas);
