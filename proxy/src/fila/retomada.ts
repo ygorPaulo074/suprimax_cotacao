@@ -1,137 +1,61 @@
-import type { ResultadoRisco } from '../auditoria/auditoria';
-import type { ContextoAutenticado } from '../auth/autenticacao';
-import { exigirEscopos } from '../auth/escopos';
-import { montarContexto, normalizarErro, type DepsServidor } from '../http/processar';
-import { OPERACOES } from '../operacoes/registro';
-import type { Operacao } from '../operacoes/tipos';
-import type { ItemFila, RepositorioFila } from './fila';
+import type { DepsServidor } from '../http/processar';
+import type { RepositorioFila } from './fila';
 
-// Retomada da fila de escrita após reinício do proxy (docs/12, seção 12.5). Roda no início, ANTES
-// de o servidor aceitar requisições, para que nenhuma escrita nova passe na frente das antigas e
-// para que o chamador, ao ler o estado depois de o proxy voltar, já veja o efeito.
+// Tratamento da fila de escrita na subida do proxy (docs/12, seção 12.5). A fila NÃO reexecuta o
+// que ficou pendente: a escrita e a marcação `concluido` são confirmadas na mesma transação, então
+// um item `pendente`/`processando` encontrado ao subir NÃO tem efeito no banco, e o chamador já
+// recebeu erro (503/500) e confere o estado antes de repetir. Reexecutá-lo faria a escrita aparecer
+// depois, e o reenvio do chamador a duplicaria (a idempotência do backend não guarda erros).
 //
-// Cada item `pendente` ou `processando` é executado de novo pela própria fila (fila.ts), com a
-// mesma garantia de exatamente uma vez: o item `processando` que sobrou de uma queda não teve
-// efeito no banco (a transação foi desfeita), e a trava da linha impede que outra instância ainda
-// viva o execute ao mesmo tempo. Os que não podem ou não devem ser retomados viram `erro`.
+// Por isso a subida só marca `erro` (motivo claro) esses itens, numa única instrução, e audita cada
+// um. Só entram os criados ANTES do início deste processo: se a instrução demorar (banco
+// acordando), as escritas novas, registradas depois, não são tocadas, e a ordem da fila não é
+// afetada, porque nada é enfileirado aqui.
 
-/** Itens mais antigos que isso não são retomados: quem pediu já recebeu erro há muito tempo. */
-export const IDADE_MAXIMA_RETOMADA_MS = 15 * 60_000;
-/** Um item que derrubou o proxy tantas vezes não é tentado de novo (evita laço de quedas). */
-export const MAXIMO_TENTATIVAS_RETOMADA = 3;
-/** Itens lidos por início; o resto fica para o próximo. */
-export const LIMITE_RETOMADA = 500;
+export const MOTIVO_INTERRUPCAO = 'interrompido por reinício; verifique o estado antes de repetir';
+/** Valor de `resultado` na auditoria de um item interrompido. */
+export const RESULTADO_INTERRUPCAO = 'INTERROMPIDO_REINICIO';
 
 export interface ResumoRetomada {
-  retomados: number;
-  falharam: number;
-  descartados: number;
-}
-
-const PREFIXO_DESCARTE = 'não retomado após reinício: ';
-
-/** A operação a retomar, ou o motivo (texto) por que o item não pode ser retomado. */
-function operacaoRetomavel(item: ItemFila, agora: Date): Operacao | string {
-  if (agora.getTime() - item.criadoEm.getTime() > IDADE_MAXIMA_RETOMADA_MS) return 'expirado';
-  if (item.tentativas >= MAXIMO_TENTATIVAS_RETOMADA) return 'tentativas esgotadas';
-  const op = OPERACOES.get(item.operacao);
-  if (!op || !op.escrita) return 'operação desconhecida';
-  // Administração e sessões não gravam o payload na fila (sigiloso): não há o que repetir.
-  if (op.admin || op.sigilosa || item.payload === null) return 'operação sem payload na fila';
-  return op;
-}
-
-async function autenticacaoDoItem(
-  deps: DepsServidor,
-  item: ItemFila,
-): Promise<ContextoAutenticado | null> {
-  const integrante = await deps.integrantes.buscarPorId(item.sistemaOrigem);
-  const agora = deps.agora();
-  if (!integrante || !integrante.ativo || (integrante.expiraEm && integrante.expiraEm <= agora)) {
-    return null;
-  }
-  return {
-    serviceId: integrante.id,
-    operationId: `retomada-fila:${item.id}`,
-    // Os escopos de agora: um escopo revogado desde então barra a retomada.
-    escopos: integrante.escopos,
-    integrante,
-    admin: false,
-  };
+  interrompidos: number;
 }
 
 /**
- * Retoma os itens pendentes da fila. Nunca lança: uma falha ao listar só vai para o log, e o
- * proxy sobe mesmo assim. Cada retomada gera uma entrada de auditoria (request_id = id do item).
+ * Marca `erro` os itens pendentes/processando criados antes de `inicioDoProcesso`. Nunca lança:
+ * uma falha só vai para o log, e o proxy sobe mesmo assim. Cada item gera uma entrada de auditoria
+ * (request_id = id do item), gravada em sequência sem bloquear quem a chamou além do necessário.
  */
 export async function retomarFila(
   deps: DepsServidor,
   repositorio: RepositorioFila,
+  inicioDoProcesso: Date = deps.agora(),
 ): Promise<ResumoRetomada> {
-  const resumo: ResumoRetomada = { retomados: 0, falharam: 0, descartados: 0 };
-  let itens: ItemFila[];
+  let itens;
   try {
-    itens = await repositorio.listarRetomaveis(LIMITE_RETOMADA);
+    itens = await repositorio.interromper(MOTIVO_INTERRUPCAO, inicioDoProcesso);
   } catch (e) {
-    deps.logger.error({ err: e }, 'falha ao listar a fila de escrita para retomada');
-    return resumo;
+    deps.logger.error({ err: e }, 'falha ao marcar a fila de escrita interrompida no reinício');
+    return { interrompidos: 0 };
   }
-
   for (const item of itens) {
-    const inicio = Date.now();
-    let risco: ResultadoRisco = 'NAO_APLICAVEL';
-    let codigo = 'ok';
-    try {
-      const op = operacaoRetomavel(item, deps.agora());
-      const auth = typeof op === 'string' ? null : await autenticacaoDoItem(deps, item);
-      if (typeof op === 'string' || !auth) {
-        const motivo = typeof op === 'string' ? op : 'integrante inválido';
-        await repositorio.falhar(item.id, PREFIXO_DESCARTE + motivo);
-        resumo.descartados++;
-        deps.logger.warn(
-          { item: item.id, operacao: item.operacao, motivo },
-          'item da fila descartado na retomada',
-        );
-        continue;
-      }
-      const ctx = montarContexto(deps, auth, (r) => {
-        risco = r;
-      });
-      // Valida o payload e os escopos antes de tocar no banco, como numa requisição nova.
-      exigirEscopos(auth.escopos, op.preparar(item.payload, ctx).escopos);
-      await deps.fila.retomar(
-        item.id,
-        (tx) => op.preparar(item.payload, { ...ctx, banco: tx }).executar(),
-        deps.banco,
-      );
-      resumo.retomados++;
-    } catch (e) {
-      const erro = normalizarErro(e);
-      codigo = erro.codigo;
-      resumo.falharam++;
-      // A fila já marcou `erro` se chegou a executar; aqui cobre a validação recusada antes dela.
-      await repositorio
-        .falhar(item.id, PREFIXO_DESCARTE + (erro.motivoInterno ?? erro.codigo))
-        .catch(() => undefined);
-      deps.logger.warn(
-        { item: item.id, operacao: item.operacao, codigo, motivo: erro.motivoInterno },
-        'item da fila falhou na retomada',
-      );
-    }
+    deps.logger.warn(
+      { item: item.id, operacao: item.operacao, tentativas: item.tentativas },
+      'item da fila interrompido por reinício marcado como erro (sem reexecução)',
+    );
     await deps.auditoria.registrar({
       timestamp: deps.agora(),
       sistemaOrigem: item.sistemaOrigem,
       operacao: item.operacao,
-      resultadoVerificacaoRisco: risco,
-      statusExecucao: codigo === 'ok' ? 'SUCESSO' : 'ERRO',
-      duracaoMs: Date.now() - inicio,
+      resultadoVerificacaoRisco: 'NAO_APLICAVEL',
+      statusExecucao: 'ERRO',
+      duracaoMs: 0,
       requestId: item.id,
-      resultado: codigo,
-      // fila_escrita não guarda o usuário (o schema não mudou): a retomada fica sem id_usuario.
+      resultado: RESULTADO_INTERRUPCAO,
+      // fila_escrita não guarda o usuário (o schema não mudou).
       idUsuario: null,
       ipOrigem: null,
     });
   }
-  if (itens.length > 0) deps.logger.info({ ...resumo }, 'retomada da fila de escrita');
-  return resumo;
+  if (itens.length > 0) deps.logger.info({ interrompidos: itens.length }, 'fila interrompida');
+  return { interrompidos: itens.length };
 }

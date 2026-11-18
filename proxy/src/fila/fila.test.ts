@@ -135,4 +135,19 @@ describe('FilaEscrita', () => {
     expect(tarefa).not.toHaveBeenCalled();
     expect(repo.itens.get(id)).toMatchObject({ status: 'concluido', erroMensagem: null });
   });
+
+  it('falhar não sobrescreve o motivo de um item que outro processo já marcou erro', async () => {
+    const repo = new RepositorioFilaMemoria();
+    await repo.registrar({
+      id: 'x',
+      ...meta('dados.inserir'),
+      status: 'erro',
+      tentativas: 1,
+      criadoEm: new Date(),
+      atualizadoEm: new Date(),
+      erroMensagem: 'motivo original',
+    });
+    await repo.falhar('x', 'outra mensagem');
+    expect(repo.itens.get('x')?.erroMensagem).toBe('motivo original');
+  });
 });

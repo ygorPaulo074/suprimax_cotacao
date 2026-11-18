@@ -7,7 +7,7 @@ import { carregarConfig } from '../config';
 import { esquemaDoDicionario } from '../esquema/esquema';
 import type { DepsServidor } from '../http/processar';
 import { FilaEscrita, RepositorioFilaMemoria, type ItemFila } from './fila';
-import { IDADE_MAXIMA_RETOMADA_MS, MAXIMO_TENTATIVAS_RETOMADA, retomarFila } from './retomada';
+import { MOTIVO_INTERRUPCAO, RESULTADO_INTERRUPCAO, retomarFila } from './retomada';
 
 /** Banco que só conta como gravado o que a transação confirmou (simula a queda desfazendo). */
 class BancoTransacional implements Executor {
@@ -83,90 +83,57 @@ async function montar(itens: ItemFila[]) {
   return { banco, repo, deps, auditoria };
 }
 
-const inserts = (banco: BancoTransacional) =>
-  banco.confirmadas.filter((c) => c.texto.startsWith('INSERT INTO "pedido"')).map((c) => c.valores);
-
-describe('retomada da fila de escrita após reinício', () => {
-  it('reexecuta pendentes e interrompidos em ordem, uma única vez, e audita', async () => {
+describe('tratamento da fila de escrita após reinício (sem reexecução)', () => {
+  it('marca erro os pendentes e interrompidos, sem executar nada, e audita cada um em ordem', async () => {
     const { banco, repo, deps, auditoria } = await montar([
       // Interrompido no meio: a transação foi desfeita na queda, então não há efeito no banco.
       item('a', {
         status: 'processando',
         tentativas: 1,
-        payload: inserirPedido(10),
         criadoEm: new Date(AGORA.getTime() - 90_000),
       }),
-      item('b', { payload: inserirPedido(20) }),
-      item('c', { status: 'concluido', tentativas: 1, payload: inserirPedido(30) }),
-    ]);
-
-    expect(await retomarFila(deps, repo)).toEqual({ retomados: 2, falharam: 0, descartados: 0 });
-    expect(inserts(banco).map((v) => v[0])).toEqual([10, 20]);
-    expect(repo.itens.get('a')).toMatchObject({ status: 'concluido', tentativas: 2 });
-    expect(repo.itens.get('b')).toMatchObject({ status: 'concluido', tentativas: 1 });
-    expect(repo.itens.get('c')).toMatchObject({ status: 'concluido', tentativas: 1 });
-    expect(auditoria.entradas.map((e) => [e.requestId, e.operacao, e.statusExecucao])).toEqual([
-      ['a', 'dados.inserir', 'SUCESSO'],
-      ['b', 'dados.inserir', 'SUCESSO'],
-    ]);
-
-    // Um segundo reinício não repete nada: os itens já estão concluídos.
-    expect(await retomarFila(deps, repo)).toEqual({ retomados: 0, falharam: 0, descartados: 0 });
-    expect(inserts(banco)).toHaveLength(2);
-  });
-
-  it('descarta (status erro) o que não pode ou não deve ser repetido', async () => {
-    const { banco, repo, deps, auditoria } = await montar([
-      item('velho', { criadoEm: new Date(AGORA.getTime() - IDADE_MAXIMA_RETOMADA_MS - 1) }),
-      item('esgotado', { status: 'processando', tentativas: MAXIMO_TENTATIVAS_RETOMADA }),
+      item('b'),
+      item('c', { status: 'concluido', tentativas: 1 }),
+      item('d', { status: 'erro', erroMensagem: 'motivo antigo' }),
+      item('velho', { criadoEm: new Date(AGORA.getTime() - 3_600_000) }),
       item('sessao', { operacao: 'sessao.criar', dominio: 'sessao', payload: null }),
-      item('desconhecida', { operacao: 'dados.apagar_tudo' }),
-      item('sem-integrante', { sistemaOrigem: 'sistema-revogado' }),
     ]);
 
-    expect(await retomarFila(deps, repo)).toEqual({ retomados: 0, falharam: 0, descartados: 5 });
-    expect(inserts(banco)).toHaveLength(0);
-    expect(auditoria.entradas).toHaveLength(0);
-    const motivos = Object.fromEntries(
-      [...repo.itens.values()].map((i) => [i.id, [i.status, i.erroMensagem]]),
-    );
-    expect(motivos).toEqual({
-      velho: ['erro', 'não retomado após reinício: expirado'],
-      esgotado: ['erro', 'não retomado após reinício: tentativas esgotadas'],
-      sessao: ['erro', 'não retomado após reinício: operação sem payload na fila'],
-      desconhecida: ['erro', 'não retomado após reinício: operação desconhecida'],
-      'sem-integrante': ['erro', 'não retomado após reinício: integrante inválido'],
+    expect(await retomarFila(deps, repo, AGORA)).toEqual({ interrompidos: 4 });
+    expect(banco.confirmadas).toHaveLength(0); // nenhuma escrita foi reexecutada
+    expect(
+      Object.fromEntries([...repo.itens.values()].map((i) => [i.id, [i.status, i.erroMensagem]])),
+    ).toEqual({
+      a: ['erro', MOTIVO_INTERRUPCAO],
+      b: ['erro', MOTIVO_INTERRUPCAO],
+      c: ['concluido', null],
+      d: ['erro', 'motivo antigo'],
+      velho: ['erro', MOTIVO_INTERRUPCAO],
+      sessao: ['erro', MOTIVO_INTERRUPCAO],
     });
+    expect(repo.itens.get('a')?.tentativas).toBe(1);
+    expect(
+      auditoria.entradas.map((e) => [e.requestId, e.statusExecucao, e.resultado, e.idUsuario]),
+    ).toEqual(['velho', 'a', 'b', 'sessao'].map((id) => [id, 'ERRO', RESULTADO_INTERRUPCAO, null]));
+
+    // Um segundo reinício não encontra mais nada.
+    expect(await retomarFila(deps, repo, AGORA)).toEqual({ interrompidos: 0 });
+    expect(banco.confirmadas).toHaveLength(0);
   });
 
-  it('payload que não passa mais na validação ou no escopo vira erro, sem tocar no banco', async () => {
-    const { banco, repo, deps, auditoria } = await montar([
-      item('invalido', { payload: { tabela: 'pedido' } }),
-      item('sem-escopo', {
-        operacao: 'dados.excluir',
-        payload: { tabela: 'pedido', filtros: { e: [['id_pedido', '=', 1]] } },
-      }),
-      item('ok', { payload: inserirPedido(5) }),
+  it('não toca nos itens criados depois do início do processo (escritas novas não furam a ordem)', async () => {
+    const { repo, deps } = await montar([
+      item('antigo'),
+      item('novo', { criadoEm: new Date(AGORA.getTime() + 1) }),
     ]);
-
-    expect(await retomarFila(deps, repo)).toEqual({ retomados: 1, falharam: 2, descartados: 0 });
-    expect(inserts(banco).map((v) => v[0])).toEqual([5]);
-    expect(repo.itens.get('invalido')?.status).toBe('erro');
-    expect(repo.itens.get('sem-escopo')?.status).toBe('erro');
-    expect(auditoria.entradas.map((e) => [e.requestId, e.resultado])).toEqual([
-      ['invalido', 'PAYLOAD_INVALIDO'],
-      ['sem-escopo', 'ESCOPO_NEGADO'],
-      ['ok', 'ok'],
-    ]);
+    expect(await retomarFila(deps, repo, AGORA)).toEqual({ interrompidos: 1 });
+    expect(repo.itens.get('antigo')?.status).toBe('erro');
+    expect(repo.itens.get('novo')?.status).toBe('pendente');
   });
 
-  it('falha ao listar a fila não derruba a subida do proxy', async () => {
+  it('falha ao marcar a fila não derruba a subida do proxy', async () => {
     const { repo, deps } = await montar([]);
-    jest.spyOn(repo, 'listarRetomaveis').mockRejectedValueOnce(new Error('banco fora'));
-    await expect(retomarFila(deps, repo)).resolves.toEqual({
-      retomados: 0,
-      falharam: 0,
-      descartados: 0,
-    });
+    jest.spyOn(repo, 'interromper').mockRejectedValueOnce(new Error('banco fora'));
+    await expect(retomarFila(deps, repo, AGORA)).resolves.toEqual({ interrompidos: 0 });
   });
 });

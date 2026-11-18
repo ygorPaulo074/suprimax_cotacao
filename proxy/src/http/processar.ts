@@ -85,17 +85,19 @@ function armazenamentoDe(deps: DepsServidor): Armazenamento {
  * Usuário que originou a operação, declarado pelo integrante no cabeçalho opcional X-User-Id (no
  * Sistema 2, o id_operador da sessão). Vai só para `log_auditoria.id_usuario`. O formato é restrito
  * (até 40 letras, dígitos, `_` ou `-`) para que nunca caiba ali um token ou um hash de sessão
- * (64 caracteres); fora dele, a requisição é recusada com PAYLOAD_INVALIDO.
+ * (64 caracteres); fora dele, o valor é descartado (id_usuario nulo) e a operação segue: um campo só de
+ * auditoria não derruba a operação.
  */
 export const CABECALHO_ID_USUARIO = 'x-user-id';
 const FORMATO_ID_USUARIO = /^[A-Za-z0-9_-]{1,40}$/;
 
-export function lerIdUsuario(headers: Cabecalhos): string | null {
+export function lerIdUsuario(headers: Cabecalhos, avisar?: () => void): string | null {
   const v = headers[CABECALHO_ID_USUARIO];
   const bruto = (Array.isArray(v) ? v[0] : v)?.trim();
   if (!bruto) return null;
   if (!FORMATO_ID_USUARIO.test(bruto)) {
-    throw new AppError('PAYLOAD_INVALIDO', undefined, 'X-User-Id fora do formato');
+    avisar?.(); // sem o valor: ele pode ser um token ou um hash
+    return null;
   }
   return bruto;
 }
@@ -148,7 +150,9 @@ export async function processar(deps: DepsServidor, req: Requisicao): Promise<Re
     sistema = auth.serviceId;
     req.aposAutenticar?.(auth.serviceId);
     // Só depois da autenticação: quem não se identificou não atribui a operação a ninguém.
-    idUsuario = lerIdUsuario(req.headers);
+    idUsuario = lerIdUsuario(req.headers, () =>
+      deps.logger.warn({ requestId }, 'X-User-Id fora do formato: id_usuario gravado nulo'),
+    );
 
     const envelope = analisar(SchemaEnvelope, req.corpo);
     operacao = envelope.operacao;

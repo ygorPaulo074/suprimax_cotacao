@@ -40,11 +40,13 @@ let base: string;
 let banco: BancoFalso;
 let auditoria: RepositorioAuditoriaMemoria;
 let relogio = Date.now();
+let loggerDoTeste: DepsServidor['logger'];
 
 function iniciar(extra: Record<string, string> = {}) {
   banco = new BancoFalso();
   auditoria = new RepositorioAuditoriaMemoria();
   const logger = pino({ level: 'silent' });
+  loggerDoTeste = logger;
   const config = carregarConfig({ ...env, ...extra });
   const deps: DepsServidor = {
     config,
@@ -697,18 +699,24 @@ describe('auditoria e erros internos', () => {
     ]);
   });
 
-  it('X-User-Id fora do formato (ex.: token ou hash de sessão) é recusado e não vai à auditoria', async () => {
+  it('X-User-Id fora do formato (ex.: token, hash ou e-mail) não derruba a operação: id_usuario nulo e aviso sem o valor', async () => {
     const i = await integrante(['*:consultar']);
     const hash = 'a'.repeat(64);
-    for (const valor of [hash, 'Bearer abc', 'x'.repeat(41), "1'; DROP"]) {
+    const aviso = jest.spyOn(loggerDoTeste, 'warn');
+    for (const valor of [hash, 'Bearer abc', 'x'.repeat(41), "1'; DROP", 'ana@empresa.com']) {
       const r = await chamar(
         'dados.consultar',
         { tabela: 'pedido' },
         { ...como(i), idUsuario: valor },
       );
-      expect([r.status, r.corpo.erro.codigo]).toEqual([400, 'PAYLOAD_INVALIDO']);
+      expect([r.status, r.corpo.ok]).toEqual([200, true]);
     }
-    expect(auditoria.entradas.slice(1).every((e) => e.idUsuario === null)).toBe(true);
+    expect(auditoria.entradas.slice(1).map((e) => [e.resultado, e.idUsuario])).toEqual(
+      Array(5).fill(['ok', null]),
+    );
+    expect(aviso).toHaveBeenCalledTimes(5);
+    expect(JSON.stringify(aviso.mock.calls)).not.toContain(hash);
+    expect(JSON.stringify(aviso.mock.calls)).not.toContain('ana@empresa');
     expect(JSON.stringify(auditoria.entradas)).not.toContain(hash);
   });
 

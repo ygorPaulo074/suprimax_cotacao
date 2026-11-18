@@ -10,8 +10,9 @@ import { AppError } from '../erros';
 // Exatamente uma vez: a escrita e a marcação `concluido` acontecem na MESMA transação, que começa
 // travando a linha do item (SELECT ... FOR UPDATE) e só segue se ele ainda estiver `processando`.
 // Se o proxy cair no meio, a transação é desfeita e o item fica `processando` sem efeito no banco,
-// e pode ser retomado no próximo início (retomada.ts). Se a transação foi confirmada, o item já está
-// `concluido` e nunca é repetido. O id do item (chave primária de fila_escrita) é a chave de
+// e a retomada (retomada.ts) só o marca `erro`, sem executar de novo: o chamador recebeu erro e
+// confere o estado antes de repetir. Se a transação foi confirmada, o item já está `concluido` e
+// nunca é repetido. O id do item (chave primária de fila_escrita) é a chave de
 // idempotência: duas instâncias que tentem o mesmo item se excluem pela trava da linha.
 
 export type StatusFila = 'pendente' | 'processando' | 'concluido' | 'erro';
@@ -40,10 +41,17 @@ export interface RepositorioFila {
   travar(id: string, tx: Executor): Promise<boolean>;
   /** Dentro da transação da escrita: marca `concluido`. */
   concluir(id: string, tx: Executor): Promise<void>;
-  /** Marca `erro` com a mensagem (interna); nunca desfaz um `concluido`. */
+  /**
+   * Marca `erro` com a mensagem (interna), só se o item ainda estiver `pendente`/`processando`:
+   * nunca desfaz um `concluido` nem sobrescreve o motivo de um `erro` já registrado.
+   */
   falhar(id: string, mensagem: string): Promise<void>;
-  /** Itens `pendente` ou `processando`, em ordem de chegada, para a retomada após reinício. */
-  listarRetomaveis(limite: number): Promise<ItemFila[]>;
+  /**
+   * Retomada após reinício: marca `erro` (com o motivo) todos os itens `pendente`/`processando`
+   * criados ANTES de `antesDe` e devolve-os em ordem de chegada. Uma única instrução; não executa
+   * nada. Itens criados depois (pelo processo que acabou de subir) ficam intactos.
+   */
+  interromper(motivo: string, antesDe: Date): Promise<ItemFila[]>;
 }
 
 export class RepositorioFilaMemoria implements RepositorioFila {
@@ -71,15 +79,21 @@ export class RepositorioFilaMemoria implements RepositorioFila {
   }
   async falhar(id: string, mensagem: string): Promise<void> {
     const atual = this.itens.get(id);
-    if (atual && atual.status !== 'concluido') {
+    if (atual && (atual.status === 'pendente' || atual.status === 'processando')) {
       Object.assign(atual, { status: 'erro', erroMensagem: mensagem, atualizadoEm: new Date() });
     }
   }
-  async listarRetomaveis(limite: number): Promise<ItemFila[]> {
-    return [...this.itens.values()]
-      .filter((i) => i.status === 'pendente' || i.status === 'processando')
+  async interromper(motivo: string, antesDe: Date): Promise<ItemFila[]> {
+    const afetados = [...this.itens.values()].filter(
+      (i) =>
+        (i.status === 'pendente' || i.status === 'processando') &&
+        i.criadoEm.getTime() < antesDe.getTime(),
+    );
+    for (const i of afetados) {
+      Object.assign(i, { status: 'erro', erroMensagem: motivo, atualizadoEm: new Date() });
+    }
+    return afetados
       .sort((a, b) => a.criadoEm.getTime() - b.criadoEm.getTime())
-      .slice(0, limite)
       .map((i) => ({ ...i }));
   }
 }
@@ -138,7 +152,7 @@ export class FilaEscrita {
     });
   }
 
-  /** Retoma um item já registrado (após reinício), na mesma ordem e com as mesmas garantias. */
+  /** Executa na fila um item já registrado (a retomada após reinício NÃO o usa: só marca `erro`). */
   retomar<T>(id: string, tarefa: TarefaFila<T>, banco: Executor = SEM_BANCO): Promise<T> {
     return this.enfileirar(() => this.processar(id, tarefa, banco));
   }
@@ -242,16 +256,18 @@ export class RepositorioFilaPg implements RepositorioFila {
   async falhar(id: string, mensagem: string): Promise<void> {
     await this.banco.consultar({
       texto:
-        "UPDATE fila_escrita SET status = 'erro', erro_mensagem = $2, atualizado_em = now() WHERE id = $1 AND status <> 'concluido'",
+        "UPDATE fila_escrita SET status = 'erro', erro_mensagem = $2, atualizado_em = now() WHERE id = $1 AND status IN ('pendente', 'processando')",
       valores: [id, mensagem],
     });
   }
 
-  async listarRetomaveis(limite: number): Promise<ItemFila[]> {
+  async interromper(motivo: string, antesDe: Date): Promise<ItemFila[]> {
     const r = await this.banco.consultar({
-      texto: `SELECT ${COLUNAS} FROM fila_escrita WHERE status IN ('pendente', 'processando') ORDER BY criado_em, id LIMIT $1`,
-      valores: [limite],
+      texto: `UPDATE fila_escrita SET status = 'erro', erro_mensagem = $1, atualizado_em = now() WHERE status IN ('pendente', 'processando') AND criado_em < $2 RETURNING ${COLUNAS}`,
+      valores: [motivo, antesDe],
     });
-    return r.linhas.map(itemDaLinha);
+    return r.linhas
+      .map(itemDaLinha)
+      .sort((a, b) => a.criadoEm.getTime() - b.criadoEm.getTime() || a.id.localeCompare(b.id));
   }
 }

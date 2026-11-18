@@ -94,7 +94,7 @@ describe('repositórios sobre o Postgres (SQL parametrizado)', () => {
     await repo.concluir('1', g);
     expect(g.consultas.at(-1)).toMatchObject({ valores: ['1'] });
     await repo.falhar('1', 'boom');
-    expect(g.consultas.at(-1)?.texto).toMatch(/status <> 'concluido'$/);
+    expect(g.consultas.at(-1)?.texto).toMatch(/status IN \('pendente', 'processando'\)$/);
     expect(g.consultas.at(-1)?.valores).toEqual(['1', 'boom']);
 
     g.resposta = {
@@ -114,15 +114,19 @@ describe('repositórios sobre o Postgres (SQL parametrizado)', () => {
       ],
       contagem: 1,
     };
-    expect(await repo.listarRetomaveis(10)).toEqual([
+    const corte = new Date('2026-11-18T13:00:00.000Z');
+    expect(await repo.interromper('motivo', corte)).toEqual([
       expect.objectContaining({
         id: '2',
         payload: { a: 1 },
-        status: 'processando',
         criadoEm: new Date('2026-11-18T12:00:00.000Z'),
       }),
     ]);
-    expect(g.consultas.at(-1)?.valores).toEqual([10]);
+    // Uma única instrução, só dos criados antes do corte, sem tocar nos concluídos.
+    expect(g.consultas.at(-1)?.texto).toMatch(
+      /^UPDATE fila_escrita SET status = 'erro'.*WHERE status IN \('pendente', 'processando'\) AND criado_em < \$2 RETURNING/,
+    );
+    expect(g.consultas.at(-1)?.valores).toEqual(['motivo', corte]);
   });
 
   it('auditoria: grava em log_auditoria e não derruba a requisição se falhar', async () => {

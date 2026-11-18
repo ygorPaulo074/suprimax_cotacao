@@ -36,12 +36,15 @@ const deps: DepsServidor = {
 };
 const app = criarApp(deps);
 
-// A fila deixada por um reinício é retomada antes de aceitar requisições (docs/12, seção 12.5).
-// Se o banco não responder a tempo, o proxy sobe assim mesmo (o /saude precisa responder) e a
-// retomada termina em segundo plano; a trava de cada item continua impedindo execução dupla.
+// Na subida, os itens da fila deixados por um reinício são marcados `erro`, sem reexecução (docs/12,
+// seção 12.5): é uma única instrução, em milissegundos. Espera-se por ela antes do `listen` por
+// no máximo 30 s (banco acordando); o /saude precisa responder, então o proxy sobe assim mesmo.
+// Se passar do teto, ela só alcança itens criados antes de `inicioDoProcesso`, e nada é enfileirado
+// por ela, então as escritas novas não furam a ordem nem são marcadas por engano.
 const ESPERA_MAXIMA_RETOMADA_MS = 30_000;
 let servidor: ReturnType<typeof app.listen> | undefined;
-const retomada = retomarFila(deps, repositorioFila);
+const inicioDoProcesso = deps.agora();
+const retomada = retomarFila(deps, repositorioFila, inicioDoProcesso);
 void Promise.race([
   retomada,
   new Promise((resolver) => setTimeout(resolver, ESPERA_MAXIMA_RETOMADA_MS).unref()),
