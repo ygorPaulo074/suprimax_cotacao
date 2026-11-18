@@ -12,6 +12,8 @@ import {
   type TipoAnexo,
   type VariacaoProduto,
 } from '@/api';
+import { useAuth } from '@/auth/AuthContext';
+import { avisoDeEdicaoDeRascunho } from '@/lib/avisoDeRascunho';
 import { formatarBRL, reaisParaCentavos } from '@/lib/dinheiro';
 import { PARCELAS_DISPONIVEIS, PRAZOS_BOLETO_DIAS, ROTULO_CONDICAO_PAGAMENTO } from '@/lib/opcoes';
 import { Bloqueios, GradeItens, ResumoTotais } from '@/components/orcamento';
@@ -242,6 +244,8 @@ export default function OrcamentoMontagem({ orcamento }: { orcamento: OrcamentoD
   });
 
   const ocupado = adicionar.isPending || alterar.isPending || remover.isPending;
+  const { sessao } = useAuth();
+  const aviso = avisoDeEdicaoDeRascunho(orcamento, sessao?.idOperador);
   const pendenteCredito = orcamento.status === 'PENDENTE_CREDITO';
   const emissaoBloqueada =
     c.bloqueios.length > 0 || orcamento.itens.length === 0 || pendenteCredito;
@@ -256,6 +260,7 @@ export default function OrcamentoMontagem({ orcamento }: { orcamento: OrcamentoD
         </>
       }
     >
+      {aviso && <Alerta className="mb-4">{aviso}</Alerta>}
       <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[1fr_340px]">
         <div className="flex min-w-0 flex-col gap-4">
           <Cartao>

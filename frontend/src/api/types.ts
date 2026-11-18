@@ -333,8 +333,20 @@ export interface VersaoOrcamento {
   numeroOrcamento: number | null;
   status: StatusOrcamento;
 }
+/** Operador identificado no aviso de edição de rascunho (nome = nome de usuário). */
+export interface OperadorIdentificado {
+  idOperador: number;
+  nome: string;
+}
+export interface AlteracaoDeOutroOperador extends OperadorIdentificado {
+  data: DataHoraISO;
+}
 export interface OrcamentoDetalhe {
   idOrcamento: number;
+  /** Operador dono do orçamento. */
+  responsavel: OperadorIdentificado;
+  /** Último evento do histórico feito por outro operador que não o responsável; `null` se não houver. */
+  ultimaAlteracaoDeOutro: AlteracaoDeOutroOperador | null;
   numeroOrcamento: number | null;
   status: StatusOrcamento;
   idCliente: number;
