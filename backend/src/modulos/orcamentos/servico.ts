@@ -173,6 +173,12 @@ export interface CondicoesComerciais {
   readonly freteProvisorio: boolean;
   readonly condicaoPagamento: string | null;
   readonly condicoesPagamentoPermitidas: readonly string[];
+  /**
+   * Condição padrão para o estado atual (`escolherCondicaoPadrao`), calculada ao vivo e nunca
+   * gravada pelo `GET`: a tela a pré-seleciona quando `condicaoPagamento` é `null` (rascunhos
+   * anteriores à gravação automática).
+   */
+  readonly condicaoPagamentoSugerida: string;
   readonly prazoDias: number | null;
   readonly numeroParcelas: number | null;
   readonly valorTotalProposta: number;
@@ -387,7 +393,8 @@ export class ServicoDeOrcamentos
       {
         idCliente: dados.idCliente,
         idOperador: autor.idOperador,
-        idEnderecoEntrega: dados.idEnderecoEntrega ?? null,
+        idEnderecoEntrega:
+          dados.idEnderecoEntrega ?? (await this.enderecoDeEntregaUnico(dados.idCliente)),
         idPedido: null,
         idOrcamentoOrigem: null,
         numeroSolicitacaoCompra: dados.numeroSolicitacaoCompra ?? null,
@@ -419,7 +426,8 @@ export class ServicoDeOrcamentos
       {
         idCliente: pedido.idCliente,
         idOperador: autor.idOperador,
-        idEnderecoEntrega: pedido.idEnderecoEntrega,
+        idEnderecoEntrega:
+          pedido.idEnderecoEntrega ?? (await this.enderecoDeEntregaUnico(pedido.idCliente)),
         idPedido: pedido.idPedido,
         idOrcamentoOrigem: null,
         numeroSolicitacaoCompra: pedido.numeroSolicitacaoCompra,
@@ -933,14 +941,11 @@ SupriMax`,
       },
     );
     const valorFreteFinal = frete.modalidade === 'CIF' ? null : frete.valorFrete;
+    const condicaoGravada = this.condicaoSegura(faturamento, dados, orcamento);
     await this.orcamentos.atualizarCondicoes(
       idOrcamento,
       {
-        condicaoPagamento: faturamento.ok
-          ? faturamento.condicao
-          : (dados.condicaoPagamento ?? orcamento.condicaoPagamento),
-        prazoDias: faturamento.ok ? faturamento.prazoDias : null,
-        numeroParcelas: faturamento.ok ? faturamento.numeroParcelas : null,
+        ...condicaoGravada,
         modalidadeFrete: frete.modalidade,
         origemTransportadora: frete.origemTransportadora,
         transportadora: dados.transportadora ?? null,
@@ -1291,13 +1296,37 @@ SupriMax`,
     autor: Sessao,
     reverterInvalida: boolean,
   ): Promise<OrcamentoDetalhado> {
-    const orcamento = await this.buscarOuFalhar(idOrcamento);
+    const orcamento = await this.aplicarEnderecoUnico(await this.buscarOuFalhar(idOrcamento));
     const { orcamento: atualizado, avisos } = await this.aplicarCondicaoPadrao(
       orcamento,
       autor,
       reverterInvalida,
     );
     return this.montarDetalhe(atualizado, avisos);
+  }
+
+  /**
+   * Endereço de entrega único: em RASCUNHO ou PENDENTE_CREDITO sem endereço gravado, e cliente com
+   * exatamente um endereço de ENTREGA, grava esse endereço (cobre os rascunhos anteriores à
+   * gravação na criação). Roda nas mutações do rascunho, nunca no GET. Idempotente (só grava se
+   * ainda estiver nulo) e é ajuste do sistema: não mexe em `id_operador_ultima_edicao`, então não
+   * dispara o aviso de rascunho de outro operador. Orçamento emitido nunca é alterado.
+   */
+  private async aplicarEnderecoUnico(orcamento: Orcamento): Promise<Orcamento> {
+    if (!STATUS_DE_RASCUNHO.has(orcamento.status) || orcamento.idEnderecoEntrega !== null) {
+      return orcamento;
+    }
+    const idEndereco = await this.enderecoDeEntregaUnico(orcamento.idCliente);
+    if (idEndereco === null) {
+      return orcamento;
+    }
+    await this.orcamentos.atualizarCabecalho(
+      orcamento.idOrcamento,
+      { idEnderecoEntrega: idEndereco },
+      this.agora(),
+      null,
+    );
+    return { ...orcamento, idEnderecoEntrega: idEndereco };
   }
 
   /**
@@ -1431,6 +1460,43 @@ SupriMax`,
     });
   }
 
+  /**
+   * Condição, prazo e parcelas a gravar. Com `ok: false` (crédito pendente, abaixo do mínimo...) a
+   * escolha do operador é mantida para aparecer como bloqueio, mas o banco exige `prazo_dias` em
+   * BOLETO e `numero_parcelas` em PARCELADO: usa os valores já validados de `dados` (ou os
+   * gravados) e, se faltarem, recusa com 400 em vez de gravar combinação inválida.
+   */
+  private condicaoSegura(
+    faturamento: ResultadoFaturamento,
+    dados: DadosDasCondicoesAtualizar,
+    orcamento: Orcamento,
+  ): {
+    condicaoPagamento: string | null;
+    prazoDias: number | null;
+    numeroParcelas: number | null;
+  } {
+    if (faturamento.ok) {
+      return {
+        condicaoPagamento: faturamento.condicao,
+        prazoDias: faturamento.prazoDias,
+        numeroParcelas: faturamento.numeroParcelas,
+      };
+    }
+    const condicao = dados.condicaoPagamento ?? orcamento.condicaoPagamento;
+    const prazoDias = condicao === 'BOLETO' ? (dados.prazoDias ?? orcamento.prazoDias) : null;
+    const numeroParcelas =
+      condicao === 'PARCELADO' ? (dados.numeroParcelas ?? orcamento.numeroParcelas) : null;
+    if (
+      (condicao === 'BOLETO' && prazoDias === null) ||
+      (condicao === 'PARCELADO' && numeroParcelas === null)
+    ) {
+      throw new ErroDeValidacao({
+        causa: new Error(`condição ${condicao} exige prazo (boleto) ou parcelas (parcelado)`),
+      });
+    }
+    return { condicaoPagamento: condicao, prazoDias, numeroParcelas };
+  }
+
   private calcularFaturamento(
     valorTotalItens: number,
     primeiraCompra: boolean,
@@ -1500,6 +1566,13 @@ SupriMax`,
         'Este cliente tem dívida em aberto. Só é possível abrir um orçamento depois da renegociação (pagamento de no mínimo 50% do valor devido).',
       );
     }
+  }
+
+  /** Id do endereço de entrega do cliente quando ele tem exatamente um; senão `null`. */
+  private async enderecoDeEntregaUnico(idCliente: number): Promise<number | null> {
+    const cliente = await this.clientes.buscarPorId(idCliente);
+    const entregas = (cliente?.enderecos ?? []).filter((endereco) => endereco.tipo === 'ENTREGA');
+    return entregas.length === 1 ? (entregas[0]?.idEndereco ?? null) : null;
   }
 
   private async ehPrimeiraCompra(idCliente: number): Promise<boolean> {
@@ -1754,6 +1827,10 @@ SupriMax`,
       freteProvisorio: orcamento.freteProvisorio,
       condicaoPagamento: orcamento.condicaoPagamento,
       condicoesPagamentoPermitidas: condicoesPermitidas,
+      condicaoPagamentoSugerida: escolherCondicaoPadrao({
+        primeiraCompra: orcamento.primeiraCompra,
+        resultadoCredito: resultadoDoCredito,
+      }),
       prazoDias: orcamento.prazoDias,
       numeroParcelas: orcamento.numeroParcelas,
       valorTotalProposta: orcamento.valorTotalProposta ?? valorTotalItens,

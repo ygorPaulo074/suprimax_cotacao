@@ -128,7 +128,7 @@ export default function OrcamentoMontagem({ orcamento }: { orcamento: OrcamentoD
   const aplicar = (novo: OrcamentoDetalhe) => {
     setAvisosDeTroca(novo.condicoes.avisos.map((a) => a.mensagem));
     // O backend grava e troca a condição sozinho (padrão e reversão): os campos acompanham o gravado.
-    setPagamento(novo.condicoes.condicaoPagamento ?? '');
+    setPagamento(novo.condicoes.condicaoPagamento ?? novo.condicoes.condicaoPagamentoSugerida);
     if (novo.condicoes.prazoDias !== null) setPrazoDias(String(novo.condicoes.prazoDias));
     if (novo.condicoes.numeroParcelas !== null) {
       setParcelas(String(novo.condicoes.numeroParcelas));
@@ -140,7 +140,13 @@ export default function OrcamentoMontagem({ orcamento }: { orcamento: OrcamentoD
   // Cabeçalho
   const [contato, setContato] = useState(orcamento.contato ?? '');
   const [solicitacao, setSolicitacao] = useState(orcamento.numeroSolicitacaoCompra ?? '');
-  const [endereco, setEndereco] = useState(String(orcamento.idEnderecoEntrega ?? ''));
+  // Rascunho sem endereço gravado e cliente com um só endereço de entrega: já vem selecionado.
+  const entregasDoCliente = orcamento.enderecosEntrega.filter((e) => e.tipo === 'ENTREGA');
+  const enderecoUnico =
+    entregasDoCliente.length === 1 ? entregasDoCliente[0]?.idEndereco : undefined;
+  const [endereco, setEndereco] = useState(
+    String(orcamento.idEnderecoEntrega ?? enderecoUnico ?? ''),
+  );
   const [prazoEntrega, setPrazoEntrega] = useState(String(orcamento.prazoEntregaDias ?? ''));
   const salvarCabecalho = useMutation({
     mutationFn: () =>
@@ -197,7 +203,10 @@ export default function OrcamentoMontagem({ orcamento }: { orcamento: OrcamentoD
 
   // Condições comerciais
   const c = orcamento.condicoes;
-  const [pagamento, setPagamento] = useState<CondicaoPagamento | ''>(c.condicaoPagamento ?? '');
+  // Sem condição gravada (rascunho anterior à gravação automática), já vem a sugerida pelo backend.
+  const [pagamento, setPagamento] = useState<CondicaoPagamento | ''>(
+    c.condicaoPagamento ?? c.condicaoPagamentoSugerida,
+  );
   const [prazoDias, setPrazoDias] = useState(String(c.prazoDias ?? PRAZOS_BOLETO_DIAS[0]));
   const [parcelas, setParcelas] = useState(String(c.numeroParcelas ?? PARCELAS_DISPONIVEIS[0]));
   const [origem, setOrigem] = useState<OrigemTransportadora>(c.origemTransportadora ?? 'SUPRIMAX');
@@ -210,19 +219,23 @@ export default function OrcamentoMontagem({ orcamento }: { orcamento: OrcamentoD
   // salvamento, quando a modalidade ainda não foi gravada: sem isso o operador não escolheria a
   // transportadora e a origem nunca seria enviada.
   const ehFob = ehFreteFob(c.modalidadeFrete, c.valorTotalItens);
-  const salvarCondicoes = useMutation({
-    mutationFn: () =>
-      orcamentosApi.atualizarCondicoes(id, {
-        condicaoPagamento: pagamento || undefined,
-        prazoDias: pagamento === 'BOLETO' ? Number(prazoDias) : undefined,
-        numeroParcelas: pagamento === 'PARCELADO' ? Number(parcelas) : undefined,
-        origemTransportadora: ehFob ? origem : undefined,
-        transportadora: ehFob && transportadora.trim() ? transportadora.trim() : undefined,
-        valorFrete:
-          ehFob && origem === 'SUPRIMAX' ? (reaisParaCentavos(valorFrete) ?? undefined) : undefined,
-      }),
-    onSuccess: aplicar,
-  });
+  const gravarCondicoes = () =>
+    orcamentosApi.atualizarCondicoes(id, {
+      condicaoPagamento: pagamento || undefined,
+      prazoDias: pagamento === 'BOLETO' ? Number(prazoDias) : undefined,
+      numeroParcelas: pagamento === 'PARCELADO' ? Number(parcelas) : undefined,
+      origemTransportadora: ehFob ? origem : undefined,
+      transportadora: ehFob && transportadora.trim() ? transportadora.trim() : undefined,
+      valorFrete:
+        ehFob && origem === 'SUPRIMAX' ? (reaisParaCentavos(valorFrete) ?? undefined) : undefined,
+    });
+  const salvarCondicoes = useMutation({ mutationFn: gravarCondicoes, onSuccess: aplicar });
+  // Condição ainda não gravada (só a sugerida está selecionada na tela): o único bloqueio é o de
+  // condições incompletas, que a gravação da seleção resolve. Com condição gravada, nada muda.
+  const gravarAntesDeEmitir =
+    c.condicaoPagamento === null &&
+    pagamento !== '' &&
+    c.bloqueios.some((b) => b.codigo === 'CONDICOES_INCOMPLETAS');
 
   // Anexos
   const anexar = useMutation({
@@ -243,7 +256,14 @@ export default function OrcamentoMontagem({ orcamento }: { orcamento: OrcamentoD
 
   // Emissão e cancelamento
   const emitir = useMutation({
-    mutationFn: () => orcamentosApi.emitir(id),
+    mutationFn: async () => {
+      if (gravarAntesDeEmitir) {
+        const salvo = await gravarCondicoes();
+        // Se a gravação trouxe outros bloqueios (ex.: frete provisório), mostra-os e não emite.
+        if (salvo.condicoes.bloqueios.length > 0 || salvo.status !== 'RASCUNHO') return salvo;
+      }
+      return orcamentosApi.emitir(id);
+    },
     onSuccess: (emitido) => {
       aplicar(emitido);
       void queryClient.invalidateQueries({ queryKey: ['orcamentos'] });
@@ -266,7 +286,9 @@ export default function OrcamentoMontagem({ orcamento }: { orcamento: OrcamentoD
   const aviso = avisoDeEdicaoDeRascunho(orcamento, sessao?.idOperador);
   const pendenteCredito = orcamento.status === 'PENDENTE_CREDITO';
   const emissaoBloqueada =
-    c.bloqueios.length > 0 || orcamento.itens.length === 0 || pendenteCredito;
+    c.bloqueios.some((b) => !(gravarAntesDeEmitir && b.codigo === 'CONDICOES_INCOMPLETAS')) ||
+    orcamento.itens.length === 0 ||
+    pendenteCredito;
 
   return (
     <Pagina

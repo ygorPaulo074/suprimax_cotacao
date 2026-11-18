@@ -1656,6 +1656,212 @@ describe('ServicoDeOrcamentos', () => {
       expect(detalhe.condicoes.avisos).toEqual([]);
     });
 
+    it('GET devolve a condição sugerida (padrão) sem gravar nada', async () => {
+      const { servico, idOrcamento, cenario } = await montar({
+        segundaCompra: true,
+        precoUnitario: 60000,
+        creditoReprovado: true,
+      });
+      // Rascunho anterior à gravação automática: sem condição gravada.
+      cenario.banco.executar('dados.atualizar', {
+        tabela: 'orcamento',
+        valores: { condicao_pagamento: null },
+        filtros: { e: [['id_orcamento', '=', idOrcamento]] },
+      });
+
+      const detalhe = await servico.obter(idOrcamento);
+
+      expect(detalhe.condicoes.condicaoPagamento).toBeNull();
+      expect(detalhe.condicoes.condicaoPagamentoSugerida).toBe('ADIANTADO_50_50');
+      expect((await servico.obter(idOrcamento)).condicoes.condicaoPagamento).toBeNull();
+    });
+
+    it('a sugerida é ADIANTADO_100 na primeira compra', async () => {
+      const { criado } = await montar({ segundaCompra: false, precoUnitario: 60000 });
+
+      expect(criado.condicoes.condicaoPagamentoSugerida).toBe('ADIANTADO_100');
+    });
+
+    it('boleto com crédito pendente grava o prazo (o banco exige) e fica PENDENTE_CREDITO', async () => {
+      // Sem análise de crédito: resultado pendente. 2 un. a 30000 = 70800 (boleto liberado).
+      const { servico, sessao, idVariacao, idOrcamento } = await montar({
+        segundaCompra: true,
+        precoUnitario: 30000,
+      });
+      await servico.adicionarItem(idOrcamento, avulso(idVariacao, 2), sessao);
+
+      const detalhe = await servico.atualizarCondicoes(
+        idOrcamento,
+        { condicaoPagamento: 'BOLETO', prazoDias: 30, ...frete },
+        sessao,
+      );
+
+      expect(detalhe.status).toBe('PENDENTE_CREDITO');
+      expect(detalhe.condicoes.condicaoPagamento).toBe('BOLETO');
+      expect(detalhe.condicoes.prazoDias).toBe(30);
+    });
+
+    it('parcelado com crédito pendente grava as parcelas', async () => {
+      // 2 un. a 63560 = 150002 (parcelado liberado por valor).
+      const { servico, sessao, idVariacao, idOrcamento } = await montar({
+        segundaCompra: true,
+        precoUnitario: 63560,
+      });
+      await servico.adicionarItem(idOrcamento, avulso(idVariacao, 2), sessao);
+
+      const detalhe = await servico.atualizarCondicoes(
+        idOrcamento,
+        { condicaoPagamento: 'PARCELADO', numeroParcelas: 3 },
+        sessao,
+      );
+
+      expect(detalhe.condicoes.condicaoPagamento).toBe('PARCELADO');
+      expect(detalhe.condicoes.numeroParcelas).toBe(3);
+      expect(detalhe.condicoes.prazoDias).toBeNull();
+    });
+
+    it('boleto sem prazo é recusado (400) e não grava a condição', async () => {
+      const { servico, sessao, idVariacao, idOrcamento } = await montar({
+        segundaCompra: true,
+        precoUnitario: 30000,
+      });
+      await servico.adicionarItem(idOrcamento, avulso(idVariacao, 2), sessao);
+
+      await expect(
+        servico.atualizarCondicoes(idOrcamento, { condicaoPagamento: 'BOLETO', ...frete }, sessao),
+      ).rejects.toBeInstanceOf(ErroDeValidacao);
+      expect((await servico.obter(idOrcamento)).condicoes.condicaoPagamento).not.toBe('BOLETO');
+    });
+
+    describe('endereço de entrega único', () => {
+      const endereco = (idCliente: number, tipo: string) => ({
+        id_cliente: idCliente,
+        tipo,
+        logradouro: 'Rua A',
+        numero: '1',
+        bairro: 'Centro',
+        cidade: 'Goiânia',
+        uf: 'GO',
+        cep: '74000000',
+      });
+
+      it('com exatamente um endereço de entrega, o orçamento criado já o grava', async () => {
+        const cenario = montarCenarioDeCadastros();
+        const servico = montarServico(cenario);
+        const idOperador = cenario.semearUsuario('OPERADOR', 'quem-entrega');
+        const idCliente = semearCliente(cenario);
+        cenario.banco.semear('endereco_cliente', endereco(idCliente, 'CADASTRAL'));
+        const [entrega] = cenario.banco.semear('endereco_cliente', endereco(idCliente, 'ENTREGA'));
+
+        const criado = await servico.criar(
+          { idCliente, numeroSolicitacaoCompra: null, contatoSolicitacao: null },
+          sessaoDoOperador(idOperador, 'quem-entrega'),
+        );
+
+        expect(criado.idEnderecoEntrega).toBe(entrega?.id_endereco);
+      });
+
+      it('com vários endereços de entrega, deixa em branco', async () => {
+        const cenario = montarCenarioDeCadastros();
+        const servico = montarServico(cenario);
+        const idOperador = cenario.semearUsuario('OPERADOR', 'quem-entrega-2');
+        const idCliente = semearCliente(cenario);
+        cenario.banco.semear('endereco_cliente', endereco(idCliente, 'ENTREGA'));
+        cenario.banco.semear('endereco_cliente', endereco(idCliente, 'ENTREGA'));
+
+        const criado = await servico.criar(
+          { idCliente, numeroSolicitacaoCompra: null, contatoSolicitacao: null },
+          sessaoDoOperador(idOperador, 'quem-entrega-2'),
+        );
+
+        expect(criado.idEnderecoEntrega).toBeNull();
+      });
+
+      describe('rascunho antigo, sem endereço gravado', () => {
+        async function rascunhoAntigo(tiposDeEndereco: string[]) {
+          const cenario = montarCenarioDeCadastros();
+          const servico = montarServico(cenario);
+          const idOperador = cenario.semearUsuario('OPERADOR', 'quem-antigo');
+          const sessao = sessaoDoOperador(idOperador, 'quem-antigo');
+          const idCliente = semearCliente(cenario);
+          const { idVariacao } = semearVariacao(cenario, { precoUnitario: 600 });
+          // Criado antes de o cliente ter o endereço: nasce sem `id_endereco_entrega`.
+          const { idOrcamento } = await servico.criar(
+            { idCliente, numeroSolicitacaoCompra: null, contatoSolicitacao: null },
+            sessao,
+          );
+          const ids = tiposDeEndereco.map(
+            (tipo) =>
+              cenario.banco.semear('endereco_cliente', endereco(idCliente, tipo))[0]?.id_endereco,
+          );
+          return { cenario, servico, sessao, idVariacao, idOrcamento, ids };
+        }
+
+        it('o GET não grava; a próxima mutação grava o endereço único sem mexer no editor', async () => {
+          const { cenario, servico, sessao, idVariacao, idOrcamento, ids } = await rascunhoAntigo([
+            'CADASTRAL',
+            'ENTREGA',
+          ]);
+
+          const lido = await servico.obter(idOrcamento);
+          expect(lido.idEnderecoEntrega).toBeNull();
+          expect(cenario.banco.linhas('orcamento')[0]?.id_endereco_entrega ?? null).toBeNull();
+
+          const depois = await servico.adicionarItem(
+            idOrcamento,
+            { idVariacao, granularidade: 'AVULSO', quantidade: 1 },
+            sessao,
+          );
+
+          expect(depois.idEnderecoEntrega).toBe(ids[1]);
+          expect(cenario.banco.linhas('orcamento')[0]?.id_endereco_entrega).toBe(ids[1]);
+          // O item grava o editor (edição do operador); o endereço, sozinho, não o faria.
+          expect(depois.ultimaAlteracaoDeOutro).toBeNull();
+        });
+
+        it('com vários endereços de entrega, não grava nada', async () => {
+          const { cenario, servico, sessao, idVariacao, idOrcamento } = await rascunhoAntigo([
+            'ENTREGA',
+            'ENTREGA',
+          ]);
+
+          const depois = await servico.adicionarItem(
+            idOrcamento,
+            { idVariacao, granularidade: 'AVULSO', quantidade: 1 },
+            sessao,
+          );
+
+          expect(depois.idEnderecoEntrega).toBeNull();
+          expect(cenario.banco.linhas('orcamento')[0]?.id_endereco_entrega ?? null).toBeNull();
+        });
+
+        it('não sobrescreve o endereço já escolhido pelo operador', async () => {
+          const { cenario, servico, sessao, idVariacao, idOrcamento, ids } = await rascunhoAntigo([
+            'ENTREGA',
+          ]);
+          const [outro] = cenario.banco.semear('endereco_cliente', {
+            ...endereco(cenario.banco.linhas('orcamento')[0]?.id_cliente as number, 'CADASTRAL'),
+          });
+          await servico.atualizarCabecalho(
+            idOrcamento,
+            { idEnderecoEntrega: outro?.id_endereco as number },
+            sessao,
+          );
+
+          await servico.adicionarItem(
+            idOrcamento,
+            { idVariacao, granularidade: 'AVULSO', quantidade: 1 },
+            sessao,
+          );
+
+          expect(cenario.banco.linhas('orcamento')[0]?.id_endereco_entrega).toBe(
+            outro?.id_endereco,
+          );
+          expect(ids[0]).not.toBe(outro?.id_endereco);
+        });
+      });
+    });
+
     it('não grava o editor do rascunho ao aplicar o padrão (não é edição do operador)', async () => {
       const { cenario } = await montar({ segundaCompra: false, precoUnitario: 60000 });
 
