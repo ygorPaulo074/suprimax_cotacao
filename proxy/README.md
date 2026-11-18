@@ -23,12 +23,13 @@ Variáveis (docs/12, seção 12.3): `JWT_SIGNING_SECRET` (≥ 32 caracteres), `P
 
 Toda requisição: `POST /executar` com `{ "operacao": "...", "payload": { ... } }` e os cabeçalhos:
 
-| Cabeçalho                       | Uso                                                                                                                                          |
-| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Authorization: Bearer <token>` | Token do integrante (ou a `PROXY_ADMIN_KEY`, nas operações `integrante.*`)                                                                   |
-| `X-Timestamp`                   | ISO 8601 ou milissegundos. Fora da tolerância, ou repetido com o mesmo corpo, é rejeitado (replay). **Em reenvios, gere um novo timestamp.** |
-| `X-Service-Id`                  | Mesmo `service_id` do token                                                                                                                  |
-| `X-Operation-Id`                | Identifica o processo; vai para a auditoria                                                                                                  |
+| Cabeçalho                       | Uso                                                                                                                                                         |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Authorization: Bearer <token>` | Token do integrante (ou a `PROXY_ADMIN_KEY`, nas operações `integrante.*`)                                                                                  |
+| `X-Timestamp`                   | ISO 8601 ou milissegundos. Fora da tolerância, ou repetido com o mesmo corpo, é rejeitado (replay). **Em reenvios, gere um novo timestamp.**                |
+| `X-Service-Id`                  | Mesmo `service_id` do token                                                                                                                                 |
+| `X-Operation-Id`                | Identifica o processo; vai para a auditoria                                                                                                                 |
+| `X-User-Id` (opcional)          | Usuário que originou a operação (no Sistema 2, o `id_operador`); só para `log_auditoria.id_usuario`. Até 40 de `[A-Za-z0-9_-]`, senão fica nulo (com aviso) |
 
 Resposta de sucesso: `{ "ok": true, ... }`. Erro: `{ "ok": false, "erro": { "codigo", "mensagem", "detalhes?" } }`, com os códigos da seção 12.8.6 (mais `NOT_FOUND`, `INTERNAL_ERROR` e `OPERACAO_NAO_IMPLEMENTADA`, que a seção 12.6 prevê). Nada do banco (tabelas, colunas, mensagens do driver) chega ao cliente.
 
@@ -76,8 +77,8 @@ Pronto e testado (83 testes, banco simulado): autenticação, escopos, replay, r
 ## Pontos em aberto
 
 - **`DATABASE_URL`:** a documentação lista só `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY`, mas o proxy monta SQL parametrizado e transações, o que exige conexão direta ao Postgres (string de conexão do Supabase, de preferência pelo pooler em modo transação). Confirmar e atualizar a seção 12.3.
-- **Fila:** o proxy roda uma instância e serializa as escritas em memória; a tabela `fila_escrita` registra o ciclo (padrão outbox), mas não há reprocessamento de itens pendentes após reinício.
+- **Fila:** o proxy serializa as escritas em memória e registra o ciclo em `fila_escrita` (padrão outbox). A escrita e a marcação `concluido` são confirmadas na mesma transação, com a linha do item travada e tempos limite (`statement_timeout` 8 s, `lock_timeout` 5 s). Ao subir, os itens `pendente`/`processando` são só marcados `erro` ("interrompido por reinício"), sem reexecução, antes de aceitar requisições (`src/fila/retomada.ts`, docs/12, seção 12.5).
 - **Rate limit:** por integrante (depois da autenticação) e teto por IP (antes), em memória. Em várias instâncias, trocar o armazenamento (ex.: `rate-limiter-flexible` com Redis).
-- **`id_usuario` da auditoria:** a documentação não diz de onde vem; hoje fica nulo.
+- **`id_usuario` da auditoria:** vem do cabeçalho opcional `X-User-Id` (resolvido; docs/12, seção 12.3).
 - **Exclusão condicionada (12.8.5):** “`orcamento` em RASCUNHO” é uma condição de dados, não de escopo; deve ser garantida por gatilho no banco.
 - **Escopos do Sistema 1 e 3** são propostas ainda não validadas com os grupos.

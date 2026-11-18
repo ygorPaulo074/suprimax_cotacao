@@ -39,6 +39,10 @@ Toda chamada é um `POST` com JSON `{ "operacao": "...", "payload": { ... } }` e
 | `X-Timestamp`    | Horário atual (ISO 8601). Tolerância padrão: 60 s                          |
 | `X-Operation-Id` | Identifica o processo, para a auditoria (ex.: `UC13-login`, `UC19-emitir`) |
 
+Cabeçalho opcional: `X-User-Id`, o usuário que originou a operação (no Sistema 2, o `id_operador` da sessão). O proxy o grava só em `log_auditoria.id_usuario` e descarta (grava `id_usuario` nulo e registra aviso, sem recusar a operação) valor fora do formato (até 40 caracteres entre letras, dígitos, `_` e `-`; e-mail não cabe): nunca envie token, hash de sessão ou senha nele. O `ClienteProxy` o envia sozinho dentro das rotas autenticadas: `exigirSessao` abre o contexto do operador (`executarComoOperador`, em `src/dados/usuarioDaRequisicao.ts`) e o cliente o lê ao montar os cabeçalhos. Login e jobs saem sem ele.
+
+Se o proxy cair no meio de uma gravação, a transação é desfeita e ele NÃO a reexecuta ao subir: marca o item da fila como `erro` ("interrompido por reinício", docs/12, seção 12.5). Gravação sem resposta não é repetida às cegas; leia o estado antes: sem o efeito, repita.
+
 **Gere um novo `X-Timestamp` a cada envio, inclusive em reenvios.** O proxy rejeita a mesma requisição (mesmo integrante, timestamp e corpo) repetida: é a proteção contra replay.
 
 Resposta de sucesso: `{ "ok": true, ... }`. Erro: `{ "ok": false, "erro": { "codigo", "mensagem", "detalhes?" } }`.

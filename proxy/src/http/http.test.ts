@@ -40,11 +40,13 @@ let base: string;
 let banco: BancoFalso;
 let auditoria: RepositorioAuditoriaMemoria;
 let relogio = Date.now();
+let loggerDoTeste: DepsServidor['logger'];
 
 function iniciar(extra: Record<string, string> = {}) {
   banco = new BancoFalso();
   auditoria = new RepositorioAuditoriaMemoria();
   const logger = pino({ level: 'silent' });
+  loggerDoTeste = logger;
   const config = carregarConfig({ ...env, ...extra });
   const deps: DepsServidor = {
     config,
@@ -69,6 +71,7 @@ interface Opcoes {
   serviceId?: string;
   admin?: boolean;
   corpoBruto?: string;
+  idUsuario?: string;
 }
 
 /** Cada chamada usa um timestamp diferente, para não cair na proteção contra replay. */
@@ -83,6 +86,7 @@ async function chamar(operacao: string, payload: unknown, o: Opcoes = {}) {
       'x-timestamp': new Date(relogio).toISOString(),
       'x-service-id': o.serviceId ?? 'admin',
       'x-operation-id': 'teste',
+      ...(o.idUsuario !== undefined ? { 'x-user-id': o.idUsuario } : {}),
     },
     body: o.corpoBruto ?? JSON.stringify({ operacao, payload }),
   });
@@ -674,6 +678,46 @@ describe('auditoria e erros internos', () => {
     expect(texto).not.toContain('segredo-no-payload');
     expect(ok?.requestId).toEqual(expect.any(String));
     expect(ok?.duracaoMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it('X-User-Id: grava o usuário que originou a operação em id_usuario (só após autenticar)', async () => {
+    const i = await integrante(['*:consultar', 'pedido:inserir']);
+    await chamar('dados.consultar', { tabela: 'pedido' }, { ...como(i), idUsuario: '42' });
+    await chamar(
+      'dados.inserir',
+      { tabela: 'pedido', valores: { id_cliente: 1 } },
+      { ...como(i), idUsuario: '42' },
+    );
+    await chamar('dados.consultar', { tabela: 'pedido' }, como(i));
+    // Credencial inválida: o cabeçalho não é aceito como autoria.
+    await chamar('dados.consultar', { tabela: 'pedido' }, { token: 'lixo', idUsuario: '42' });
+    expect(auditoria.entradas.slice(1).map((e) => [e.operacao, e.resultado, e.idUsuario])).toEqual([
+      ['dados.consultar', 'ok', '42'],
+      ['dados.inserir', 'ok', '42'],
+      ['dados.consultar', 'ok', null],
+      ['desconhecida', 'TOKEN_INVALIDO', null],
+    ]);
+  });
+
+  it('X-User-Id fora do formato (ex.: token, hash ou e-mail) não derruba a operação: id_usuario nulo e aviso sem o valor', async () => {
+    const i = await integrante(['*:consultar']);
+    const hash = 'a'.repeat(64);
+    const aviso = jest.spyOn(loggerDoTeste, 'warn');
+    for (const valor of [hash, 'Bearer abc', 'x'.repeat(41), "1'; DROP", 'ana@empresa.com']) {
+      const r = await chamar(
+        'dados.consultar',
+        { tabela: 'pedido' },
+        { ...como(i), idUsuario: valor },
+      );
+      expect([r.status, r.corpo.ok]).toEqual([200, true]);
+    }
+    expect(auditoria.entradas.slice(1).map((e) => [e.resultado, e.idUsuario])).toEqual(
+      Array(5).fill(['ok', null]),
+    );
+    expect(aviso).toHaveBeenCalledTimes(5);
+    expect(JSON.stringify(aviso.mock.calls)).not.toContain(hash);
+    expect(JSON.stringify(aviso.mock.calls)).not.toContain('ana@empresa');
+    expect(JSON.stringify(auditoria.entradas)).not.toContain(hash);
   });
 
   it('erro de integridade do banco vira 400 e erro inesperado vira 500, sem detalhes', async () => {

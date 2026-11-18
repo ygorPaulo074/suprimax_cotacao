@@ -1,6 +1,7 @@
 // UC13 — exige sessão válida e perfil autorizado nas rotas. Esconder um item do menu é só
 // conveniência do frontend: a autorização é conferida aqui (docs/10, seção 10.2).
 import type { RequestHandler, Response } from 'express';
+import { executarComoOperador } from '../../dados/usuarioDaRequisicao';
 import { ErroDeAcessoNegado, ErroNaoAutenticado } from '../../erros';
 import {
   PERFIL_ADMIN,
@@ -17,6 +18,8 @@ const PADRAO_DO_CABECALHO = /^Bearer (\S+)$/;
 /**
  * Exige `Authorization: Bearer <token>` com uma sessão válida, cujo prazo é renovado a cada uso.
  * Sem cabeçalho, com formato errado ou com sessão inexistente ou expirada: `401 NAO_AUTENTICADO`.
+ * O restante da requisição roda em nome do operador da sessão: o cliente do proxy o envia em
+ * X-User-Id para a auditoria (`executarComoOperador`).
  */
 export function exigirSessao(sessoes: RepositorioDeSessoes): RequestHandler {
   return rotaAssincrona(async (req, res, next) => {
@@ -27,7 +30,7 @@ export function exigirSessao(sessoes: RepositorioDeSessoes): RequestHandler {
     }
     res.locals[CHAVE_LOCAL_SESSAO] = sessao;
     res.locals[CHAVE_LOCAL_TOKEN] = token;
-    next();
+    executarComoOperador(sessao.idOperador, () => next());
   });
 }
 

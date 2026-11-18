@@ -5,6 +5,7 @@ import type { Logger } from '../log';
 import { ErroDeServicoIndisponivel } from '../erros';
 import { converterChavesParaCamelCase } from './conversao';
 import { CODIGOS_DO_PROXY, proxyEmEspera, traduzirErroDeProxy } from './traducaoDeErros';
+import { operadorDaRequisicao } from './usuarioDaRequisicao';
 
 /** Rota única do proxy (docs/12, seção 12.2). */
 export const ROTA_EXECUTAR = '/executar';
@@ -16,6 +17,12 @@ export const CABECALHOS_DO_PROXY = {
   TIMESTAMP: 'X-Timestamp',
   ID_DA_OPERACAO: 'X-Operation-Id',
 } as const;
+
+/**
+ * Cabeçalho opcional com o usuário que originou a operação (no Sistema 2, o id_operador da
+ * sessão). O proxy o grava só em `log_auditoria.id_usuario` (docs/12, seções 12.3 e 12.7).
+ */
+export const CABECALHO_ID_DO_USUARIO = 'X-User-Id';
 
 /**
  * Operações que o cliente repete sozinho, porque repetir não muda o resultado: a leitura e a busca
@@ -172,6 +179,11 @@ export interface OpcoesDoClienteProxy {
   readonly esperar?: (ms: number) => Promise<void>;
   /** Relógio usado no X-Timestamp; por padrão, a hora do sistema. */
   readonly agora?: () => Date;
+  /**
+   * Usuário enviado em X-User-Id; por padrão, o operador da requisição em andamento
+   * (`operadorDaRequisicao`). `undefined` não envia o cabeçalho.
+   */
+  readonly usuarioAtual?: () => number | undefined;
 }
 
 interface Requisicao {
@@ -215,6 +227,7 @@ export class ClienteProxy implements ClienteDeProxy {
   private readonly aquecimento: boolean;
   private readonly tempoLimiteAquecimentoMs: number;
   private readonly ociosidadeMaximaMs: number;
+  private readonly usuarioAtual: () => number | undefined;
   private ultimoTimestampMs = 0;
   /** Último instante em que o proxy respondeu; -Infinity força o aquecimento na próxima operação. */
   private ultimoContatoMs = Number.NEGATIVE_INFINITY;
@@ -236,6 +249,7 @@ export class ClienteProxy implements ClienteDeProxy {
     this.tempoLimiteAquecimentoMs =
       opcoes.tempoLimiteAquecimentoMs ?? TEMPO_LIMITE_AQUECIMENTO_PADRAO_MS;
     this.ociosidadeMaximaMs = opcoes.ociosidadeMaximaMs ?? OCIOSIDADE_MAXIMA_PADRAO_MS;
+    this.usuarioAtual = opcoes.usuarioAtual ?? operadorDaRequisicao;
   }
 
   /**
@@ -355,12 +369,17 @@ export class ClienteProxy implements ClienteDeProxy {
   }
 
   private montarCabecalhos(operationId: string): Record<string, string> {
+    const idDoUsuario = this.usuarioAtual();
     return {
       'Content-Type': TIPO_DO_CONTEUDO,
       [CABECALHOS_DO_PROXY.AUTORIZACAO]: `Bearer ${this.config.token}`,
       [CABECALHOS_DO_PROXY.ID_DO_SERVICO]: this.config.serviceId,
       [CABECALHOS_DO_PROXY.TIMESTAMP]: this.proximoTimestamp(),
       [CABECALHOS_DO_PROXY.ID_DA_OPERACAO]: operationId,
+      // Só um inteiro positivo: o proxy recusa outro formato, e nada sensível cabe aqui.
+      ...(Number.isSafeInteger(idDoUsuario) && (idDoUsuario as number) > 0
+        ? { [CABECALHO_ID_DO_USUARIO]: String(idDoUsuario) }
+        : {}),
     };
   }
 

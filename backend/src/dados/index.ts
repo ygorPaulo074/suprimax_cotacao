@@ -5,3 +5,4 @@ export * from './conversao';
 export * from './lote';
 export * from './proxyCliente';
 export * from './traducaoDeErros';
+export * from './usuarioDaRequisicao';

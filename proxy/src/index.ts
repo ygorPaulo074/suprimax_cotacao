@@ -6,7 +6,9 @@ import { criarExecutorPg } from './banco/pg';
 import { carregarConfig } from './config';
 import { esquemaDoDicionario } from './esquema/esquema';
 import { FilaEscrita, RepositorioFilaPg } from './fila/fila';
+import { retomarFila } from './fila/retomada';
 import { criarApp } from './http/app';
+import type { DepsServidor } from './http/processar';
 
 const config = carregarConfig();
 const logger = pino({
@@ -20,27 +22,43 @@ if (!config.databaseUrl) {
 }
 
 const banco = criarExecutorPg(config.databaseUrl);
-const app = criarApp({
+const repositorioFila = new RepositorioFilaPg(banco);
+const deps: DepsServidor = {
   config,
   esquema: esquemaDoDicionario,
   banco,
   integrantes: new RepositorioIntegrantesPg(banco),
-  fila: new FilaEscrita(new RepositorioFilaPg(banco)),
+  fila: new FilaEscrita(repositorioFila),
   auditoria: new Auditoria(logger, new RepositorioAuditoriaPg(banco)),
   replay: new CacheReplay(config.toleranciaTimestampSegundos * 2 * 1000),
   logger,
   agora: () => new Date(),
-});
+};
+const app = criarApp(deps);
 
-const servidor = app.listen(config.porta, () => {
-  logger.info({ porta: config.porta, ambiente: config.env }, 'proxy no ar');
+// Na subida, os itens da fila deixados por um reinício são marcados `erro`, sem reexecução (docs/12,
+// seção 12.5): é uma única instrução, em milissegundos. Espera-se por ela antes do `listen` por
+// no máximo 30 s (banco acordando); o /saude precisa responder, então o proxy sobe assim mesmo.
+// Se passar do teto, ela só alcança itens criados antes de `inicioDoProcesso`, e nada é enfileirado
+// por ela, então as escritas novas não furam a ordem nem são marcadas por engano.
+const ESPERA_MAXIMA_RETOMADA_MS = 30_000;
+let servidor: ReturnType<typeof app.listen> | undefined;
+const inicioDoProcesso = deps.agora();
+const retomada = retomarFila(deps, repositorioFila, inicioDoProcesso);
+void Promise.race([
+  retomada,
+  new Promise((resolver) => setTimeout(resolver, ESPERA_MAXIMA_RETOMADA_MS).unref()),
+]).finally(() => {
+  servidor = app.listen(config.porta, () => {
+    logger.info({ porta: config.porta, ambiente: config.env }, 'proxy no ar');
+  });
 });
 
 function encerrar(sinal: string): void {
   logger.info({ sinal }, 'encerrando');
-  servidor.close(() => {
-    void banco.fechar().finally(() => process.exit(0));
-  });
+  const fechar = () => void banco.fechar().finally(() => process.exit(0));
+  if (servidor) servidor.close(fechar);
+  else fechar();
 }
 process.on('SIGTERM', () => encerrar('SIGTERM'));
 process.on('SIGINT', () => encerrar('SIGINT'));
