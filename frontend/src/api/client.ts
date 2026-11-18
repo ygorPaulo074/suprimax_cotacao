@@ -1,6 +1,12 @@
 import { API_URL } from '../config';
 import { ApiError } from './errors';
-import { configurarFila, enfileirar, processarFila, quantidadePendente } from './filaOffline';
+import {
+  configurarFila,
+  enfileirar,
+  LIMITE_CHAMADA_MS,
+  processarFila,
+  quantidadePendente,
+} from './filaOffline';
 import type { ErroApi } from './types';
 
 export { ApiError };
@@ -139,8 +145,17 @@ export const api = {
 
 /** Reenvio da fila: mesma chave, sem enfileirar de novo. */
 configurarFila({
-  enviar: (item) =>
-    json(item.metodo, item.caminho, { body: item.body, chave: item.chave, semFila: true }),
+  enviar: (item) => {
+    // Sem prazo, uma conexão pendurada seguraria a fila para sempre; a chave torna o reenvio seguro.
+    const controle = new AbortController();
+    const prazo = setTimeout(() => controle.abort(), LIMITE_CHAMADA_MS);
+    return json(item.metodo, item.caminho, {
+      body: item.body,
+      chave: item.chave,
+      semFila: true,
+      signal: controle.signal,
+    }).finally(() => clearTimeout(prazo));
+  },
   reler: () => undefined, // o AppShell troca por quem invalida o TanStack Query
   descartado: () => undefined,
   autenticado: () => token !== null,

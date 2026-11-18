@@ -13,10 +13,13 @@ export { usuariosApi } from './usuarios';
 export {
   assinarFila,
   configurarFila,
+  descartarItem,
+  itemComFalha,
   itensPendentes,
   limparFila,
   processarFila,
   quantidadePendente,
+  tentarNovamente,
   versaoDaFila,
   type ItemFila,
 } from './filaOffline';
