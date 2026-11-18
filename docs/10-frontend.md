@@ -80,7 +80,7 @@ A tabela relaciona as 18 telas aos casos de uso (seção 5), aos perfis que as u
 | 1 | **UC13 – Login** | Todos | operador |
 | 2 | **UC10 – Pedidos em aberto** | Operador, Operador chefe | pedido, item_pedido, cliente, operador |
 | 3 | **UC10 – Análise do pedido** | Operador, Operador chefe | pedido, item_pedido, variacao_produto, reserva_estoque, analise_credito, divida_inadimplencia |
-| 4 | **UC03 – Clientes: busca por CNPJ** | Operador, Operador chefe | cliente, endereco_cliente, orcamento, divida_inadimplencia |
+| 4 | **UC03 – Clientes: lista e busca por CNPJ** | Operador, Operador chefe | cliente, endereco_cliente, orcamento, divida_inadimplencia |
 | 5 | **UC02 – Cadastro de cliente** | Operador, Operador chefe | cliente, endereco_cliente |
 | 6 | **UC01/UC14–UC19 – Orçamento: montagem (rascunho)** | Operador, Operador chefe | orcamento, item_orcamento, produto, variacao_produto, faixa_preco, fardo, anexo_orcamento |
 | 7 | **UC03 – Orçamentos: lista** | Operador, Operador chefe | orcamento, cliente |
@@ -144,19 +144,23 @@ Permite avaliar se o pedido pode ser atendido. O cabeçalho mostra o status EM_A
 Figura 10.3 — Tela 3 (UC10 – Análise do pedido): exemplo visual.
 
 
-### 10.6.4 Tela 4 – UC03 – Clientes: busca por CNPJ
+### 10.6.4 Tela 4 – UC03 – Clientes: lista e busca por CNPJ
 
 
-Consulta de cliente por CNPJ. A ficha mostra razão social, nome do contato, telefone, e-mail, tipo (Matriz/Filial), status, vendedor responsável e endereços (Cadastral e Entrega), com abas para Orçamentos em aberto e Histórico de compras.
+**Lista (sem `?cnpj=`).** A tela abre com a lista paginada dos clientes (`GET /clientes`, 20 por página, ordem alfabética da razão social), com colunas Razão social (e nome fantasia), CNPJ, Cidade/UF do endereço cadastral, Status e Dívida (em aberto sim/não). Acima, um campo "Buscar cliente" (razão social, nome fantasia ou parte do CNPJ) e o filtro de status (Todos, Ativo, Inativo, Bloqueado); busca, status e página ficam na URL (`?q=&status=&pagina=`). Digitar um CNPJ completo (14 dígitos) abre direto a ficha. Clicar na razão social abre a ficha. Estados (10.7): carregando (skeleton), erro com "Tentar novamente", vazio sem filtro ("Nenhum cliente cadastrado ainda", com o link Cadastrar cliente) e vazio com filtro ("Nenhum cliente encontrado"). A paginação tem Anterior e Próxima. Com a ficha aberta, o botão Voltar à lista retorna à lista.
+
+**Ficha (`?cnpj=`).** Consulta de cliente por CNPJ. A ficha mostra razão social, nome do contato, telefone, e-mail, tipo (Matriz/Filial), status, vendedor responsável e endereços (Cadastral e Entrega), com abas para Orçamentos em aberto e Histórico de compras.
 
 - Dívida em aberto: alerta laranja informando que novo orçamento está bloqueado.
 - CNPJ não encontrado: estado vazio com o botão Cadastrar cliente.
+- Seção Endereços (UC02-A1): lista os endereços e traz o botão "Adicionar endereço de entrega", que abre um formulário simples (logradouro, número, complemento, bairro, cidade, UF e CEP, os mesmos campos do cadastro; o tipo é sempre Entrega) e grava com `POST /clientes/:id/enderecos`. Sem nenhum endereço, a seção avisa que não há o que escolher na montagem do orçamento. Ao salvar, a ficha e o orçamento em edição são recarregados.
+- Montagem do orçamento (tela 6): se o cliente não tem endereço de entrega, o campo "Endereço de entrega" mostra "Este cliente não tem endereço de entrega cadastrado." com o link para a ficha do cliente.
 - Botão Novo orçamento (UC14): cria o rascunho direto da ficha (`POST /orcamentos`) e abre `/orcamentos/:id`. Aparece só para Operador, Operador chefe e Administrador. Fica desabilitado, com o motivo ao lado, se o cliente tem dívida em aberto, está inativo ("Cliente inativo: não é possível criar orçamento.") ou está bloqueado ("Cliente bloqueado: não é possível criar orçamento."); durante a chamada mostra "Criando…" e, em caso de erro, um alerta com a mensagem da API.
 
 ![fig08.png](assets/fig08.png)
 
 
-Figura 10.4 — Tela 4 (UC03 – Clientes: busca por CNPJ): exemplo visual.
+Figura 10.4 — Tela 4 (UC03 – Clientes: lista e busca por CNPJ): exemplo visual (mostra só a ficha; a lista é descrita acima).
 
 
 ### 10.6.5 Tela 5 – UC02 – Cadastro de cliente
