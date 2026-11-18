@@ -4,11 +4,11 @@ Sistema web interno da SupriMax, distribuidora atacadista B2B, para o operador a
 
 É um dos três sistemas da solução, todos sobre **um único banco compartilhado**, sempre acessado por um **proxy**:
 
-| Sistema | Papel | Neste repositório |
-|---|---|---|
-| Sistema 1 | Força de Vendas Mobile (vendedor registra pedidos e respostas do cliente) | Não |
-| **Sistema 2** | **Cotação Web (operador monta e emite orçamentos)** | **Sim** |
-| Sistema 3 | Painel Gerencial / BI | Não |
+| Sistema       | Papel                                                                     | Neste repositório |
+| ------------- | ------------------------------------------------------------------------- | ----------------- |
+| Sistema 1     | Força de Vendas Mobile (vendedor registra pedidos e respostas do cliente) | Não               |
+| **Sistema 2** | **Cotação Web (operador monta e emite orçamentos)**                       | **Sim**           |
+| Sistema 3     | Painel Gerencial / BI                                                     | Não               |
 
 ```
 Frontend S2 (React) ──► Backend S2 (Node/TS + módulo de cálculo) ──► Proxy ──► Supabase (PostgreSQL)
@@ -19,14 +19,14 @@ O frontend só fala com o backend; os backends só falam com o banco através do
 
 ## Stack definida
 
-| Camada | Tecnologia |
-|---|---|
-| Backend | Node.js + TypeScript (inclui o módulo de cálculo, funções puras) |
-| Frontend | React |
-| Banco | Supabase (PostgreSQL); migrations com Prisma, schema com fonte única neste repo |
-| Deploy | Vercel (frontend) + Render (backend e proxy), plano gratuito, deploy a cada merge na `main` |
-| Outros | Resend (e-mail), Supabase Storage privado (documentos de crédito), PDFKit/pdfmake (PDF), pg_cron (jobs) |
-| Qualidade | ESLint + Prettier, Jest (`*.test.ts` junto ao código), k6/Artillery em `tests-nfr/` |
+| Camada    | Tecnologia                                                                                              |
+| --------- | ------------------------------------------------------------------------------------------------------- |
+| Backend   | Node.js + TypeScript (inclui o módulo de cálculo, funções puras)                                        |
+| Frontend  | React                                                                                                   |
+| Banco     | Supabase (PostgreSQL); migrations com Prisma, schema com fonte única neste repo                         |
+| Deploy    | Vercel (frontend) + Render (backend e proxy), plano gratuito, deploy a cada merge na `main`             |
+| Outros    | Resend (e-mail), Supabase Storage privado (documentos de crédito), PDFKit/pdfmake (PDF), pg_cron (jobs) |
+| Qualidade | ESLint + Prettier, Jest (`*.test.ts` junto ao código), k6/Artillery em `tests-nfr/`                     |
 
 ## Estrutura
 
@@ -39,7 +39,7 @@ proxy/                     proxy central de acesso ao banco (serviço próprio)
 tests-nfr/                 testes não funcionais
 docs/                      documentação completa (comece por docs/README.md)
 .github/CODEOWNERS         revisão obrigatória por pasta (preencher os @times)
-scripts/                    gerar-env.cjs (gera os .env) e seed-demo.cjs; cada serviço tem o seu .env.example
+${L}
 ```
 
 ## Documentação
@@ -55,7 +55,7 @@ Comece por [`docs/README.md`](docs/README.md): índice por tema, ordem sugerida 
 
 Guia completo para quem vai contribuir: [`CONTRIBUINDO.md`](CONTRIBUINDO.md).
 
-- `main` protegida: só entra por Pull Request, com *squash and merge*.
+- `main` protegida: só entra por Pull Request, com _squash and merge_.
 - Branches: `feature/<serviço>/<tarefa>` (ex.: `feature/backend/uc01-gerar-cotacao`).
 - Toda PR cita o caso de uso (UC) implementado e atualiza o `CHANGELOG.md` do serviço.
 - Revisão: QA roda Jest e revisa, PM aprova, responsável por infra faz o merge.
