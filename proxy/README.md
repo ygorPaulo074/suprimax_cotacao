@@ -51,7 +51,7 @@ Regras: `dados.atualizar` e `dados.excluir` sem filtro, ou que afetariam mais de
 curl -X POST http://localhost:3001/executar \
   -H "Authorization: Bearer $PROXY_ADMIN_KEY" -H "X-Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   -H "X-Operation-Id: setup" -H "Content-Type: application/json" \
-  -d '{"operacao":"integrante.criar","payload":{"nome_sistema":"Sistema 2","escopos":["*:consultar","*:inserir","*:atualizar","operador.credenciais:consultar","operacao:pedido.assumir","operacao:orcamento.emitir","operacao:resposta.processar","rpc:*"]}}'
+  -d '{"operacao":"integrante.criar","payload":{"nome_sistema":"Sistema 2","escopos":["*:consultar","*:inserir","*:atualizar","operador.credenciais:consultar","operacao:pedido.assumir","operacao:orcamento.emitir","operacao:resposta.processar","operacao:sessao.criar","operacao:sessao.buscar","operacao:sessao.encerrar","operacao:sessao.encerrar_operador","operacao:sessao.remover_expiradas","rpc:*"]}}'
 ```
 
 O token volta **uma única vez**; no banco fica só o hash. Os escopos que valem são os do cadastro (revogáveis sem redeploy), não os gravados no token. Os escopos iniciais de cada sistema estão na seção 12.8.5.
