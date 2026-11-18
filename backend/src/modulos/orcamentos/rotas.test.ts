@@ -2,6 +2,7 @@
 // orçamentos já são exercitadas via `servico.test.ts`; este arquivo cobre apenas o que só existe
 // no nível HTTP: o middleware do multer e a validação do multipart.
 import request from 'supertest';
+import { ErroDeEnvioDeEmail, type EnviadorDeEmail } from '../../email/enviador';
 import {
   montarCenarioDeCadastros,
   type CenarioDeCadastros,
@@ -46,8 +47,8 @@ function semearVariacao(cenario: CenarioDeCadastros): number {
   return idVariacao;
 }
 
-async function montar() {
-  const cenario = montarCenarioDeCadastros();
+async function montar(enviadorDeEmail?: EnviadorDeEmail) {
+  const cenario = montarCenarioDeCadastros({ enviadorDeEmail });
   const operador = await cenario.entrarComo('OPERADOR');
   const idCliente = semearCliente(cenario);
   const { body: orcamento } = await request(cenario.app)
@@ -303,6 +304,22 @@ describe('POST /orcamentos/:id/enviar (UC08)', () => {
 
     expect(resposta.status).toBe(204);
     expect(resposta.body).toEqual({});
+  });
+
+  it('responde 503 SERVICO_INDISPONIVEL se o provedor de e-mail falhar, sem gravar o evento', async () => {
+    const { emitir, enviarOrcamento, app, idOrcamento, operador } = await montar({
+      enviar: () => Promise.reject(new ErroDeEnvioDeEmail('Resend indisponível.', 500)),
+    });
+    await emitir();
+
+    const resposta = await enviarOrcamento();
+
+    expect(resposta.status).toBe(503);
+    expect(resposta.body.codigo).toBe('SERVICO_INDISPONIVEL');
+    const detalhe = await request(app)
+      .get(`/orcamentos/${idOrcamento}`)
+      .set('Authorization', operador.autorizacao);
+    expect(JSON.stringify(detalhe.body.historico)).not.toContain('ATUALIZACAO_FOLLOWUP');
   });
 
   it('responde 422 ENVIO_NAO_PERMITIDO para um orçamento ainda em RASCUNHO', async () => {

@@ -11,7 +11,13 @@ import {
   ErroDeOrcamentoNaoEditavel,
   ErroDeOrcamentoNaoEncontrado,
   ErroDePdfIndisponivel,
+  ErroDeServicoIndisponivel,
 } from '../../erros';
+import {
+  ErroDeEnvioDeEmail,
+  type EnviadorDeEmail,
+  type MensagemDeEmail,
+} from '../../email/enviador';
 import { criarLogger } from '../../log';
 import { CONFIG_DE_TESTE } from '../../testing/appDeTeste';
 import {
@@ -20,6 +26,7 @@ import {
 } from '../../testing/cenarioDeCadastros';
 import type { Sessao } from '../auth/sessoes';
 import { RepositorioDeClientes } from '../clientes/repositorio';
+import { RepositorioDePedidos } from '../pedidos/repositorio';
 import { RepositorioDeProdutos } from '../produtos/repositorio';
 import { RepositorioDeUsuarios } from '../usuarios/repositorio';
 import { RepositorioDeOrcamentos } from './repositorio';
@@ -45,7 +52,10 @@ function sessaoDoOperador(idOperador: number, usuario = 'operador'): Sessao {
   };
 }
 
-function montarServico(cenario: CenarioDeCadastros): ServicoDeOrcamentos {
+function montarServico(
+  cenario: CenarioDeCadastros,
+  enviadorDeEmail?: EnviadorDeEmail,
+): ServicoDeOrcamentos {
   return new ServicoDeOrcamentos({
     orcamentos: new RepositorioDeOrcamentos(cenario.proxy),
     clientes: new RepositorioDeClientes(cenario.proxy),
@@ -55,13 +65,18 @@ function montarServico(cenario: CenarioDeCadastros): ServicoDeOrcamentos {
     armazenamento: cenario.armazenamento,
     logger: LOGGER_SILENCIOSO,
     empresaEmissora: CONFIG_DE_TESTE.empresaEmissora,
+    enviadorDeEmail,
   });
 }
 
 /** Semeia um cliente (ativo, sem dívida) e devolve o id; `primeiraCompra` controla o histórico. */
-function semearCliente(cenario: CenarioDeCadastros, status?: string): number {
+function semearCliente(
+  cenario: CenarioDeCadastros,
+  status?: string,
+  statusDoVendedor?: string,
+): number {
   contador += 1;
-  const idVendedor = cenario.semearUsuario('VENDEDOR', `vendedor-${contador}`);
+  const idVendedor = cenario.semearUsuario('VENDEDOR', `vendedor-${contador}`, statusDoVendedor);
   const [cliente] = cenario.banco.semear('cliente', {
     cnpj: String(20000000000000 + contador).padStart(14, '0'),
     razao_social: `Cliente ${contador}`,
@@ -578,17 +593,39 @@ describe('ServicoDeOrcamentos', () => {
   });
 
   describe('enviar', () => {
-    it('registra um evento ATUALIZACAO_FOLLOWUP no histórico de um orçamento emitido', async () => {
+    /** Orçamento emitido (ABERTO) de um cliente cujo vendedor tem o e-mail `vendedor-N@…`. */
+    async function emitirParaEnvio(
+      enviador?: EnviadorDeEmail,
+      opcoes: { statusDoVendedorDoCliente?: string; pedido?: { statusDoVendedor: string } } = {},
+    ) {
       const cenario = montarCenarioDeCadastros();
-      const servico = montarServico(cenario);
+      const servico = montarServico(cenario, enviador);
       const idOperador = cenario.semearUsuario('OPERADOR', 'quem-envia');
-      const idCliente = semearCliente(cenario);
+      const idCliente = semearCliente(cenario, undefined, opcoes.statusDoVendedorDoCliente);
       const { idVariacao } = semearVariacao(cenario, { precoUnitario: 600 });
       const sessao = sessaoDoOperador(idOperador, 'quem-envia');
-      const { idOrcamento } = await servico.criar(
-        { idCliente, numeroSolicitacaoCompra: null, contatoSolicitacao: null },
-        sessao,
-      );
+      let idOrcamento: number;
+      if (opcoes.pedido === undefined) {
+        ({ idOrcamento } = await servico.criar(
+          { idCliente, numeroSolicitacaoCompra: null, contatoSolicitacao: null },
+          sessao,
+        ));
+      } else {
+        const idVendedorDoPedido = cenario.semearUsuario(
+          'VENDEDOR',
+          'vendedor-do-pedido',
+          opcoes.pedido.statusDoVendedor,
+        );
+        const [linha] = cenario.banco.semear('pedido', {
+          id_cliente: idCliente,
+          id_operador_vendedor: idVendedorDoPedido,
+          status: 'EM_ANALISE',
+          id_operador_atendimento: idOperador,
+        });
+        const pedidos = new RepositorioDePedidos(cenario.proxy);
+        const pedido = await pedidos.buscarPorId(linha?.id_pedido as number);
+        idOrcamento = await servico.montarAPartirDoPedido(pedido!, [], sessao);
+      }
       await servico.adicionarItem(
         idOrcamento,
         { idVariacao, granularidade: 'AVULSO', quantidade: 1 },
@@ -599,18 +636,117 @@ describe('ServicoDeOrcamentos', () => {
         { condicaoPagamento: 'ADIANTADO_100', origemTransportadora: 'SUPRIMAX', valorFrete: 2000 },
         sessao,
       );
-      await servico.emitir(idOrcamento, sessao);
+      const emitido = await servico.emitir(idOrcamento, sessao);
+      return { servico, sessao, idOrcamento, numero: emitido.numeroOrcamento };
+    }
 
-      const resultado = await servico.enviar(idOrcamento, sessao);
+    const eventosDeEnvio = async (servico: ServicoDeOrcamentos, idOrcamento: number) =>
+      (await servico.obter(idOrcamento)).historico.filter(
+        (evento) => evento.tipoEvento === 'ATUALIZACAO_FOLLOWUP',
+      );
 
-      expect(resultado.historico).toEqual(
+    function enviadorEspiao(falhar = false) {
+      const mensagens: MensagemDeEmail[] = [];
+      const enviador: EnviadorDeEmail = {
+        enviar: (mensagem) => {
+          if (falhar) {
+            return Promise.reject(new ErroDeEnvioDeEmail('Resend indisponível.'));
+          }
+          mensagens.push(mensagem);
+          return Promise.resolve();
+        },
+      };
+      return { mensagens, enviador };
+    }
+
+    it('envia o PDF ao vendedor da carteira e grava o evento com o operador', async () => {
+      const { mensagens, enviador } = enviadorEspiao();
+      const { servico, sessao, idOrcamento, numero } = await emitirParaEnvio(enviador);
+
+      await servico.enviar(idOrcamento, sessao);
+
+      expect(mensagens).toHaveLength(1);
+      expect(mensagens[0]?.para).toMatch(/^vendedor-\d+@suprimax\.com\.br$/);
+      expect(mensagens[0]?.assunto).toContain(String(numero));
+      const anexo = mensagens[0]?.anexos?.[0];
+      expect(anexo?.nomeArquivo).toBe(`orcamento-${idOrcamento}.pdf`);
+      expect(anexo?.conteudo.subarray(0, 4).toString()).toBe('%PDF');
+      const detalhe = await servico.obter(idOrcamento);
+      expect(detalhe.historico).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
             tipoEvento: 'ATUALIZACAO_FOLLOWUP',
             observacao: 'Documento enviado ao cliente.',
+            usuario: 'quem-envia',
           }),
         ]),
       );
+    });
+
+    it('com pedido de origem, o destinatário é o vendedor do pedido', async () => {
+      const { mensagens, enviador } = enviadorEspiao();
+      const { servico, sessao, idOrcamento } = await emitirParaEnvio(enviador, {
+        pedido: { statusDoVendedor: 'ATIVO' },
+      });
+
+      await servico.enviar(idOrcamento, sessao);
+
+      expect(mensagens[0]?.para).toBe('vendedor-do-pedido@suprimax.com.br');
+    });
+
+    it('vendedor do pedido inativo: cai no vendedor da carteira do cliente', async () => {
+      const { mensagens, enviador } = enviadorEspiao();
+      const { servico, sessao, idOrcamento } = await emitirParaEnvio(enviador, {
+        pedido: { statusDoVendedor: 'INATIVO' },
+      });
+
+      await servico.enviar(idOrcamento, sessao);
+
+      expect(mensagens[0]?.para).toMatch(/^vendedor-\d+@suprimax\.com\.br$/);
+    });
+
+    it('sem vendedor utilizável (pedido e carteira inativos): vai ao operador logado', async () => {
+      const { mensagens, enviador } = enviadorEspiao();
+      const { servico, sessao, idOrcamento } = await emitirParaEnvio(enviador, {
+        pedido: { statusDoVendedor: 'INATIVO' },
+        statusDoVendedorDoCliente: 'INATIVO',
+      });
+
+      await servico.enviar(idOrcamento, sessao);
+
+      expect(mensagens[0]?.para).toBe('quem-envia@suprimax.com.br');
+    });
+
+    it('sem enviador (modo mudo) o fluxo segue e grava o evento', async () => {
+      const { servico, sessao, idOrcamento } = await emitirParaEnvio();
+
+      await expect(servico.enviar(idOrcamento, sessao)).resolves.toBeUndefined();
+
+      expect(await eventosDeEnvio(servico, idOrcamento)).toHaveLength(1);
+    });
+
+    it('falha do provedor vira 503 e nada é gravado', async () => {
+      const { enviador } = enviadorEspiao(true);
+      const { servico, sessao, idOrcamento } = await emitirParaEnvio(enviador);
+
+      await expect(servico.enviar(idOrcamento, sessao)).rejects.toBeInstanceOf(
+        ErroDeServicoIndisponivel,
+      );
+
+      expect(await eventosDeEnvio(servico, idOrcamento)).toHaveLength(0);
+      expect((await servico.obter(idOrcamento)).status).toBe('ABERTO');
+    });
+
+    it('rejeita um orçamento cancelado sem enviar e-mail', async () => {
+      const { mensagens, enviador } = enviadorEspiao();
+      const { servico, sessao, idOrcamento } = await emitirParaEnvio(enviador);
+      await servico.cancelar(idOrcamento, 'Cliente desistiu', sessao);
+
+      await expect(servico.enviar(idOrcamento, sessao)).rejects.toBeInstanceOf(
+        ErroDeEnvioNaoPermitido,
+      );
+
+      expect(mensagens).toHaveLength(0);
     });
 
     it('rejeita um orçamento ainda em RASCUNHO (sem número)', async () => {
