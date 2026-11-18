@@ -17,6 +17,7 @@ model Operador {
   data_cadastro                                          DateTime              @default(now()) @db.Timestamp(6)
   rel_cliente_id_operador_vendedor_children              Cliente[]             @relation("Rel_cliente_id_operador_vendedor")
   rel_orcamento_id_operador_children                     Orcamento[]           @relation("Rel_orcamento_id_operador")
+  rel_orcamento_id_operador_ultima_edicao_children       Orcamento[]           @relation("Rel_orcamento_id_operador_ultima_edicao")
   rel_historico_orcamento_id_operador_children           HistoricoOrcamento[]  @relation("Rel_historico_orcamento_id_operador")
   rel_entrada_mercadoria_id_operador_children            EntradaMercadoria[]   @relation("Rel_entrada_mercadoria_id_operador")
   rel_entrada_mercadoria_id_operador_liberacao_children  EntradaMercadoria[]   @relation("Rel_entrada_mercadoria_id_operador_liberacao")
@@ -165,8 +166,10 @@ model Orcamento {
   valor_total_proposta                           Decimal?              @db.Decimal(12, 2)
   justificativa                                  String?               @db.Text
   chave_seguranca                                String?               @unique @db.VarChar(64)
+  id_operador_ultima_edicao                      Int?                  @db.Integer
   rel_id_cliente                                 Cliente               @relation("Rel_orcamento_id_cliente", fields: [id_cliente], references: [id_cliente])
   rel_id_operador                                Operador              @relation("Rel_orcamento_id_operador", fields: [id_operador], references: [id_operador])
+  rel_id_operador_ultima_edicao                  Operador?             @relation("Rel_orcamento_id_operador_ultima_edicao", fields: [id_operador_ultima_edicao], references: [id_operador], onDelete: SetNull)
   rel_id_endereco_entrega                        EnderecoCliente?      @relation("Rel_orcamento_id_endereco_entrega", fields: [id_endereco_entrega], references: [id_endereco])
   rel_id_pedido                                  Pedido?               @relation("Rel_orcamento_id_pedido", fields: [id_pedido], references: [id_pedido])
   rel_id_orcamento_origem                        Orcamento?            @relation("Rel_orcamento_id_orcamento_origem", fields: [id_orcamento_origem], references: [id_orcamento], onDelete: SetNull)
@@ -181,6 +184,7 @@ model Orcamento {
   @@index([id_cliente])
   @@index([status])
   @@index([id_operador])
+  @@index([id_operador_ultima_edicao])
   @@index([id_endereco_entrega])
   @@index([id_pedido])
   @@index([id_orcamento_origem])

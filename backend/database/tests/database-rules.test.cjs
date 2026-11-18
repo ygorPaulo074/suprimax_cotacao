@@ -216,6 +216,44 @@ test('bloqueia emissão sem saldo e mantém o rascunho intacto', { skip: !enable
   });
 });
 
+test('id_operador_ultima_edicao: grava em rascunho, recusa FK inválida e não muda orçamento emitido (UC14)', { skip: !enabled }, async () => {
+  await withRollback(async () => {
+    const fixture = await createFixture({ stock: 10 });
+    const nova = await db.query('SELECT id_operador_ultima_edicao FROM orcamento WHERE id_orcamento=$1', [fixture.quoteId]);
+    assert.equal(nova.rows[0].id_operador_ultima_edicao, null);
+
+    // Rascunho: a atualização passa pelos gatilhos, também junto de data_ultima_edicao.
+    await db.query(
+      'UPDATE orcamento SET id_operador_ultima_edicao=$2, data_ultima_edicao=CURRENT_TIMESTAMP WHERE id_orcamento=$1',
+      [fixture.quoteId, fixture.operatorId],
+    );
+    const gravado = await db.query('SELECT id_operador_ultima_edicao FROM orcamento WHERE id_orcamento=$1', [fixture.quoteId]);
+    assert.equal(gravado.rows[0].id_operador_ultima_edicao, fixture.operatorId);
+
+    // FK inválida é recusada (violação de chave estrangeira).
+    await db.query('SAVEPOINT fk_invalida');
+    await assert.rejects(
+      db.query('UPDATE orcamento SET id_operador_ultima_edicao=-1 WHERE id_orcamento=$1', [fixture.quoteId]),
+      (error) => error.code === '23503',
+    );
+    await db.query('ROLLBACK TO SAVEPOINT fk_invalida');
+
+    // Emitido (ABERTO, com número): imutável, inclusive nesta coluna.
+    await db.query('SELECT * FROM public.proxy_orcamento_emitir($1,$2,$3)', [fixture.quoteId, fixture.operatorId, 'test-ultimo-editor-key']);
+    const emitido = await db.query('SELECT status,numero_orcamento FROM orcamento WHERE id_orcamento=$1', [fixture.quoteId]);
+    assert.equal(emitido.rows[0].status, 'ABERTO');
+    assert.notEqual(emitido.rows[0].numero_orcamento, null);
+    await db.query('SAVEPOINT emitido');
+    await assert.rejects(
+      db.query('UPDATE orcamento SET id_operador_ultima_edicao=NULL WHERE id_orcamento=$1', [fixture.quoteId]),
+      (error) => error.message === 'ORCAMENTO_NAO_EDITAVEL',
+    );
+    await db.query('ROLLBACK TO SAVEPOINT emitido');
+    const depois = await db.query('SELECT id_operador_ultima_edicao FROM orcamento WHERE id_orcamento=$1', [fixture.quoteId]);
+    assert.equal(depois.rows[0].id_operador_ultima_edicao, fixture.operatorId);
+  });
+});
+
 test('impede abrir orçamento para cliente com dívida em aberto', { skip: !enabled }, async () => {
   await withRollback(async () => {
     const fixture = await createFixture();
