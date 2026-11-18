@@ -36,7 +36,7 @@ Origem: o protótipo do Figma foi trazido para `frontend/` e reconstruído como 
 - [x] React Router com uma rota por tela e links diretos (filtros de clientes e orçamentos ficam na URL).
 - [x] Removidos o “Wireframe Navigator” e os seletores de variação (`normal`, `min-value`, `no-stock`, `timeout`, …).
 - [x] Variações viraram estados reais: mínimo, sem estoque, timeout com “Tentar novamente”, pendente de crédito, estoque insuficiente, dívida em aberto, divergência, LGPD, ajuste abaixo do reservado.
-- [ ] Testes de tela para cada estado (Testing Library) quando houver backend/mocks de rede.
+- [ ] Testes de tela para cada estado (Testing Library): feitos Login, Orçamentos (lista), Montagem do orçamento e Usuários, com a camada de API mockada; faltam as demais telas.
 - [x] Botão "Novo orçamento" na ficha do cliente (UC14): `POST /orcamentos`, abre `/orcamentos/:id`, desabilitado com motivo se há dívida ou cliente inativo.
 - [x] "Novo orçamento" também desabilitado para cliente BLOQUEADO (decisão do usuário; UC14).
 - [x] Faixa de aviso de edição de rascunho na montagem do orçamento (UC14 a UC17): `lib/avisoDeRascunho.ts`. Depende do backend registrar quem edita itens e condições (hoje só status e follow-up).
