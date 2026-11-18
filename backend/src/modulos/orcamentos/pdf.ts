@@ -15,17 +15,39 @@ const FORMATADOR_DE_MOEDA = new Intl.NumberFormat('pt-BR', {
   style: 'currency',
   currency: 'BRL',
 });
-const FORMATADOR_DE_DATA = new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short' });
+const FUSO_DO_DOCUMENTO = 'America/Sao_Paulo';
+const FORMATADOR_DE_DATA = new Intl.DateTimeFormat('pt-BR', {
+  dateStyle: 'short',
+  timeZone: FUSO_DO_DOCUMENTO,
+});
+const SOMENTE_DATA = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 function formatarCentavos(centavos: number | null): string {
   return centavos === null ? '—' : FORMATADOR_DE_MOEDA.format(centavos / 100);
 }
 
+/** Data só com dia não tem fuso: formata sem converter (senão 17/11 viraria 16/11 em UTC-3). */
 function formatarData(dataIso: string | null): string {
   if (dataIso === null) {
     return '—';
   }
+  const somenteData = SOMENTE_DATA.exec(dataIso);
+  if (somenteData) {
+    return `${somenteData[3]}/${somenteData[2]}/${somenteData[1]}`;
+  }
   return FORMATADOR_DE_DATA.format(new Date(dataIso));
+}
+
+function formatarCnpj(cnpj: string): string {
+  const digitos = cnpj.replace(/\D/g, '');
+  return digitos.length === 14
+    ? digitos.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5')
+    : cnpj;
+}
+
+function formatarCep(cep: string): string {
+  const digitos = cep.replace(/\D/g, '');
+  return digitos.length === 8 ? `${digitos.slice(0, 5)}-${digitos.slice(5)}` : cep;
 }
 
 const RETULOS_DA_CONDICAO_DE_PAGAMENTO: Record<string, string> = {
@@ -96,12 +118,12 @@ function cabecalhoDoCliente(doc: PDFKit.PDFDocument, detalhe: OrcamentoDetalhado
   );
   tituloDaSecao(doc, `Orçamento nº ${numero}`);
   doc
-    .text(`Cliente: ${detalhe.cliente} — CNPJ: ${detalhe.cnpj}`)
+    .text(`Cliente: ${detalhe.cliente} — CNPJ: ${formatarCnpj(detalhe.cnpj)}`)
     .text(
       endereco
         ? `Endereço de entrega: ${endereco.logradouro}, ${endereco.numero}` +
             `${endereco.complemento ? ` — ${endereco.complemento}` : ''} — ${endereco.bairro}, ` +
-            `${endereco.cidade}/${endereco.uf} — CEP ${endereco.cep}`
+            `${endereco.cidade}/${endereco.uf} — CEP ${formatarCep(endereco.cep)}`
         : 'Endereço de entrega: a confirmar.',
     )
     .text(`Data de emissão: ${formatarData(detalhe.dataEmissao)}`)
@@ -115,29 +137,34 @@ function cabecalhoDoCliente(doc: PDFKit.PDFDocument, detalhe: OrcamentoDetalhado
 }
 
 const LARGURAS_DAS_COLUNAS = {
-  item: 25,
-  codigo: 55,
-  ncm: 55,
-  descricao: 140,
-  quantidade: 45,
-  precoUnitario: 65,
-  imposto: 55,
-  total: 65,
+  item: 22,
+  codigo: 64,
+  ncm: 48,
+  descricao: 120,
+  quantidade: 33,
+  precoUnitario: 66,
+  imposto: 68,
+  total: 74,
 } as const;
 
-function cabecalhoDaTabela(doc: PDFKit.PDFDocument, x: number, y: number): void {
-  let cursor = x;
-  doc.font('Helvetica-Bold').fontSize(8);
-  for (const [coluna, largura] of Object.entries(LARGURAS_DAS_COLUNAS)) {
-    doc.text(TITULOS_DAS_COLUNAS[coluna as keyof typeof LARGURAS_DAS_COLUNAS], cursor, y, {
-      width: largura,
-    });
-    cursor += largura;
-  }
-  doc.font('Helvetica').fontSize(8);
-}
+type ColunaDaTabela = keyof typeof LARGURAS_DAS_COLUNAS;
+type LinhaDaTabela = Record<ColunaDaTabela, string>;
+const COLUNAS_NUMERICAS: readonly ColunaDaTabela[] = [
+  'quantidade',
+  'precoUnitario',
+  'imposto',
+  'total',
+];
+const COLUNAS = Object.keys(LARGURAS_DAS_COLUNAS) as ColunaDaTabela[];
+const LARGURA_DA_TABELA = Object.values(LARGURAS_DAS_COLUNAS).reduce((soma, l) => soma + l, 0);
+const RECUO_DA_CELULA = 3;
+const ESPACO_VERTICAL_DA_LINHA = 6;
+/** Espaço mínimo no fim da página para abrir a tabela (título + cabeçalho + uma linha). */
+const ALTURA_MINIMA_PARA_ABRIR_A_TABELA = 70;
+/** Faixa do rodapé (numeração de páginas) que o conteúdo não pode invadir. */
+const ESPACO_RESERVADO_AO_RODAPE = 20;
 
-const TITULOS_DAS_COLUNAS: Record<keyof typeof LARGURAS_DAS_COLUNAS, string> = {
+const TITULOS_DAS_COLUNAS: LinhaDaTabela = {
   item: 'Item',
   codigo: 'Código',
   ncm: 'NCM',
@@ -148,15 +175,55 @@ const TITULOS_DAS_COLUNAS: Record<keyof typeof LARGURAS_DAS_COLUNAS, string> = {
   total: 'Total',
 };
 
-function linhaDaTabela(
-  doc: PDFKit.PDFDocument,
-  x: number,
-  y: number,
-  numero: number,
-  item: ItemDetalhado,
-): void {
-  let cursor = x;
-  const valores: Record<keyof typeof LARGURAS_DAS_COLUNAS, string> = {
+function limiteInferior(doc: PDFKit.PDFDocument): number {
+  return doc.page.height - doc.page.margins.bottom - ESPACO_RESERVADO_AO_RODAPE;
+}
+
+function opcoesDaCelula(coluna: ColunaDaTabela): { width: number; align: 'left' | 'right' } {
+  return {
+    width: LARGURAS_DAS_COLUNAS[coluna] - RECUO_DA_CELULA,
+    align: COLUNAS_NUMERICAS.includes(coluna) ? 'right' : 'left',
+  };
+}
+
+/** Altura da linha: a da célula mais alta (descrição e código quebram em várias linhas). */
+function alturaDaLinha(doc: PDFKit.PDFDocument, valores: LinhaDaTabela): number {
+  const alturas = COLUNAS.map((coluna) =>
+    doc.heightOfString(valores[coluna], opcoesDaCelula(coluna)),
+  );
+  return Math.max(...alturas) + ESPACO_VERTICAL_DA_LINHA;
+}
+
+function escreverLinha(doc: PDFKit.PDFDocument, y: number, valores: LinhaDaTabela): number {
+  let cursor = doc.page.margins.left;
+  for (const coluna of COLUNAS) {
+    doc.text(valores[coluna], cursor, y, opcoesDaCelula(coluna));
+    cursor += LARGURAS_DAS_COLUNAS[coluna];
+  }
+  return alturaDaLinha(doc, valores);
+}
+
+function tracoHorizontal(doc: PDFKit.PDFDocument, y: number): void {
+  const x0 = doc.page.margins.left;
+  doc
+    .moveTo(x0, y)
+    .lineTo(x0 + LARGURA_DA_TABELA, y)
+    .lineWidth(0.5)
+    .strokeColor('#999999')
+    .stroke()
+    .strokeColor('#000000');
+}
+
+function cabecalhoDaTabela(doc: PDFKit.PDFDocument, y: number): number {
+  doc.font('Helvetica-Bold').fontSize(8);
+  const altura = escreverLinha(doc, y, TITULOS_DAS_COLUNAS);
+  tracoHorizontal(doc, y + altura - 2);
+  doc.font('Helvetica').fontSize(8);
+  return altura;
+}
+
+function valoresDoItem(numero: number, item: ItemDetalhado): LinhaDaTabela {
+  return {
     item: String(numero),
     codigo: item.codigoInterno,
     ncm: item.ncm ?? '—',
@@ -166,45 +233,65 @@ function linhaDaTabela(
     imposto: formatarCentavos(item.valorImposto),
     total: formatarCentavos(item.valorTotalItem),
   };
-  for (const [coluna, largura] of Object.entries(LARGURAS_DAS_COLUNAS)) {
-    doc.text(valores[coluna as keyof typeof LARGURAS_DAS_COLUNAS], cursor, y, { width: largura });
-    cursor += largura;
-  }
 }
 
 function tabelaDeProdutos(doc: PDFKit.PDFDocument, detalhe: OrcamentoDetalhado): void {
+  if (doc.y > limiteInferior(doc) - ALTURA_MINIMA_PARA_ABRIR_A_TABELA) {
+    doc.addPage();
+  }
+  doc.x = doc.page.margins.left;
   tituloDaSecao(doc, 'Produtos');
-  const x = doc.page.margins.left;
-  let y = doc.y;
-  cabecalhoDaTabela(doc, x, y);
-  y += 14;
+  doc.fontSize(8);
+  let y = doc.y + 2;
+  y += cabecalhoDaTabela(doc, y);
   detalhe.itens.forEach((item, indice) => {
-    if (y > doc.page.height - doc.page.margins.bottom - 100) {
+    const valores = valoresDoItem(indice + 1, item);
+    if (y + alturaDaLinha(doc, valores) > limiteInferior(doc)) {
       doc.addPage();
       y = doc.page.margins.top;
-      cabecalhoDaTabela(doc, x, y);
-      y += 14;
+      y += cabecalhoDaTabela(doc, y);
     }
-    linhaDaTabela(doc, x, y, indice + 1, item);
-    y += 14;
+    const altura = escreverLinha(doc, y, valores);
+    tracoHorizontal(doc, y + altura - 2);
+    y += altura;
   });
+  // `text(x, y)` deixa o cursor na última coluna: volta à margem antes do texto corrido.
+  doc.x = doc.page.margins.left;
   doc.y = y + 6;
+  doc.fontSize(9);
 }
 
 function totalizadoresERegras(doc: PDFKit.PDFDocument, detalhe: OrcamentoDetalhado): void {
-  const { valorTotalItens, valorTotalImposto, valorTotalProposta, creditoStatus } =
+  const { valorTotalItens, valorTotalImposto, valorTotalProposta, valorFrete, creditoStatus } =
     detalhe.condicoes;
+  // `valorTotalItens` já traz o imposto; a linha "sem impostos" só subtrai, para as linhas somarem.
+  const produtosSemImposto =
+    valorTotalItens === null || valorTotalImposto === null
+      ? null
+      : valorTotalItens - valorTotalImposto;
   tituloDaSecao(doc, 'Totais e regras');
   doc
-    .text(`Valor total dos produtos: ${formatarCentavos(valorTotalItens)}`)
-    .text(`Valor total de impostos: ${formatarCentavos(valorTotalImposto)}`)
-    .text(`Valor total da proposta (com impostos): ${formatarCentavos(valorTotalProposta)}`)
-    .text(textoDoFrete(detalhe))
+    .text(`Valor total dos produtos (sem impostos): ${formatarCentavos(produtosSemImposto)}`)
     .text(
-      `Faturamento mínimo a prazo: ${formatarCentavos(
-        VALOR_MINIMO_PARA_FATURAMENTO_A_PRAZO_CENTAVOS,
-      )}; abaixo disso, exige-se pagamento adiantado.`,
+      `Valor total de impostos (${ALIQUOTA_DE_IMPOSTO_EXIBIDA}): ${formatarCentavos(valorTotalImposto)}`,
     );
+  if (valorFrete !== null) {
+    doc.font('Helvetica-Bold').text(textoDoFrete(detalhe)).font('Helvetica');
+  }
+  doc
+    .font('Helvetica-Bold')
+    .text(
+      `Valor total da proposta (com impostos inclusos${valorFrete !== null ? ' e frete' : ''}): ${formatarCentavos(valorTotalProposta)}`,
+    )
+    .font('Helvetica');
+  if (valorFrete === null) {
+    doc.text(textoDoFrete(detalhe));
+  }
+  doc.text(
+    `Faturamento mínimo a prazo: ${formatarCentavos(
+      VALOR_MINIMO_PARA_FATURAMENTO_A_PRAZO_CENTAVOS,
+    )}; abaixo disso, exige-se pagamento adiantado.`,
+  );
   if (creditoStatus !== 'NAO_EXIGIDO') {
     doc.text(
       creditoStatus === 'PENDENTE'
@@ -239,6 +326,26 @@ function anexosAutomaticos(doc: PDFKit.PDFDocument, detalhe: OrcamentoDetalhado)
   }
 }
 
+function numerarPaginas(doc: PDFKit.PDFDocument, numeroOrcamento: number | null): void {
+  const { start, count } = doc.bufferedPageRange();
+  const numero = String(numeroOrcamento ?? 0).padStart(TAMANHO_MINIMO_DO_NUMERO_DO_ORCAMENTO, '0');
+  for (let i = start; i < start + count; i += 1) {
+    doc.switchToPage(i);
+    const { margins, height, width } = doc.page;
+    // Sem zerar a margem inferior, escrever abaixo dela abriria uma página nova.
+    const margemInferior = margins.bottom;
+    margins.bottom = 0;
+    doc
+      .font('Helvetica')
+      .fontSize(8)
+      .text(`Orçamento nº ${numero} — página ${i + 1} de ${count}`, margins.left, height - 35, {
+        width: width - margins.left - margins.right,
+        align: 'center',
+      });
+    margins.bottom = margemInferior;
+  }
+}
+
 /**
  * Gera o PDF do orçamento emitido (docs/09). O chamador (`ServicoDeOrcamentos.gerarPdf`) garante
  * que o orçamento já tem número — aqui não há mais nenhuma regra de negócio, só layout.
@@ -248,7 +355,11 @@ export function gerarPdfDeOrcamento(
   empresa: DadosDaEmpresaEmissora,
 ): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ margin: MARGEM_DO_DOCUMENTO, size: 'A4' });
+    const doc = new PDFDocument({
+      margin: MARGEM_DO_DOCUMENTO,
+      size: 'A4',
+      bufferPages: true,
+    });
     const blocos: Buffer[] = [];
     doc.on('data', (bloco: Buffer) => blocos.push(bloco));
     doc.on('end', () => resolve(Buffer.concat(blocos)));
@@ -261,6 +372,7 @@ export function gerarPdfDeOrcamento(
     totalizadoresERegras(doc, detalhe);
     avisosEPagamento(doc, empresa);
     anexosAutomaticos(doc, detalhe);
+    numerarPaginas(doc, detalhe.numeroOrcamento);
 
     doc.end();
   });

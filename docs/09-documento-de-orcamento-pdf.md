@@ -12,3 +12,7 @@ O PDF de orçamento gerado pelo sistema segue a estrutura abaixo.
 | **Rodapé — totalizadores e regras** | Valor total dos produtos, valor total de impostos, valor total da proposta com impostos inclusos, regra de frete aplicada (CIF ou FOB, com transportadora quando aplicável), aviso de faturamento mínimo e ressalva de análise de crédito. |
 | **Rodapé — avisos e pagamento** | Dados bancários (PIX, agência e conta), instruções de pagamento, incluindo a condição de 100% adiantado na primeira compra ou 50%/50% em caso de crédito reprovado, aviso sobre flutuação de estoque e cláusula de consentimento LGPD. |
 | **Anexos automáticos** | Arquivos anexados à cotação, como descritivos técnicos e materiais de apoio/marketing, conforme RF11. |
+
+O PDF numera as páginas no rodapé ("Orçamento nº 00003 — página 1 de 2"), repete o cabeçalho da tabela de produtos em cada página e formata CNPJ e CEP.
+
+Totalizadores: "Valor total dos produtos (sem impostos)" + "Valor total de impostos (18%)" + frete (quando há valor, em destaque) = "Valor total da proposta (com impostos inclusos[ e frete])". O valor de cada item na tabela já inclui o imposto; o frete é sempre destacado, nunca diluído no preço.
