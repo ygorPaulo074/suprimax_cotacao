@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Dados FALSOS para apresentar o sistema: um usuário de cada perfil, clientes, fornecedores e
+// Dados FALSOS para apresentar o sistema: um usuário de cada perfil, clientes (com endereços), fornecedores e
 // produtos com variações, faixas de preço, fardos e estoque, mais pedidos na fila, um orçamento em
 // rascunho incompleto e um orçamento emitido (ABERTO, com PDF). É idempotente: rodar de novo não
 // duplica nada (ON CONFLICT DO NOTHING) e não altera o que já existe.
@@ -45,6 +45,20 @@ const CLIENTES = [
   ['33444555000163', 'Padaria Pão Quente Eireli', 'Pão Quente', 'Ana Ribeiro', '11911110003', 'MATRIZ', 'vendedor2'],
   ['44555666000154', 'Hotel Vista Verde S.A.', 'Hotel Vista Verde', 'Carlos Nunes', '11911110004', 'MATRIZ', 'vendedor2'],
   ['44555666000235', 'Hotel Vista Verde S.A. - Filial', 'Hotel Vista Verde Filial', 'Júlia Alves', '11911110005', 'FILIAL', 'vendedor2'],
+];
+
+// Endereços dos clientes de demonstração: todos têm o cadastral; alguns, também um de entrega
+// (é o que a montagem do orçamento oferece em "Endereço de entrega").
+// [cnpj, tipo, logradouro, número, complemento, bairro, cidade, uf, cep]
+const ENDERECOS = [
+  ['11222333000181', 'CADASTRAL', 'Rua das Flores', '120', null, 'Centro', 'São Paulo', 'SP', '01010000'],
+  ['11222333000181', 'ENTREGA', 'Avenida Brasil', '4500', 'Galpão 2', 'Vila Industrial', 'Guarulhos', 'SP', '07090000'],
+  ['22333444000172', 'CADASTRAL', 'Rua Augusta', '980', 'Loja 1', 'Consolação', 'São Paulo', 'SP', '01304000'],
+  ['22333444000172', 'ENTREGA', 'Rua do Comércio', '15', 'Fundos', 'Centro', 'Osasco', 'SP', '06010000'],
+  ['33444555000163', 'CADASTRAL', 'Rua Sete de Setembro', '300', null, 'Centro', 'Campinas', 'SP', '13010000'],
+  ['44555666000154', 'CADASTRAL', 'Avenida das Palmeiras', '1000', null, 'Jardim Botânico', 'Curitiba', 'PR', '80210000'],
+  ['44555666000154', 'ENTREGA', 'Rua do Almoxarifado', '88', 'Doca 3', 'Cidade Industrial', 'Curitiba', 'PR', '81170000'],
+  ['44555666000235', 'CADASTRAL', 'Rua XV de Novembro', '55', null, 'Centro', 'Joinville', 'SC', '89201000'],
 ];
 
 // [cnpj, razão social, contato, telefone, e-mail]
@@ -93,7 +107,7 @@ async function main() {
   const hash = await bcrypt.hash(SENHA_DEMO, CUSTO_BCRYPT);
   const db = new Client({ connectionString: url });
   await db.connect();
-  const contagem = { operador: 0, cliente: 0, fornecedor: 0, produto: 0, variacao: 0, pedido: 0, orcamento: 0 };
+  const contagem = { operador: 0, cliente: 0, endereco: 0, fornecedor: 0, produto: 0, variacao: 0, pedido: 0, orcamento: 0 };
   try {
     await db.query('BEGIN');
 
@@ -120,6 +134,20 @@ async function main() {
         [cnpj, razao, fantasia, contato, tel, `contato@${cnpj}.demo`, tipo, ids[vendedor]],
       );
       contagem.cliente += r.rowCount;
+    }
+
+    // Sem restrição de unicidade na tabela: só insere o endereço se o cliente ainda não tem um igual
+    // (mesmo tipo, logradouro e número), o que também completa clientes já existentes sem endereço.
+    for (const [cnpj, tipo, logradouro, numero, complemento, bairro, cidade, uf, cep] of ENDERECOS) {
+      const r = await db.query(
+        `INSERT INTO endereco_cliente (id_cliente, tipo, logradouro, numero, complemento, bairro, cidade, uf, cep)
+         SELECT c.id_cliente, $2, $3, $4, $5, $6, $7, $8, $9 FROM cliente c
+          WHERE c.cnpj = $1
+            AND NOT EXISTS (SELECT 1 FROM endereco_cliente e
+                             WHERE e.id_cliente = c.id_cliente AND e.tipo = $2 AND e.logradouro = $3 AND e.numero = $4)`,
+        [cnpj, tipo, logradouro, numero, complemento, bairro, cidade, uf, cep],
+      );
+      contagem.endereco += r.rowCount;
     }
 
     for (const [cnpj, razao, contato, tel, email] of FORNECEDORES) {
