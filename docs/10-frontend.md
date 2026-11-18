@@ -186,6 +186,7 @@ Tela principal do fluxo de cotação, em duas colunas. À esquerda ficam o cabe�
 - Painel Condições comerciais: subtotal com imposto, imposto total, frete (CIF/FOB, origem da transportadora, transportadora e “frete provisório”, sempre em destaque), condição de pagamento (adiantado 100%, boleto de 10/15/20/28/30 dias, parcelado até 6x, 50%/50%), situação do crédito, anexos (descritivo técnico e material de apoio) e o botão verde Emitir orçamento.
 - Abaixo do mínimo: alerta laranja “Abaixo do faturamento mínimo de R$ 500,00 – faltam R$ 107,65” e emissão desabilitada.
 - Variação sem estoque: a inclusão é bloqueada e a tela não substitui automaticamente por outra variação. Timeout da consulta de estoque: opção Tentar novamente.
+- Aviso de edição de rascunho: faixa de alerta no topo. Operador que não é o responsável vê “Rascunho de {nome}. Suas alterações serão informadas a ele.”; o responsável vê “Este rascunho foi alterado por {nome} em {data}.” quando outro operador alterou (dado do histórico; ver docs/frontend-api.md).
 - PENDENTE_CREDITO: emissão bloqueada. Estoque insuficiente na emissão: mensagem do UC19 (E5), com produto, saldo disponível e quantidade no orçamento.
 
 ![fig10.png](assets/fig10.png)
