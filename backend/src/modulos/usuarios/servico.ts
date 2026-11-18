@@ -116,7 +116,9 @@ export class ServicoDeUsuarios {
   }
 
   /**
-   * Muda o perfil ou o status do usuário.
+   * Muda o perfil, o status ou o e-mail do usuário.
+   *
+   * Trocar o e-mail não reenvia convite nem encerra sessões, e o endereço nunca vai ao log.
    *
    * Um vendedor que deixa de atender (é inativado ou muda de perfil) não pode ficar com clientes:
    * a carteira passa ao vendedor indicado em `idNovoVendedor`. As sessões abertas do usuário são
@@ -125,6 +127,7 @@ export class ServicoDeUsuarios {
    * @param autor Operador chefe ou ADMIN que fez a alteração.
    * @throws {ErroDeAcessoNegado} Se um não-ADMIN mexer em usuário ADMIN ou promover alguém a ADMIN.
    * @throws {ErroDeUsuarioNaoEncontrado} Se o usuário não existir.
+   * @throws {ErroDeUsuarioJaCadastrado} Se o novo e-mail já for de outro usuário.
    * @throws {ErroDeAlteracaoDoProprioUsuario} Se o autor tentar inativar ou rebaixar a si mesmo.
    * @throws {ErroDeNovoVendedorObrigatorio} Ao inativar vendedor com carteira sem indicar o novo
    * responsável (UC25-E1).
@@ -144,7 +147,11 @@ export class ServicoDeUsuarios {
     // Anti-escalada: só ADMIN mexe em ADMIN (editar, inativar) ou promove alguém a ADMIN.
     this.exigirAdminParaAdmin(autor, atual.perfil, dados.perfil);
     const alteracao = this.calcularAlteracao(atual, dados);
-    if (alteracao.perfil === undefined && alteracao.status === undefined) {
+    if (
+      alteracao.perfil === undefined &&
+      alteracao.status === undefined &&
+      alteracao.email === undefined
+    ) {
       // Nada muda: o pedido repete o que já está gravado.
       return { ...atual, clientesNaCarteira: await this.usuarios.contarClientesDe(idOperador) };
     }
@@ -154,17 +161,35 @@ export class ServicoDeUsuarios {
       throw new ErroDeAlteracaoDoProprioUsuario();
     }
 
+    if (
+      alteracao.email !== undefined &&
+      (await this.usuarios.existeOutroComEmail(alteracao.email, idOperador))
+    ) {
+      throw new ErroDeUsuarioJaCadastrado();
+    }
+
     const deixaACarteira = atual.perfil === PERFIL_VENDEDOR && (inativando || mudandoDePerfil);
     const carteira = deixaACarteira ? await this.usuarios.contarClientesDe(idOperador) : 0;
     if (carteira > 0) {
       await this.conferirNovoVendedor(idOperador, dados.idNovoVendedor, carteira, inativando);
     }
 
-    await this.usuarios.atualizar(
-      idOperador,
-      alteracao,
-      carteira > 0 ? dados.idNovoVendedor : undefined,
-    );
+    try {
+      await this.usuarios.atualizar(
+        idOperador,
+        alteracao,
+        carteira > 0 ? dados.idNovoVendedor : undefined,
+      );
+    } catch (erro) {
+      // Outro cadastro com o mesmo e-mail chegou no meio: mesmo conflito da conferência acima.
+      if (
+        alteracao.email !== undefined &&
+        (await this.usuarios.existeOutroComEmail(alteracao.email, idOperador))
+      ) {
+        throw new ErroDeUsuarioJaCadastrado();
+      }
+      throw erro;
+    }
     if (inativando || mudandoDePerfil) {
       await this.sessoes.encerrarDoOperador(idOperador);
     }
@@ -172,7 +197,9 @@ export class ServicoDeUsuarios {
       {
         evento: 'usuario_alterado',
         idOperador,
-        ...alteracao,
+        ...(alteracao.perfil !== undefined && { perfil: alteracao.perfil }),
+        ...(alteracao.status !== undefined && { status: alteracao.status }),
+        ...(alteracao.email !== undefined && { emailAlterado: true }),
         clientesTransferidos: carteira,
         ...(carteira > 0 && { idNovoVendedor: dados.idNovoVendedor }),
         idAutor: autor.idOperador,
@@ -196,11 +223,12 @@ export class ServicoDeUsuarios {
   /** Só entram na alteração os campos pedidos que diferem do valor atual. */
   private calcularAlteracao(
     atual: UsuarioCadastrado,
-    { perfil, status }: DadosDoUsuarioAtualizar,
+    { perfil, status, email }: DadosDoUsuarioAtualizar,
   ): AlteracaoDeUsuario {
     return {
       ...(perfil !== undefined && perfil !== atual.perfil && { perfil }),
       ...(status !== undefined && status !== atual.status && { status }),
+      ...(email !== undefined && email !== atual.email.toLowerCase() && { email }),
     };
   }
 

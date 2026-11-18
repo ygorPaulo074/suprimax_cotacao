@@ -70,6 +70,7 @@ export interface UsuarioAInserir {
 export interface AlteracaoDeUsuario {
   readonly perfil?: Perfil;
   readonly status?: StatusDoUsuario;
+  readonly email?: string;
 }
 
 const esquemaDoUsuario = z.object({
@@ -155,6 +156,21 @@ export class RepositorioDeUsuarios {
       OPERACOES_DE_USUARIOS.CONFERIR_DUPLICIDADE,
     );
     return linhas.length > 0;
+  }
+
+  /** Indica se outro usuário (que não `idOperador`) já usa o e-mail. */
+  async existeOutroComEmail(email: string, idOperador: number): Promise<boolean> {
+    const linhas = await consultar(
+      this.proxy,
+      {
+        tabela: TABELA_DE_USUARIOS,
+        campos: ['id_operador'],
+        filtros: { e: [['email', '=', email]] },
+        limite: 2,
+      },
+      OPERACOES_DE_USUARIOS.CONFERIR_DUPLICIDADE,
+    );
+    return linhas.some((linha) => (linha as { idOperador?: number }).idOperador !== idOperador);
   }
 
   /** Grava o usuário novo, ATIVO, com o token de definição de senha. */
@@ -253,7 +269,11 @@ export class RepositorioDeUsuarios {
         ]);
       });
     }
-    if (alteracao.perfil !== undefined || alteracao.status !== undefined) {
+    if (
+      alteracao.perfil !== undefined ||
+      alteracao.status !== undefined ||
+      alteracao.email !== undefined
+    ) {
       grupos.push([
         {
           id: 'usuario',
@@ -264,6 +284,7 @@ export class RepositorioDeUsuarios {
             valores: {
               ...(alteracao.perfil !== undefined && { perfil: alteracao.perfil }),
               ...(alteracao.status !== undefined && { status: alteracao.status }),
+              ...(alteracao.email !== undefined && { email: alteracao.email }),
             },
           },
         },

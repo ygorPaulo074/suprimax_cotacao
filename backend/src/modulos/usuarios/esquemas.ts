@@ -16,15 +16,19 @@ export const esquemaDeUsuarioNovo = z.object({
 });
 export type DadosDoUsuarioNovo = z.infer<typeof esquemaDeUsuarioNovo>;
 
-/** Corpo de `PATCH /usuarios/:id`: muda o perfil, o status ou os dois. */
+/** Corpo de `PATCH /usuarios/:id`: muda o perfil, o status, o e-mail ou qualquer combinação. */
 export const esquemaDeUsuarioAtualizar = z
   .object({
     perfil: z.enum(PERFIS).optional(),
     status: z.enum(STATUS_DO_USUARIO).optional(),
+    /** Novo e-mail, no mesmo formato do cadastro (aparado e em minúsculas). */
+    email: esquemaDeEmail.transform((email) => email.toLowerCase()).optional(),
     /** Quem recebe a carteira quando o vendedor é inativado ou muda de perfil. */
     idNovoVendedor: esquemaDeId.optional(),
   })
-  .refine(({ perfil, status }) => perfil !== undefined || status !== undefined, {
-    path: ['status'],
-  });
+  .refine(
+    ({ perfil, status, email }) =>
+      perfil !== undefined || status !== undefined || email !== undefined,
+    { path: ['status'] },
+  );
 export type DadosDoUsuarioAtualizar = z.infer<typeof esquemaDeUsuarioAtualizar>;
