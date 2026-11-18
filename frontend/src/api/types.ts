@@ -509,6 +509,8 @@ export interface UsuarioNovo {
 export interface UsuarioAtualizar {
   perfil?: Perfil;
   status?: StatusUsuario;
+  /** Novo e-mail; 409 USUARIO_JA_CADASTRADO se já for de outro usuário. Não reenvia convite. */
+  email?: string;
   /** Obrigatório ao inativar vendedor com clientes na carteira. */
   idNovoVendedor?: number;
 }

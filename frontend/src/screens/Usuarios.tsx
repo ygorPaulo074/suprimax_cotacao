@@ -87,6 +87,54 @@ function ModalNovoVendedor({ usuario, aoFechar }: { usuario: Usuario; aoFechar: 
   );
 }
 
+function ModalEditarEmail({ usuario, aoFechar }: { usuario: Usuario; aoFechar: () => void }) {
+  const queryClient = useQueryClient();
+  const [email, setEmail] = useState(usuario.email);
+  const novo = email.trim();
+  const salvar = useMutation({
+    mutationFn: () => usuariosApi.atualizar(usuario.idOperador, { email: novo }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['usuarios'] });
+      aoFechar();
+    },
+  });
+  const mensagem =
+    salvar.error instanceof ApiError && salvar.error.codigo === 'USUARIO_JA_CADASTRADO'
+      ? 'Já existe um usuário com este e-mail.'
+      : salvar.isError
+        ? mensagemDeErro(salvar.error)
+        : null;
+  return (
+    <Modal
+      titulo={`Editar e-mail de ${usuario.usuario}`}
+      aoFechar={aoFechar}
+      acoes={
+        <>
+          <BotaoSecundario onClick={aoFechar}>Cancelar</BotaoSecundario>
+          <BotaoPrimario
+            disabled={!novo || novo === usuario.email || salvar.isPending}
+            onClick={() => salvar.mutate()}
+          >
+            {salvar.isPending ? 'Salvando…' : 'Salvar'}
+          </BotaoPrimario>
+        </>
+      }
+    >
+      <Campo
+        rotulo="E-mail"
+        type="email"
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+        autoFocus
+      />
+      <p className="text-xs text-gray-500">
+        Nenhum convite é reenviado e as sessões do usuário continuam abertas.
+      </p>
+      {mensagem && <Alerta>{mensagem}</Alerta>}
+    </Modal>
+  );
+}
+
 /** Tela 17 — UC25 – Usuários (OPERADOR_CHEFE e ADMIN; só ADMIN gerencia ADMIN). */
 export default function Usuarios() {
   const queryClient = useQueryClient();
@@ -96,6 +144,7 @@ export default function Usuarios() {
   const [email, setEmail] = useState('');
   const [perfil, setPerfil] = useState<Perfil>('OPERADOR');
   const [transferindo, setTransferindo] = useState<Usuario | null>(null);
+  const [editandoEmail, setEditandoEmail] = useState<Usuario | null>(null);
 
   const criar = useMutation({
     mutationFn: () => usuariosApi.criar({ usuario: nome.trim(), email: email.trim(), perfil }),
@@ -194,7 +243,10 @@ export default function Usuarios() {
                     <Td>
                       <Badge status={u.status} />
                     </Td>
-                    <Td>
+                    <Td className="space-x-2 whitespace-nowrap">
+                      <BotaoSecundario onClick={() => setEditandoEmail(u)}>
+                        Editar e-mail
+                      </BotaoSecundario>
                       <BotaoSecundario
                         disabled={atualizar.isPending}
                         onClick={() => {
@@ -220,6 +272,9 @@ export default function Usuarios() {
       </Cartao>
       {transferindo && (
         <ModalNovoVendedor usuario={transferindo} aoFechar={() => setTransferindo(null)} />
+      )}
+      {editandoEmail && (
+        <ModalEditarEmail usuario={editandoEmail} aoFechar={() => setEditandoEmail(null)} />
       )}
     </Pagina>
   );
