@@ -23,7 +23,7 @@ O token **não** fica fixo no proxy: é emitido por quem administra o proxy (res
 curl -X POST "$PROXY_URL/executar" \
   -H "Authorization: Bearer $PROXY_ADMIN_KEY" -H "X-Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   -H "X-Operation-Id: setup" -H "Content-Type: application/json" \
-  -d '{"operacao":"integrante.criar","payload":{"nome_sistema":"Sistema 2","escopos":["*:consultar","*:inserir","*:atualizar","operador.credenciais:consultar","operacao:pedido.assumir","operacao:orcamento.emitir","operacao:resposta.processar","rpc:*"]}}'
+  -d '{"operacao":"integrante.criar","payload":{"nome_sistema":"Sistema 2","escopos":["*:consultar","*:inserir","*:atualizar","operador.credenciais:consultar","operacao:pedido.assumir","operacao:orcamento.emitir","operacao:resposta.processar","operacao:sessao.criar","operacao:sessao.buscar","operacao:sessao.encerrar","operacao:sessao.encerrar_operador","operacao:sessao.remover_expiradas","rpc:*"]}}'
 ```
 
 Resposta: `{ "ok": true, "dados": { "service_id": "...", "token": "...", "expira_em": "..." } }`. Guarde `service_id` e `token` nas variáveis de ambiente (Render/`.env`), nunca no código. Os escopos do Sistema 2 estão na seção 12.8.5. Exclusões (`*:excluir`) só devem ser concedidas nas tabelas previstas ali.

@@ -26,6 +26,11 @@ export interface DependenciasDoModuloDeJobs {
   readonly processarRespostasPendentes?: () => Promise<number>;
 }
 
+/** Limpeza das sessões vencidas no banco, quando o repositório de sessões a oferece (UC13). */
+function limpezaDeSessoes(sessoes: RepositorioDeSessoes): (() => Promise<number>) | undefined {
+  return sessoes.limparExpiradas?.bind(sessoes);
+}
+
 /** Módulo de jobs agendados montado. */
 export interface ModuloDeJobs {
   readonly rotas: Router;
@@ -41,6 +46,7 @@ export function criarModuloDeJobs(dependencias: DependenciasDoModuloDeJobs): Mod
     logger: dependencias.logger,
     agora: dependencias.agora,
     processarRespostasPendentes: dependencias.processarRespostasPendentes,
+    removerSessoesExpiradas: limpezaDeSessoes(dependencias.sessoes),
   });
   const agendador = new AgendadorDeJobs({
     servico,

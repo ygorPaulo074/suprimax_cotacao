@@ -11,7 +11,11 @@ import {
 import { criarNotificadoresDeEmail } from './email/notificadores';
 import { CHAVE_LOCAL_AGENDADOR_DE_JOBS, createApp, type DependenciasDoApp } from './http/app';
 import type { AgendadorDeJobs } from './modulos/jobs';
-import { RepositorioDeSessoesEmMemoria } from './modulos/auth/sessoes';
+import {
+  RepositorioDeSessoesEmMemoria,
+  RepositorioDeSessoesNoProxy,
+  type RepositorioDeSessoes,
+} from './modulos/auth/sessoes';
 import { criarLogger, type Logger, type OpcoesDoLogger } from './log';
 
 /** Tempo para as requisições em andamento terminarem antes de as conexões serem derrubadas. */
@@ -165,6 +169,28 @@ export function criarClienteDeProxy(config: Config, logger: Logger): ClienteDePr
 }
 
 /**
+ * Cria o repositório de sessões (UC13). Com SESSOES_NO_BANCO=true e o proxy configurado, as
+ * sessões ficam na tabela `sessao` (sobrevivem a deploy e reinício; a limpeza das vencidas roda
+ * com os jobs). Senão, ficam na memória do processo, com limpeza por temporizador.
+ */
+export function criarRepositorioDeSessoes(
+  config: Config,
+  proxy: ClienteDeProxy,
+  logger: Logger,
+): RepositorioDeSessoes {
+  if (config.sessoesNoBanco && variaveisDoProxyAusentes(config).length === 0) {
+    logger.info({ sessoes: 'banco' }, 'sessões guardadas no banco, pelo proxy');
+    return new RepositorioDeSessoesNoProxy({ proxy, inatividadeMs: config.sessaoInatividadeMs });
+  }
+  if (config.sessoesNoBanco) {
+    logger.warn({ sessoes: 'memoria' }, 'SESSOES_NO_BANCO ligado sem proxy: sessões em memória');
+  }
+  const sessoes = new RepositorioDeSessoesEmMemoria({ inatividadeMs: config.sessaoInatividadeMs });
+  sessoes.iniciarLimpeza();
+  return sessoes;
+}
+
+/**
  * Carrega a configuração, sobe o servidor e registra o encerramento.
  * Se a configuração for inválida ou a porta não abrir, registra o motivo e sai com código 1.
  *
@@ -181,11 +207,8 @@ export async function principal(
   try {
     const config = carregarConfig(env);
     logger = criarLogger({ nivel: config.nivelLog, destino: destinoDoLog });
-    const sessoes = new RepositorioDeSessoesEmMemoria({
-      inatividadeMs: config.sessaoInatividadeMs,
-    });
-    sessoes.iniciarLimpeza();
     const proxy = criarClienteDeProxy(config, logger);
+    const sessoes = criarRepositorioDeSessoes(config, proxy, logger);
     const servidor = new ServidorHttp({
       config,
       logger,

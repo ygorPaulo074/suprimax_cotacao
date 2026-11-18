@@ -20,6 +20,13 @@ export const PORTA_MAXIMA = 65535;
 /** Tempo sem uso até a sessão expirar (UC13, RN02), quando SESSAO_INATIVIDADE_MINUTOS não é informada. */
 export const SESSAO_INATIVIDADE_PADRAO_MINUTOS = 30;
 export const SESSAO_INATIVIDADE_MAXIMA_MINUTOS = 1440;
+/**
+ * Sessões na tabela `sessao` do banco, pelo proxy (sobrevivem a deploy e reinício), em vez da
+ * memória do processo. Desligado por padrão: só ligue depois do `prisma migrate deploy` da
+ * migration 20261118000000_sessao (cria a tabela e dá ao integrante do backend os escopos
+ * `operacao:sessao.*`) e com o proxy já implantado com as operações `sessao.*`.
+ */
+export const SESSOES_NO_BANCO_PADRAO = false;
 /** Proxies reversos à frente do backend, quando TRUST_PROXY não é informada (no Render, use 1). */
 export const TRUST_PROXY_PADRAO = 0;
 export const TRUST_PROXY_MAXIMO = 10;
@@ -86,6 +93,7 @@ export const NOMES_DAS_VARIAVEIS = [
   'PROXY_SERVICE_ID',
   'PROXY_SERVICE_TOKEN',
   'SESSAO_INATIVIDADE_MINUTOS',
+  'SESSOES_NO_BANCO',
   'TRUST_PROXY',
   'JOBS_AGENDADOS_HABILITADOS',
   'JOBS_AGENDADOS_INTERVALO_MINUTOS',
@@ -140,6 +148,7 @@ const FORMATO_ESPERADO: Readonly<Record<NomeDaVariavel, string>> = {
   PROXY_SERVICE_ID: 'deve ser um texto sem espaços',
   PROXY_SERVICE_TOKEN: 'deve ser um texto sem espaços',
   SESSAO_INATIVIDADE_MINUTOS: `deve ser um inteiro entre 1 e ${SESSAO_INATIVIDADE_MAXIMA_MINUTOS}`,
+  SESSOES_NO_BANCO: 'deve ser true ou false',
   TRUST_PROXY: `deve ser um inteiro entre 0 e ${TRUST_PROXY_MAXIMO}`,
   JOBS_AGENDADOS_HABILITADOS: 'deve ser true ou false',
   JOBS_AGENDADOS_INTERVALO_MINUTOS: `deve ser um inteiro entre 1 e ${JOBS_AGENDADOS_INTERVALO_MAXIMO_MINUTOS}`,
@@ -167,6 +176,8 @@ export interface Config {
   readonly corsOrigens: readonly string[];
   /** Tempo sem uso até a sessão expirar, em milissegundos. */
   readonly sessaoInatividadeMs: number;
+  /** Guarda as sessões no banco, pelo proxy (UC13); senão, na memória do processo. */
+  readonly sessoesNoBanco: boolean;
   /** Quantos proxies reversos há à frente do backend (define o IP do cliente). */
   readonly trustProxy: number;
   /**
@@ -259,6 +270,10 @@ const esquemaDasVariaveis = z.object({
   PROXY_SERVICE_ID: z.string().regex(PADRAO_TEXTO_SEM_ESPACOS).optional(),
   PROXY_SERVICE_TOKEN: z.string().regex(PADRAO_TEXTO_SEM_ESPACOS).optional(),
   SESSAO_INATIVIDADE_MINUTOS: inteiroEntre(1, SESSAO_INATIVIDADE_MAXIMA_MINUTOS).optional(),
+  SESSOES_NO_BANCO: z
+    .enum(['true', 'false'])
+    .transform((valor) => valor === 'true')
+    .optional(),
   TRUST_PROXY: inteiroEntre(0, TRUST_PROXY_MAXIMO).optional(),
   JOBS_AGENDADOS_HABILITADOS: z
     .enum(['true', 'false'])
@@ -410,6 +425,7 @@ export function carregarConfig(env: NodeJS.ProcessEnv = process.env): Config {
     corsOrigens: Object.freeze(dados.CORS_ORIGENS ?? [...ORIGENS_CORS_PADRAO_DEV]),
     sessaoInatividadeMs:
       (dados.SESSAO_INATIVIDADE_MINUTOS ?? SESSAO_INATIVIDADE_PADRAO_MINUTOS) * MS_POR_MINUTO,
+    sessoesNoBanco: dados.SESSOES_NO_BANCO ?? SESSOES_NO_BANCO_PADRAO,
     trustProxy: dados.TRUST_PROXY ?? TRUST_PROXY_PADRAO,
     ...(dados.PROXY_URL !== undefined && { proxyUrl: dados.PROXY_URL }),
     ...(dados.PROXY_SERVICE_ID !== undefined && { proxyServiceId: dados.PROXY_SERVICE_ID }),

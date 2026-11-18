@@ -40,6 +40,11 @@ export interface DependenciasDoServicoDeJobs {
    * isola a falha de cada resposta.
    */
   readonly processarRespostasPendentes?: () => Promise<number>;
+  /**
+   * Apaga as sessões de login vencidas guardadas no banco (UC13, RN02) e devolve quantas. Só vem
+   * quando as sessões estão no banco (`RepositorioDeSessoesNoProxy.limparExpiradas`).
+   */
+  readonly removerSessoesExpiradas?: () => Promise<number>;
 }
 
 /** Resultado de um job dentro de `executarTodos`. */
@@ -61,12 +66,14 @@ export class ServicoDeJobsAgendados {
   private readonly logger: Logger;
   private readonly agora: () => Date;
   private readonly processarRespostasPendentes?: () => Promise<number>;
+  private readonly removerSessoesExpiradas?: () => Promise<number>;
 
   constructor(dependencias: DependenciasDoServicoDeJobs) {
     this.jobs = dependencias.jobs;
     this.logger = dependencias.logger;
     this.agora = dependencias.agora ?? (() => new Date());
     this.processarRespostasPendentes = dependencias.processarRespostasPendentes;
+    this.removerSessoesExpiradas = dependencias.removerSessoesExpiradas;
   }
 
   /** Job 1 — RASCUNHO/PENDENTE_CREDITO sem edição há 30 dias → EXPIRADO (RN25). */
@@ -184,6 +191,9 @@ export class ServicoDeJobsAgendados {
     // operador quando alguém a processa; este passo é o disparo automático.
     if (this.processarRespostasPendentes) {
       jobs.push(['processar_respostas_pendentes', this.processarRespostasPendentes]);
+    }
+    if (this.removerSessoesExpiradas) {
+      jobs.push(['remover_sessoes_expiradas', this.removerSessoesExpiradas]);
     }
     const resumo: ResumoDoJob[] = [];
     for (const [job, executar] of jobs) {

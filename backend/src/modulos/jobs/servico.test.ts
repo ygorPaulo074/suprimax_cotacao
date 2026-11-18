@@ -446,4 +446,24 @@ describe('ServicoDeJobsAgendados (item 9)', () => {
       expect(segunda[0]).toMatchObject({ processados: 0 });
     });
   });
+
+  describe('executarTodos com a limpeza das sessões no banco (UC13)', () => {
+    it('inclui a remoção das sessões vencidas como último passo, com falha isolada', async () => {
+      const cenario = montarCenarioDeCadastros({ agora: () => AGORA_DO_TESTE });
+      const remover = jest.fn().mockResolvedValueOnce(3).mockRejectedValueOnce(new Error('proxy'));
+      const servico = new ServicoDeJobsAgendados({
+        jobs: new RepositorioDeJobs(cenario.proxy),
+        logger: LOGGER_SILENCIOSO,
+        agora: () => AGORA_DO_TESTE,
+        removerSessoesExpiradas: remover,
+      });
+
+      const primeira = await servico.executarTodos();
+      const segunda = await servico.executarTodos();
+
+      expect(primeira).toHaveLength(6);
+      expect(primeira[5]).toEqual({ job: 'remover_sessoes_expiradas', processados: 3 });
+      expect(segunda[5]).toMatchObject({ job: 'remover_sessoes_expiradas', erro: 'proxy' });
+    });
+  });
 });
