@@ -303,6 +303,11 @@ export interface CondicoesComerciais {
   condicaoPagamento: CondicaoPagamento | null;
   /** Formas de pagamento que o backend permite para este orçamento (primeira compra, crédito, valor). */
   condicoesPagamentoPermitidas: CondicaoPagamento[];
+  /**
+   * Condição padrão para o estado atual (calculada ao vivo; o `GET` nunca grava). Quando
+   * `condicaoPagamento` é `null` (rascunho anterior à gravação automática), a tela a pré-seleciona.
+   */
+  condicaoPagamentoSugerida: CondicaoPagamento;
   prazoDias: number | null;
   numeroParcelas: number | null;
   valorTotalProposta: Centavos;
@@ -327,7 +332,10 @@ export interface BloqueioEmissao {
     | 'DIVIDA_EM_ABERTO'
     | 'ESTOQUE_INSUFICIENTE'
     | 'CLIENTE_BLOQUEADO'
-    | 'SEM_ITENS';
+    | 'SEM_ITENS'
+    | 'CONDICOES_INCOMPLETAS'
+    | 'CONDICAO_NAO_PERMITIDA'
+    | 'FRETE_PROVISORIO';
   mensagem: string;
 }
 export interface EventoHistorico {

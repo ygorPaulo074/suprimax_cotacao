@@ -8,6 +8,7 @@ import { renderizarTela } from '@/test/renderizar';
 
 const mockEmitir = jest.fn();
 const mockCabecalho = jest.fn();
+const mockCondicoes = jest.fn();
 let mockIdOperador = 1;
 
 jest.mock('@/api', () => ({
@@ -15,6 +16,7 @@ jest.mock('@/api', () => ({
   orcamentosApi: {
     emitir: (id: number) => mockEmitir(id),
     atualizarCabecalho: (id: number, d: unknown) => mockCabecalho(id, d),
+    atualizarCondicoes: (id: number, d: unknown) => mockCondicoes(id, d),
   },
   produtosApi: { buscar: jest.fn() },
 }));
@@ -81,7 +83,8 @@ function orcamento(extra: Partial<OrcamentoDetalhe> = {}): OrcamentoDetalhe {
       valorFrete: null,
       freteProvisorio: false,
       condicaoPagamento: null,
-      condicoesPagamentoPermitidas: ['BOLETO'],
+      condicoesPagamentoPermitidas: ['ADIANTADO_100', 'BOLETO'],
+      condicaoPagamentoSugerida: 'ADIANTADO_100',
       prazoDias: null,
       numeroParcelas: null,
       valorTotalProposta: 23600,
@@ -173,6 +176,64 @@ describe('Montagem do orçamento', () => {
     expect(emitir).toBeEnabled();
     await userEvent.click(emitir);
     await waitFor(() => expect(mockEmitir).toHaveBeenCalledWith(7));
+  });
+
+  it('sem condição gravada, o seletor já vem com a sugerida', () => {
+    abrir(orcamento());
+    expect(screen.getByLabelText(/Condição de pagamento/)).toHaveValue('ADIANTADO_100');
+  });
+
+  it('com condição gravada, mostra a gravada e não a sugerida', () => {
+    const base = orcamento();
+    abrir(
+      orcamento({
+        condicoes: { ...base.condicoes, condicaoPagamento: 'BOLETO', prazoDias: 30 },
+      }),
+    );
+    expect(screen.getByLabelText(/Condição de pagamento/)).toHaveValue('BOLETO');
+  });
+
+  it('sem condição gravada, emitir grava a sugerida antes e depois emite', async () => {
+    const base = orcamento();
+    const incompleto = orcamento({
+      condicoes: {
+        ...base.condicoes,
+        modalidadeFrete: null,
+        bloqueios: [{ codigo: 'CONDICOES_INCOMPLETAS', mensagem: 'Defina a condição.' }],
+      },
+    });
+    mockCondicoes.mockResolvedValue(
+      orcamento({ condicoes: { ...base.condicoes, condicaoPagamento: 'ADIANTADO_100' } }),
+    );
+    mockEmitir.mockResolvedValue(orcamento({ status: 'ABERTO', numeroOrcamento: 42 }));
+    abrir(incompleto);
+    const emitir = screen.getByRole('button', { name: 'Emitir orçamento' });
+    expect(emitir).toBeEnabled();
+    await userEvent.click(emitir);
+    await waitFor(() => expect(mockEmitir).toHaveBeenCalledWith(7));
+    expect(mockCondicoes).toHaveBeenCalledWith(
+      7,
+      expect.objectContaining({ condicaoPagamento: 'ADIANTADO_100' }),
+    );
+  });
+
+  it('com um único endereço de entrega, ele já vem selecionado', () => {
+    abrir(orcamento({ idEnderecoEntrega: null }));
+    expect(screen.getByLabelText(/Endereço de entrega/)).toHaveValue('20');
+  });
+
+  it('com vários endereços de entrega e nenhum gravado, continua em Selecione…', () => {
+    const base = orcamento();
+    abrir(
+      orcamento({
+        idEnderecoEntrega: null,
+        enderecosEntrega: [
+          ...base.enderecosEntrega,
+          { ...(base.enderecosEntrega[0] as object), idEndereco: 21 } as never,
+        ],
+      }),
+    );
+    expect(screen.getByLabelText(/Endereço de entrega/)).toHaveValue('');
   });
 
   it('bloqueios do backend aparecem e desabilitam a emissão', () => {
