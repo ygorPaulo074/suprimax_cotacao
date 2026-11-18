@@ -1296,13 +1296,37 @@ SupriMax`,
     autor: Sessao,
     reverterInvalida: boolean,
   ): Promise<OrcamentoDetalhado> {
-    const orcamento = await this.buscarOuFalhar(idOrcamento);
+    const orcamento = await this.aplicarEnderecoUnico(await this.buscarOuFalhar(idOrcamento));
     const { orcamento: atualizado, avisos } = await this.aplicarCondicaoPadrao(
       orcamento,
       autor,
       reverterInvalida,
     );
     return this.montarDetalhe(atualizado, avisos);
+  }
+
+  /**
+   * Endereço de entrega único: em RASCUNHO ou PENDENTE_CREDITO sem endereço gravado, e cliente com
+   * exatamente um endereço de ENTREGA, grava esse endereço (cobre os rascunhos anteriores à
+   * gravação na criação). Roda nas mutações do rascunho, nunca no GET. Idempotente (só grava se
+   * ainda estiver nulo) e é ajuste do sistema: não mexe em `id_operador_ultima_edicao`, então não
+   * dispara o aviso de rascunho de outro operador. Orçamento emitido nunca é alterado.
+   */
+  private async aplicarEnderecoUnico(orcamento: Orcamento): Promise<Orcamento> {
+    if (!STATUS_DE_RASCUNHO.has(orcamento.status) || orcamento.idEnderecoEntrega !== null) {
+      return orcamento;
+    }
+    const idEndereco = await this.enderecoDeEntregaUnico(orcamento.idCliente);
+    if (idEndereco === null) {
+      return orcamento;
+    }
+    await this.orcamentos.atualizarCabecalho(
+      orcamento.idOrcamento,
+      { idEnderecoEntrega: idEndereco },
+      this.agora(),
+      null,
+    );
+    return { ...orcamento, idEnderecoEntrega: idEndereco };
   }
 
   /**
