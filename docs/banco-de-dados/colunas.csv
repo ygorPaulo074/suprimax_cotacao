@@ -84,6 +84,7 @@ orcamento,28,valor_total_imposto,"DECIMAL(12,2)",False,False,False,False,True,Tr
 orcamento,29,valor_total_proposta,"DECIMAL(12,2)",False,False,False,False,True,True,,Valor total da proposta: valor_total_itens + valor_frete (quando destacado). Gravado na emissão; nulo em rascunho.
 orcamento,30,justificativa,TEXT,False,False,False,False,False,True,,Motivo do cancelamento/recusa; opcional (aceita nulo ou vazio).
 orcamento,31,chave_seguranca,VARCHAR(64),False,False,True,False,False,True,,Hash/código antifraude gerado na emissão; nulo enquanto for rascunho.
+orcamento,32,id_operador_ultima_edicao,INTEGER,False,True,False,False,False,True,operador (id_operador),"Último operador que editou o rascunho (itens, cabeçalho ou condições); base do aviso de edição por outro operador. Nulo em orçamentos anteriores à coluna e se ninguém editou depois da criação."
 item_orcamento,1,id_item,INTEGER,True,False,False,False,False,False,,Identificador do item (auto-incremento).
 item_orcamento,2,id_orcamento,INTEGER,False,True,False,True,False,False,orcamento (id_orcamento),Orçamento a que o item pertence.
 item_orcamento,3,id_variacao,INTEGER,False,True,False,True,False,False,variacao_produto (id_variacao),Variação de produto cotada.

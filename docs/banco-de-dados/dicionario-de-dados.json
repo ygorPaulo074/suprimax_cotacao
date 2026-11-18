@@ -1391,6 +1391,20 @@
    "descricao": "Hash/código antifraude gerado na emissão; nulo enquanto for rascunho."
   },
   {
+   "tabela": "orcamento",
+   "ordem": 32,
+   "coluna": "id_operador_ultima_edicao",
+   "tipo": "INTEGER",
+   "pk": false,
+   "fk": true,
+   "uk": false,
+   "not_null": false,
+   "check": false,
+   "nullable": true,
+   "referencia_fk": "operador (id_operador)",
+   "descricao": "Último operador que editou o rascunho (itens, cabeçalho ou condições); base do aviso de edição por outro operador. Nulo em orçamentos anteriores à coluna e se ninguém editou depois da criação."
+  },
+  {
    "tabela": "item_orcamento",
    "ordem": 1,
    "coluna": "id_item",
@@ -3392,6 +3406,13 @@
    "coluna": "id_orcamento_origem",
    "tabela_ref": "orcamento",
    "coluna_ref": "id_orcamento",
+   "obrigatoria": "Não"
+  },
+  {
+   "tabela": "orcamento",
+   "coluna": "id_operador_ultima_edicao",
+   "tabela_ref": "operador",
+   "coluna_ref": "id_operador",
    "obrigatoria": "Não"
   },
   {
