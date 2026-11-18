@@ -507,3 +507,32 @@ export interface ErroApi {
   mensagem: string;
   detalhes?: Record<string, unknown>;
 }
+
+// ---- Lista de clientes e endereço adicional (UC03, UC02-A1) ----
+export interface ClienteResumo {
+  idCliente: number;
+  razaoSocial: string;
+  nomeFantasia: string | null;
+  cnpj: string;
+  status: StatusCliente;
+  /** Do endereço cadastral; nulos se o cliente não tiver um. */
+  cidade: string | null;
+  uf: string | null;
+  /** Dívida em aberto ou protestada (bloqueia novos orçamentos). */
+  temDividaEmAberto: boolean;
+}
+export interface ListaClientesParams {
+  /** Razão social, nome fantasia ou parte do CNPJ. */
+  q?: string;
+  status?: StatusCliente;
+  /** A partir de 1. */
+  pagina?: number;
+  /** Até 50 (padrão 20). */
+  tamanho?: number;
+}
+export interface PaginaDeClientes {
+  clientes: ClienteResumo[];
+  pagina: number;
+  tamanho: number;
+  temMais: boolean;
+}
