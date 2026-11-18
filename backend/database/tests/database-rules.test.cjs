@@ -45,7 +45,11 @@ async function createFixture({ stock = 0 } = {}) {
   const client = await db.query(
     `INSERT INTO cliente(cnpj,razao_social,nome_contato,tipo_unidade,id_operador_vendedor,aceite_lgpd,data_aceite_lgpd)
      VALUES ($1,$2,'Contato de Teste','MATRIZ',$3,TRUE,CURRENT_TIMESTAMP) RETURNING id_cliente`,
-    [`${String(Date.now()).padStart(14, '0').slice(-14)}`, `Cliente ${suffix}`, op.rows[0].id_operador],
+    [
+      `${String(Date.now()).padStart(14, '0').slice(-14)}`,
+      `Cliente ${suffix}`,
+      op.rows[0].id_operador,
+    ],
   );
   const product = await db.query(
     `INSERT INTO produto(codigo_interno,descricao) VALUES ($1,'Produto de teste') RETURNING id_produto`,
@@ -124,76 +128,97 @@ test('migração instala as 25 tabelas e ativa RLS sem políticas', { skip: !ena
 test('rejeita perfil de operador fora da lista aprovada', { skip: !enabled }, async () => {
   await withRollback(async () => {
     await assert.rejects(
-      db.query(`INSERT INTO operador(usuario,email,senha_hash,perfil) VALUES ('invalid-role','invalid-role@example.test','hash','ROOT')`),
-      (error) => error.code === '23514',
-    );
-  });
-});
-
-test('aceita o perfil ADMIN e continua recusando valores fora da lista', { skip: !enabled }, async () => {
-  await withRollback(async () => {
-    const admin = await db.query(
-      `INSERT INTO operador(usuario,email,senha_hash,perfil) VALUES ('admin-role','admin-role@example.test','hash','ADMIN') RETURNING perfil`,
-    );
-    assert.equal(admin.rows[0].perfil, 'ADMIN');
-    await assert.rejects(
-      db.query(`INSERT INTO operador(usuario,email,senha_hash,perfil) VALUES ('admin-minusculo','admin-minusculo@example.test','hash','admin')`),
-      (error) => error.code === '23514',
-    );
-  });
-});
-
-test('o ADMIN libera divergência na entrada de mercadoria; o FISCAL continua sem poder', { skip: !enabled }, async () => {
-  await withRollback(async () => {
-    const fixture = await createFixture();
-    const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    const admin = await db.query(
-      `INSERT INTO operador(usuario,email,senha_hash,perfil) VALUES ($1,$2,'hash','ADMIN') RETURNING id_operador`,
-      [`adm-${suffix}`, `adm-${suffix}@example.test`],
-    );
-    const fiscal = await db.query(
-      `INSERT INTO operador(usuario,email,senha_hash,perfil) VALUES ($1,$2,'hash','FISCAL') RETURNING id_operador`,
-      [`fis-${suffix}`, `fis-${suffix}@example.test`],
-    );
-    const fornecedor = await db.query(
-      `INSERT INTO fornecedor(cnpj,razao_social) VALUES ($1,'Fornecedor de teste') RETURNING id_fornecedor`,
-      [String(Date.now()).padStart(14, '0').slice(-14)],
-    );
-    const entrada = (idLiberacao) =>
       db.query(
-        `INSERT INTO entrada_mercadoria(id_variacao,id_fornecedor,id_operador,quantidade_comprada,quantidade_informada,id_operador_liberacao,data_liberacao)
+        `INSERT INTO operador(usuario,email,senha_hash,perfil) VALUES ('invalid-role','invalid-role@example.test','hash','ROOT')`,
+      ),
+      (error) => error.code === '23514',
+    );
+  });
+});
+
+test(
+  'aceita o perfil ADMIN e continua recusando valores fora da lista',
+  { skip: !enabled },
+  async () => {
+    await withRollback(async () => {
+      const admin = await db.query(
+        `INSERT INTO operador(usuario,email,senha_hash,perfil) VALUES ('admin-role','admin-role@example.test','hash','ADMIN') RETURNING perfil`,
+      );
+      assert.equal(admin.rows[0].perfil, 'ADMIN');
+      await assert.rejects(
+        db.query(
+          `INSERT INTO operador(usuario,email,senha_hash,perfil) VALUES ('admin-minusculo','admin-minusculo@example.test','hash','admin')`,
+        ),
+        (error) => error.code === '23514',
+      );
+    });
+  },
+);
+
+test(
+  'o ADMIN libera divergência na entrada de mercadoria; o FISCAL continua sem poder',
+  { skip: !enabled },
+  async () => {
+    await withRollback(async () => {
+      const fixture = await createFixture();
+      const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const admin = await db.query(
+        `INSERT INTO operador(usuario,email,senha_hash,perfil) VALUES ($1,$2,'hash','ADMIN') RETURNING id_operador`,
+        [`adm-${suffix}`, `adm-${suffix}@example.test`],
+      );
+      const fiscal = await db.query(
+        `INSERT INTO operador(usuario,email,senha_hash,perfil) VALUES ($1,$2,'hash','FISCAL') RETURNING id_operador`,
+        [`fis-${suffix}`, `fis-${suffix}@example.test`],
+      );
+      const fornecedor = await db.query(
+        `INSERT INTO fornecedor(cnpj,razao_social) VALUES ($1,'Fornecedor de teste') RETURNING id_fornecedor`,
+        [String(Date.now()).padStart(14, '0').slice(-14)],
+      );
+      const entrada = (idLiberacao) =>
+        db.query(
+          `INSERT INTO entrada_mercadoria(id_variacao,id_fornecedor,id_operador,quantidade_comprada,quantidade_informada,id_operador_liberacao,data_liberacao)
          VALUES ($1,$2,$3,10,9,$4,CURRENT_TIMESTAMP)`,
-        [fixture.variationId, fornecedor.rows[0].id_fornecedor, fixture.operatorId, idLiberacao],
-      );
-    await entrada(admin.rows[0].id_operador);
-    await assert.rejects(entrada(fiscal.rows[0].id_operador), /LIBERADOR_NAO_E_OPERADOR_CHEFE/);
-  });
-});
+          [fixture.variationId, fornecedor.rows[0].id_fornecedor, fixture.operatorId, idLiberacao],
+        );
+      await entrada(admin.rows[0].id_operador);
+      await assert.rejects(entrada(fiscal.rows[0].id_operador), /LIBERADOR_NAO_E_OPERADOR_CHEFE/);
+    });
+  },
+);
 
-test('o ADMIN registra o resultado da análise de crédito; o OPERADOR_CHEFE continua sem poder', { skip: !enabled }, async () => {
-  await withRollback(async () => {
-    const fixture = await createFixture();
-    const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    const admin = await db.query(
-      `INSERT INTO operador(usuario,email,senha_hash,perfil) VALUES ($1,$2,'hash','ADMIN') RETURNING id_operador`,
-      [`adm-cr-${suffix}`, `adm-cr-${suffix}@example.test`],
-    );
-    const analise = (idFiscal) =>
-      db.query(
-        `INSERT INTO analise_credito(id_cliente,resultado,data_analise,id_operador_fiscal)
-         VALUES ($1,'APROVADO',CURRENT_DATE,$2)`,
-        [fixture.clientId, idFiscal],
+test(
+  'o ADMIN registra o resultado da análise de crédito; o OPERADOR_CHEFE continua sem poder',
+  { skip: !enabled },
+  async () => {
+    await withRollback(async () => {
+      const fixture = await createFixture();
+      const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const admin = await db.query(
+        `INSERT INTO operador(usuario,email,senha_hash,perfil) VALUES ($1,$2,'hash','ADMIN') RETURNING id_operador`,
+        [`adm-cr-${suffix}`, `adm-cr-${suffix}@example.test`],
       );
-    await analise(admin.rows[0].id_operador);
-    await assert.rejects(analise(fixture.operatorId), /RESPONSAVEL_CREDITO_NAO_E_FISCAL/);
-  });
-});
+      const analise = (idFiscal) =>
+        db.query(
+          `INSERT INTO analise_credito(id_cliente,resultado,data_analise,id_operador_fiscal)
+         VALUES ($1,'APROVADO',CURRENT_DATE,$2)`,
+          [fixture.clientId, idFiscal],
+        );
+      await analise(admin.rows[0].id_operador);
+      await assert.rejects(analise(fixture.operatorId), /RESPONSAVEL_CREDITO_NAO_E_FISCAL/);
+    });
+  },
+);
 
 test('rejeita quantidade de estoque negativa', { skip: !enabled }, async () => {
   await withRollback(async () => {
-    const product = await db.query(`INSERT INTO produto(codigo_interno,descricao) VALUES ('TEST-NEG-STOCK','Teste') RETURNING id_produto`);
+    const product = await db.query(
+      `INSERT INTO produto(codigo_interno,descricao) VALUES ('TEST-NEG-STOCK','Teste') RETURNING id_produto`,
+    );
     await assert.rejects(
-      db.query(`INSERT INTO variacao_produto(id_produto,marca,tamanho_embalagem,quantidade_estoque) VALUES ($1,'M','1 un',-1)`, [product.rows[0].id_produto]),
+      db.query(
+        `INSERT INTO variacao_produto(id_produto,marca,tamanho_embalagem,quantidade_estoque) VALUES ($1,'M','1 un',-1)`,
+        [product.rows[0].id_produto],
+      ),
       (error) => error.code === '23514',
     );
   });
@@ -204,55 +229,168 @@ test('bloqueia emissão sem saldo e mantém o rascunho intacto', { skip: !enable
     const fixture = await createFixture({ stock: 0 });
     await db.query('SAVEPOINT before_emit');
     await assert.rejects(
-      db.query(`SELECT * FROM public.proxy_orcamento_emitir($1,$2,'test-security-key')`, [fixture.quoteId, fixture.operatorId]),
+      db.query(`SELECT * FROM public.proxy_orcamento_emitir($1,$2,'test-security-key')`, [
+        fixture.quoteId,
+        fixture.operatorId,
+      ]),
       (error) => error.message.startsWith('ESTOQUE_INSUFICIENTE:'),
     );
     await db.query('ROLLBACK TO SAVEPOINT before_emit');
-    const quote = await db.query('SELECT status,numero_orcamento FROM orcamento WHERE id_orcamento=$1', [fixture.quoteId]);
+    const quote = await db.query(
+      'SELECT status,numero_orcamento FROM orcamento WHERE id_orcamento=$1',
+      [fixture.quoteId],
+    );
     assert.equal(quote.rows[0].status, 'RASCUNHO');
     assert.equal(quote.rows[0].numero_orcamento, null);
-    const reservations = await db.query('SELECT COUNT(*)::INTEGER AS total FROM reserva_estoque WHERE id_item=$1', [fixture.itemId]);
+    const reservations = await db.query(
+      'SELECT COUNT(*)::INTEGER AS total FROM reserva_estoque WHERE id_item=$1',
+      [fixture.itemId],
+    );
     assert.equal(reservations.rows[0].total, 0);
   });
 });
 
-test('id_operador_ultima_edicao: grava em rascunho, recusa FK inválida e não muda orçamento emitido (UC14)', { skip: !enabled }, async () => {
-  await withRollback(async () => {
-    const fixture = await createFixture({ stock: 10 });
-    const nova = await db.query('SELECT id_operador_ultima_edicao FROM orcamento WHERE id_orcamento=$1', [fixture.quoteId]);
-    assert.equal(nova.rows[0].id_operador_ultima_edicao, null);
+test(
+  'id_operador_ultima_edicao: grava em rascunho, recusa FK inválida e não muda orçamento emitido (UC14)',
+  { skip: !enabled },
+  async () => {
+    await withRollback(async () => {
+      const fixture = await createFixture({ stock: 10 });
+      const nova = await db.query(
+        'SELECT id_operador_ultima_edicao FROM orcamento WHERE id_orcamento=$1',
+        [fixture.quoteId],
+      );
+      assert.equal(nova.rows[0].id_operador_ultima_edicao, null);
 
-    // Rascunho: a atualização passa pelos gatilhos, também junto de data_ultima_edicao.
-    await db.query(
-      'UPDATE orcamento SET id_operador_ultima_edicao=$2, data_ultima_edicao=CURRENT_TIMESTAMP WHERE id_orcamento=$1',
-      [fixture.quoteId, fixture.operatorId],
-    );
-    const gravado = await db.query('SELECT id_operador_ultima_edicao FROM orcamento WHERE id_orcamento=$1', [fixture.quoteId]);
-    assert.equal(gravado.rows[0].id_operador_ultima_edicao, fixture.operatorId);
+      // Rascunho: a atualização passa pelos gatilhos, também junto de data_ultima_edicao.
+      await db.query(
+        'UPDATE orcamento SET id_operador_ultima_edicao=$2, data_ultima_edicao=CURRENT_TIMESTAMP WHERE id_orcamento=$1',
+        [fixture.quoteId, fixture.operatorId],
+      );
+      const gravado = await db.query(
+        'SELECT id_operador_ultima_edicao FROM orcamento WHERE id_orcamento=$1',
+        [fixture.quoteId],
+      );
+      assert.equal(gravado.rows[0].id_operador_ultima_edicao, fixture.operatorId);
 
-    // FK inválida é recusada (violação de chave estrangeira).
-    await db.query('SAVEPOINT fk_invalida');
-    await assert.rejects(
-      db.query('UPDATE orcamento SET id_operador_ultima_edicao=-1 WHERE id_orcamento=$1', [fixture.quoteId]),
-      (error) => error.code === '23503',
-    );
-    await db.query('ROLLBACK TO SAVEPOINT fk_invalida');
+      // FK inválida é recusada (violação de chave estrangeira).
+      await db.query('SAVEPOINT fk_invalida');
+      await assert.rejects(
+        db.query('UPDATE orcamento SET id_operador_ultima_edicao=-1 WHERE id_orcamento=$1', [
+          fixture.quoteId,
+        ]),
+        (error) => error.code === '23503',
+      );
+      await db.query('ROLLBACK TO SAVEPOINT fk_invalida');
 
-    // Emitido (ABERTO, com número): imutável, inclusive nesta coluna.
-    await db.query('SELECT * FROM public.proxy_orcamento_emitir($1,$2,$3)', [fixture.quoteId, fixture.operatorId, 'test-ultimo-editor-key']);
-    const emitido = await db.query('SELECT status,numero_orcamento FROM orcamento WHERE id_orcamento=$1', [fixture.quoteId]);
-    assert.equal(emitido.rows[0].status, 'ABERTO');
-    assert.notEqual(emitido.rows[0].numero_orcamento, null);
-    await db.query('SAVEPOINT emitido');
-    await assert.rejects(
-      db.query('UPDATE orcamento SET id_operador_ultima_edicao=NULL WHERE id_orcamento=$1', [fixture.quoteId]),
-      (error) => error.message === 'ORCAMENTO_NAO_EDITAVEL',
+      // Emitido (ABERTO, com número): imutável, inclusive nesta coluna.
+      await db.query('SELECT * FROM public.proxy_orcamento_emitir($1,$2,$3)', [
+        fixture.quoteId,
+        fixture.operatorId,
+        'test-ultimo-editor-key',
+      ]);
+      const emitido = await db.query(
+        'SELECT status,numero_orcamento FROM orcamento WHERE id_orcamento=$1',
+        [fixture.quoteId],
+      );
+      assert.equal(emitido.rows[0].status, 'ABERTO');
+      assert.notEqual(emitido.rows[0].numero_orcamento, null);
+      await db.query('SAVEPOINT emitido');
+      await assert.rejects(
+        db.query('UPDATE orcamento SET id_operador_ultima_edicao=NULL WHERE id_orcamento=$1', [
+          fixture.quoteId,
+        ]),
+        (error) => error.message === 'ORCAMENTO_NAO_EDITAVEL',
+      );
+      await db.query('ROLLBACK TO SAVEPOINT emitido');
+      const depois = await db.query(
+        'SELECT id_operador_ultima_edicao FROM orcamento WHERE id_orcamento=$1',
+        [fixture.quoteId],
+      );
+      assert.equal(depois.rows[0].id_operador_ultima_edicao, fixture.operatorId);
+    });
+  },
+);
+
+test(
+  'sessao: guarda só o hash, recusa FK e formato inválidos, RLS sem políticas e CASCADE do operador (UC13)',
+  { skip: !enabled },
+  async () => {
+    const rls = await db.query(`
+    SELECT c.relrowsecurity AS rls,
+           (SELECT COUNT(*)::INTEGER FROM pg_policies WHERE schemaname='public' AND tablename='sessao') AS politicas
+    FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname='public' AND c.relname='sessao'
+  `);
+    assert.deepEqual(rls.rows[0], { rls: true, politicas: 0 });
+    const indices = await db.query(
+      `SELECT indexname FROM pg_indexes WHERE schemaname='public' AND tablename='sessao' ORDER BY indexname`,
     );
-    await db.query('ROLLBACK TO SAVEPOINT emitido');
-    const depois = await db.query('SELECT id_operador_ultima_edicao FROM orcamento WHERE id_orcamento=$1', [fixture.quoteId]);
-    assert.equal(depois.rows[0].id_operador_ultima_edicao, fixture.operatorId);
-  });
-});
+    assert.deepEqual(
+      indices.rows.map((r) => r.indexname),
+      ['sessao_expira_em_idx', 'sessao_id_operador_idx', 'sessao_pkey'],
+    );
+
+    await withRollback(async () => {
+      const fixture = await createFixture();
+      const hash = 'a'.repeat(64);
+      await db.query(
+        `INSERT INTO sessao(token_hash,id_operador,expira_em) VALUES ($1,$2,CURRENT_TIMESTAMP + INTERVAL '30 minutes')`,
+        [hash, fixture.operatorId],
+      );
+      const gravada = await db.query(
+        'SELECT id_operador, expira_em > criado_em AS valida FROM sessao WHERE token_hash=$1',
+        [hash],
+      );
+      assert.deepEqual(gravada.rows[0], { id_operador: fixture.operatorId, valida: true });
+
+      // Hash duplicado (PK), formato que não é SHA-256 hexadecimal e operador inexistente (FK).
+      for (const [nome, sql, valores, codigo] of [
+        [
+          'duplicado',
+          `INSERT INTO sessao(token_hash,id_operador,expira_em) VALUES ($1,$2,CURRENT_TIMESTAMP + INTERVAL '1 minute')`,
+          [hash, fixture.operatorId],
+          '23505',
+        ],
+        [
+          'formato',
+          `INSERT INTO sessao(token_hash,id_operador,expira_em) VALUES ($1,$2,CURRENT_TIMESTAMP + INTERVAL '1 minute')`,
+          ['token-em-texto-puro', fixture.operatorId],
+          '23514',
+        ],
+        [
+          'maiusculo',
+          `INSERT INTO sessao(token_hash,id_operador,expira_em) VALUES ($1,$2,CURRENT_TIMESTAMP + INTERVAL '1 minute')`,
+          ['A'.repeat(64), fixture.operatorId],
+          '23514',
+        ],
+        [
+          'prazo',
+          `INSERT INTO sessao(token_hash,id_operador,expira_em) VALUES ($1,$2,CURRENT_TIMESTAMP - INTERVAL '1 minute')`,
+          ['b'.repeat(64), fixture.operatorId],
+          '23514',
+        ],
+        [
+          'fk',
+          `INSERT INTO sessao(token_hash,id_operador,expira_em) VALUES ($1,$2,CURRENT_TIMESTAMP + INTERVAL '1 minute')`,
+          ['c'.repeat(64), -1],
+          '23503',
+        ],
+      ]) {
+        await db.query(`SAVEPOINT sessao_${nome}`);
+        await assert.rejects(db.query(sql, valores), (error) => error.code === codigo);
+        await db.query(`ROLLBACK TO SAVEPOINT sessao_${nome}`);
+      }
+
+      // Apagar o operador leva as sessões junto (na prática ele é inativado, não apagado). Os gatilhos
+      // de exclusão de orçamento/cliente impedem montar o DELETE em cascata aqui; basta conferir a FK.
+      const fk = await db.query(
+        `SELECT confdeltype FROM pg_constraint WHERE conname='sessao_id_operador_fkey' AND conrelid='public.sessao'::regclass`,
+      );
+      assert.equal(fk.rows[0].confdeltype, 'c');
+    });
+  },
+);
 
 test('impede abrir orçamento para cliente com dívida em aberto', { skip: !enabled }, async () => {
   await withRollback(async () => {
@@ -263,39 +401,45 @@ test('impede abrir orçamento para cliente com dívida em aberto', { skip: !enab
       [fixture.clientId, fixture.operatorId],
     );
     await assert.rejects(
-      db.query(`INSERT INTO orcamento(id_cliente,id_operador) VALUES ($1,$2)`, [fixture.clientId, fixture.operatorId]),
+      db.query(`INSERT INTO orcamento(id_cliente,id_operador) VALUES ($1,$2)`, [
+        fixture.clientId,
+        fixture.operatorId,
+      ]),
       (error) => error.message === 'CLIENTE_INADIMPLENTE',
     );
   });
 });
 
-test('proxy_job_expirar_rascunhos apaga o rascunho EXPIRADO com histórico (CASCADE)', { skip: !enabled }, async () => {
-  await withRollback(async () => {
-    const fixture = await createFixture();
-    await db.query(
-      `INSERT INTO historico_orcamento(id_orcamento,id_operador,tipo_evento,status_novo)
+test(
+  'proxy_job_expirar_rascunhos apaga o rascunho EXPIRADO com histórico (CASCADE)',
+  { skip: !enabled },
+  async () => {
+    await withRollback(async () => {
+      const fixture = await createFixture();
+      await db.query(
+        `INSERT INTO historico_orcamento(id_orcamento,id_operador,tipo_evento,status_novo)
        VALUES ($1,$2,'MUDANCA_STATUS','RASCUNHO')`,
-      [fixture.quoteId, fixture.operatorId],
-    );
-    await db.query(
-      `UPDATE orcamento
+        [fixture.quoteId, fixture.operatorId],
+      );
+      await db.query(
+        `UPDATE orcamento
           SET status='EXPIRADO', motivo_expiracao='RASCUNHO',
               data_encerramento=CURRENT_TIMESTAMP-INTERVAL '31 days'
         WHERE id_orcamento=$1`,
-      [fixture.quoteId],
-    );
-    // O DELETE direto nao e asserido aqui: a CI mostrou que ele nao foi recusado neste cenario.
+        [fixture.quoteId],
+      );
+      // O DELETE direto nao e asserido aqui: a CI mostrou que ele nao foi recusado neste cenario.
 
-
-    const result = await db.query('SELECT public.proxy_job_expirar_rascunhos() AS total');
-    assert.ok(result.rows[0].total >= 1);
-    const counts = await db.query(
-      `SELECT (SELECT COUNT(*)::INTEGER FROM orcamento WHERE id_orcamento=$1) AS orcamentos,
+      const result = await db.query('SELECT public.proxy_job_expirar_rascunhos() AS total');
+      assert.ok(result.rows[0].total >= 1);
+      const counts = await db.query(
+        `SELECT (SELECT COUNT(*)::INTEGER FROM orcamento WHERE id_orcamento=$1) AS orcamentos,
               (SELECT COUNT(*)::INTEGER FROM item_orcamento WHERE id_orcamento=$1) AS itens,
               (SELECT COUNT(*)::INTEGER FROM historico_orcamento WHERE id_orcamento=$1) AS historico`,
-      [fixture.quoteId],
-    );
-    // O CASCADE do historico_orcamento já existe na migration inicial (linha 650).
-    assert.deepEqual(counts.rows[0], { orcamentos: 0, itens: 0, historico: 0 });
-  });
-});
+        [fixture.quoteId],
+      );
+      // O CASCADE do historico_orcamento já existe na migration inicial (linha 650).
+      assert.deepEqual(counts.rows[0], { orcamentos: 0, itens: 0, historico: 0 });
+    });
+  },
+);
