@@ -89,6 +89,11 @@ function escaparHtml(texto: string): string {
 }
 /** Valor abaixo do qual um resultado de crédito reprovado não bloqueia (50% adiantado cobre). */
 const STATUS_PENDENTE_CREDITO: StatusDoOrcamento = 'PENDENTE_CREDITO';
+/** Status sem número de orçamento, os únicos que o banco deixa editar (gatilho de imutabilidade). */
+const STATUS_DE_RASCUNHO: ReadonlySet<StatusDoOrcamento> = new Set([
+  'RASCUNHO',
+  STATUS_PENDENTE_CREDITO,
+]);
 /** Compra fechada (RF04, RF17): orçamento com todos os itens aprovados pelo cliente. */
 const STATUS_ACEITO: StatusDoOrcamento = 'ACEITO';
 /** Emitido, com reservas CONFIRMADA vigentes (docs/04, seção 4.6). */
@@ -246,7 +251,7 @@ export interface OperadorIdentificado {
   readonly nome: string;
 }
 
-/** Última alteração registrada no histórico por um operador que não é o responsável. */
+/** Última edição do rascunho feita por um operador que não é o responsável. */
 export interface AlteracaoDeOutroOperador extends OperadorIdentificado {
   readonly data: string;
 }
@@ -255,9 +260,11 @@ export interface OrcamentoDetalhado extends OrcamentoResumido {
   /** Operador responsável (`orcamento.id_operador`); `nome` vem do cadastro de usuários. */
   readonly responsavel: OperadorIdentificado;
   /**
-   * Evento mais recente do histórico feito por outro operador que não o responsável, ou `null`.
-   * Hoje só há evento de histórico em mudança de status e follow-up; edições de itens e condições
-   * do rascunho não gravam quem editou (exigiria migration), então não aparecem aqui.
+   * Última edição do rascunho feita por outro operador que não o responsável, ou `null`. Vem de
+   * `orcamento.id_operador_ultima_edicao` (migration 20261117000000), gravada a cada edição de
+   * itens, cabeçalho e condições; `data` é `data_ultima_edicao`. Quando o responsável volta a
+   * editar, a coluna passa a ser dele e o aviso some. Em orçamentos anteriores à coluna (nula),
+   * usa o evento mais recente do histórico feito por outro operador.
    */
   readonly ultimaAlteracaoDeOutro: AlteracaoDeOutroOperador | null;
   readonly idPedido: number | null;
@@ -411,12 +418,16 @@ export class ServicoDeOrcamentos
       this.agora(),
     );
     for (const item of itensDoPedido) {
-      await this.inserirItemCalculado(idOrcamento, {
-        idVariacao: item.idVariacao,
-        granularidade: item.granularidade,
-        idFardo: item.idFardo,
-        quantidade: item.quantidadeSolicitada,
-      });
+      await this.inserirItemCalculado(
+        idOrcamento,
+        {
+          idVariacao: item.idVariacao,
+          granularidade: item.granularidade,
+          idFardo: item.idFardo,
+          quantidade: item.quantidadeSolicitada,
+        },
+        autor.idOperador,
+      );
     }
     await this.orcamentos.registrarHistorico({
       idOrcamento,
@@ -536,7 +547,12 @@ export class ServicoDeOrcamentos
       Object.assign(alteracao, { idEnderecoEntrega: dados.idEnderecoEntrega });
     if ('prazoEntregaDias' in dados)
       Object.assign(alteracao, { prazoEntregaDias: dados.prazoEntregaDias });
-    await this.orcamentos.atualizarCabecalho(idOrcamento, alteracao, this.agora());
+    await this.orcamentos.atualizarCabecalho(
+      idOrcamento,
+      alteracao,
+      this.agora(),
+      this.editorDoRascunho(orcamento, autor),
+    );
     this.logger.info({
       evento: 'orcamento_cabecalho_atualizado',
       idOrcamento,
@@ -559,12 +575,16 @@ export class ServicoDeOrcamentos
   ): Promise<OrcamentoDetalhado> {
     const orcamento = await this.buscarOuFalhar(idOrcamento);
     this.exigirEditavel(orcamento);
-    await this.inserirItemCalculado(idOrcamento, {
-      idVariacao: dados.idVariacao,
-      granularidade: dados.granularidade,
-      idFardo: dados.idFardo ?? null,
-      quantidade: dados.quantidade,
-    });
+    await this.inserirItemCalculado(
+      idOrcamento,
+      {
+        idVariacao: dados.idVariacao,
+        granularidade: dados.granularidade,
+        idFardo: dados.idFardo ?? null,
+        quantidade: dados.quantidade,
+      },
+      autor.idOperador,
+    );
     this.logger.info({
       evento: 'orcamento_item_adicionado',
       idOrcamento,
@@ -822,7 +842,7 @@ SupriMax`,
       valorImposto: linha.imposto,
       valorTotalItem: linha.totalItem,
     });
-    await this.recalcularTotais(idOrcamento);
+    await this.recalcularTotais(idOrcamento, autor.idOperador);
     this.logger.info({
       evento: 'orcamento_item_alterado',
       idOrcamento,
@@ -847,7 +867,7 @@ SupriMax`,
     this.exigirEditavel(orcamento);
     await this.buscarItemOuFalhar(idOrcamento, idItem);
     await this.orcamentos.removerItem(idItem);
-    await this.recalcularTotais(idOrcamento);
+    await this.recalcularTotais(idOrcamento, autor.idOperador);
     this.logger.info({
       evento: 'orcamento_item_removido',
       idOrcamento,
@@ -910,6 +930,7 @@ SupriMax`,
         valorTotalProposta: valorTotalItens + (valorFreteFinal ?? 0),
       },
       this.agora(),
+      this.editorDoRascunho(orcamento, autor),
     );
     // `faturamento.ok` só é `true` quando a condição já tem resultado de crédito definido (ou não
     // precisa de um): com `creditoAprovado === null`, `validarCondicaoFaturamento` recusa com o
@@ -1072,8 +1093,9 @@ SupriMax`,
         valorTotalProposta: origem.valorTotalProposta,
       },
       this.agora(),
+      autor.idOperador,
     );
-    await this.recalcularTotais(idOrcamento);
+    await this.recalcularTotais(idOrcamento, autor.idOperador);
     await this.orcamentos.registrarHistorico({
       idOrcamento,
       idOperador: autor.idOperador,
@@ -1212,6 +1234,7 @@ SupriMax`,
       idFardo: number | null;
       quantidade: number;
     },
+    idOperadorEdicao: number,
   ): Promise<void> {
     const variacao = await this.buscarVariacaoOuFalhar(dados.idVariacao);
     const fardo = dados.idFardo === null ? undefined : this.fardoEscolhido(variacao, dados.idFardo);
@@ -1235,10 +1258,19 @@ SupriMax`,
       aprovacaoHerdada: false,
     };
     await this.orcamentos.inserirItem(idOrcamento, item);
-    await this.recalcularTotais(idOrcamento);
+    await this.recalcularTotais(idOrcamento, idOperadorEdicao);
   }
 
-  private async recalcularTotais(idOrcamento: number): Promise<void> {
+  /**
+   * Operador a gravar em `id_operador_ultima_edicao`: só em RASCUNHO e PENDENTE_CREDITO, os únicos
+   * status em que o banco aceita editar (orçamento emitido é imutável); fora deles, `null` omite.
+   */
+  private editorDoRascunho(orcamento: Orcamento, autor: Sessao): number | null {
+    return STATUS_DE_RASCUNHO.has(orcamento.status) ? autor.idOperador : null;
+  }
+
+  /** Recalcula os totais e registra `idOperadorEdicao` como último editor, se ainda for rascunho. */
+  private async recalcularTotais(idOrcamento: number, idOperadorEdicao: number): Promise<void> {
     const itens = await this.orcamentos.listarItens(idOrcamento);
     const valorTotalItens = itens.reduce((total, item) => total + item.valorTotalItem, 0);
     const valorTotalImposto = itens.reduce((total, item) => total + item.valorImposto, 0);
@@ -1252,6 +1284,7 @@ SupriMax`,
         valorTotalProposta: itens.length === 0 ? null : valorTotalItens + valorFrete,
       },
       this.agora(),
+      orcamento !== null && STATUS_DE_RASCUNHO.has(orcamento.status) ? idOperadorEdicao : null,
     );
   }
 
@@ -1588,7 +1621,11 @@ SupriMax`,
         leitores.orcamentos.listarAnexos(orcamento.idOrcamento),
       ]).then(async ([historico, versoes, anexos]) => {
         const nomes = await this.nomesDosOperadores(
-          [orcamento.idOperador, ...historico.map((evento) => evento.idOperador)],
+          [
+            orcamento.idOperador,
+            orcamento.idOperadorUltimaEdicao,
+            ...historico.map((evento) => evento.idOperador),
+          ],
           leitores.usuarios,
         );
         return {
@@ -1597,11 +1634,7 @@ SupriMax`,
             idOperador: orcamento.idOperador,
             nome: nomes.get(orcamento.idOperador) ?? '',
           },
-          ultimaAlteracaoDeOutro: this.ultimaAlteracaoDeOutro(
-            orcamento.idOperador,
-            historico,
-            nomes,
-          ),
+          ultimaAlteracaoDeOutro: this.ultimaAlteracaoDeOutro(orcamento, historico, nomes),
           versoes,
           anexosDoOrcamento: anexos,
         };
@@ -1688,12 +1721,26 @@ SupriMax`,
     }));
   }
 
-  /** Evento mais recente de um operador diferente do responsável, ou `null` (aviso de edição). */
+  /**
+   * Aviso de edição por outro operador (UC14). A coluna `id_operador_ultima_edicao` manda; só se
+   * for nula (orçamento anterior à coluna) vale o evento mais recente do histórico de outro operador.
+   */
   private ultimaAlteracaoDeOutro(
-    idResponsavel: number,
+    orcamento: Orcamento,
     eventos: readonly EventoDoHistorico[],
     nomesPorId: ReadonlyMap<number, string>,
   ): AlteracaoDeOutroOperador | null {
+    const idResponsavel = orcamento.idOperador;
+    const idEditor = orcamento.idOperadorUltimaEdicao;
+    if (idEditor !== null) {
+      return idEditor === idResponsavel
+        ? null
+        : {
+            idOperador: idEditor,
+            nome: nomesPorId.get(idEditor) ?? '',
+            data: orcamento.dataUltimaEdicao,
+          };
+    }
     let ultimo: { idOperador: number; data: string } | null = null;
     for (const evento of eventos) {
       if (evento.idOperador === null || evento.idOperador === idResponsavel) continue;

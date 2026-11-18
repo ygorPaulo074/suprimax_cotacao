@@ -131,6 +131,8 @@ const esquemaDoOrcamento = z.object({
   valorTotalProposta: decimalOpcional,
   justificativa: z.string().nullable(),
   chaveSeguranca: z.string().nullable(),
+  /** Último operador que editou o rascunho; `null` em orçamentos anteriores à coluna (UC14). */
+  idOperadorUltimaEdicao: z.number().int().nullable(),
 });
 export type Orcamento = z.infer<typeof esquemaDoOrcamento>;
 
@@ -250,6 +252,14 @@ export interface TotaisDoOrcamento {
 
 function valoresDecimais(centavos: number | null): string | null {
   return centavos === null ? null : centavosParaDecimal(centavos);
+}
+
+/**
+ * Coluna `id_operador_ultima_edicao`, gravada junto de `data_ultima_edicao` só em rascunho (o
+ * gatilho do banco recusa qualquer mudança em orçamento emitido). `null` omite a coluna.
+ */
+function editorDaEdicao(idOperadorEdicao: number | null): Record<string, number> {
+  return idOperadorEdicao === null ? {} : { id_operador_ultima_edicao: idOperadorEdicao };
 }
 
 /** Acesso aos orçamentos, itens, histórico e anexos, sempre pelo proxy. */
@@ -399,6 +409,7 @@ export class RepositorioDeOrcamentos {
     idOrcamento: number,
     totais: TotaisDoOrcamento,
     agora: Date,
+    idOperadorEdicao: number | null,
   ): Promise<void> {
     await this.proxy.executar(
       'dados.atualizar',
@@ -410,6 +421,7 @@ export class RepositorioDeOrcamentos {
           valor_total_imposto: valoresDecimais(totais.valorTotalImposto),
           valor_total_proposta: valoresDecimais(totais.valorTotalProposta),
           data_ultima_edicao: agora.toISOString(),
+          ...editorDaEdicao(idOperadorEdicao),
         },
       },
       OPERACOES_DE_ORCAMENTOS.ATUALIZAR_CONDICOES,
@@ -421,8 +433,12 @@ export class RepositorioDeOrcamentos {
     idOrcamento: number,
     dados: AlteracaoDeCabecalho,
     agora: Date,
+    idOperadorEdicao: number | null,
   ): Promise<void> {
-    const valores: Record<string, unknown> = { data_ultima_edicao: agora.toISOString() };
+    const valores: Record<string, unknown> = {
+      data_ultima_edicao: agora.toISOString(),
+      ...editorDaEdicao(idOperadorEdicao),
+    };
     if ('numeroSolicitacaoCompra' in dados)
       valores.numero_solicitacao_compra = dados.numeroSolicitacaoCompra;
     if ('contatoSolicitacao' in dados) valores.contato_solicitacao = dados.contatoSolicitacao;
@@ -444,6 +460,7 @@ export class RepositorioDeOrcamentos {
     idOrcamento: number,
     dados: AlteracaoDeCondicoes,
     agora: Date,
+    idOperadorEdicao: number | null,
   ): Promise<void> {
     await this.proxy.executar(
       'dados.atualizar',
@@ -461,6 +478,7 @@ export class RepositorioDeOrcamentos {
           frete_provisorio: dados.freteProvisorio,
           valor_total_proposta: valoresDecimais(dados.valorTotalProposta),
           data_ultima_edicao: agora.toISOString(),
+          ...editorDaEdicao(idOperadorEdicao),
         },
       },
       OPERACOES_DE_ORCAMENTOS.ATUALIZAR_CONDICOES,

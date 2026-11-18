@@ -1229,6 +1229,148 @@ describe('ServicoDeOrcamentos', () => {
         data: expect.any(String),
       });
     });
+
+    describe('quem editou o rascunho (id_operador_ultima_edicao)', () => {
+      async function montarRascunhoComItem() {
+        const cenario = montarCenarioDeCadastros();
+        const servico = montarServico(cenario);
+        const idDono = cenario.semearUsuario('OPERADOR', 'dono-rascunho');
+        const idOutro = cenario.semearUsuario('OPERADOR', 'colega');
+        const idCliente = semearCliente(cenario);
+        const sessaoDono = sessaoDoOperador(idDono, 'dono-rascunho');
+        const sessaoOutro = sessaoDoOperador(idOutro, 'colega');
+        const { idOrcamento } = await servico.criar(
+          { idCliente, numeroSolicitacaoCompra: null, contatoSolicitacao: null },
+          sessaoDono,
+        );
+        const { idVariacao } = semearVariacao(cenario);
+        return {
+          cenario,
+          servico,
+          idDono,
+          idOutro,
+          sessaoDono,
+          sessaoOutro,
+          idOrcamento,
+          idVariacao,
+        };
+      }
+
+      it('o responsável edita: sem aviso', async () => {
+        const c = await montarRascunhoComItem();
+        const detalhe = await c.servico.adicionarItem(
+          c.idOrcamento,
+          { idVariacao: c.idVariacao, granularidade: 'AVULSO', quantidade: 10 },
+          c.sessaoDono,
+        );
+        expect(detalhe.ultimaAlteracaoDeOutro).toBeNull();
+        expect(c.cenario.banco.linhas('orcamento')[0]?.id_operador_ultima_edicao).toBe(c.idDono);
+      });
+
+      it('outro operador altera item, cabeçalho ou condições: o responsável é avisado', async () => {
+        const c = await montarRascunhoComItem();
+        const aviso = { idOperador: c.idOutro, nome: 'colega', data: expect.any(String) };
+
+        let detalhe = await c.servico.adicionarItem(
+          c.idOrcamento,
+          { idVariacao: c.idVariacao, granularidade: 'AVULSO', quantidade: 10 },
+          c.sessaoOutro,
+        );
+        expect(detalhe.ultimaAlteracaoDeOutro).toEqual(aviso);
+
+        await c.servico.atualizarCabecalho(
+          c.idOrcamento,
+          { contatoSolicitacao: 'Ana' },
+          c.sessaoDono,
+        );
+        detalhe = await c.servico.atualizarCabecalho(
+          c.idOrcamento,
+          { contatoSolicitacao: 'Beto' },
+          c.sessaoOutro,
+        );
+        expect(detalhe.ultimaAlteracaoDeOutro).toEqual(aviso);
+
+        await c.servico.atualizarCondicoes(
+          c.idOrcamento,
+          {
+            condicaoPagamento: 'ADIANTADO_100',
+            origemTransportadora: 'SUPRIMAX',
+            valorFrete: 2000,
+          },
+          c.sessaoDono,
+        );
+        detalhe = await c.servico.atualizarCondicoes(
+          c.idOrcamento,
+          {
+            condicaoPagamento: 'ADIANTADO_100',
+            origemTransportadora: 'SUPRIMAX',
+            valorFrete: 2000,
+          },
+          c.sessaoOutro,
+        );
+        expect(detalhe.ultimaAlteracaoDeOutro).toEqual(aviso);
+      });
+
+      it('o aviso some quando o responsável volta a editar (alterar e remover item)', async () => {
+        const c = await montarRascunhoComItem();
+        const comItem = await c.servico.adicionarItem(
+          c.idOrcamento,
+          { idVariacao: c.idVariacao, granularidade: 'AVULSO', quantidade: 10 },
+          c.sessaoOutro,
+        );
+        const idItem = comItem.itens[0]?.idItem as number;
+        expect(comItem.ultimaAlteracaoDeOutro).not.toBeNull();
+
+        const alterado = await c.servico.alterarQuantidade(c.idOrcamento, idItem, 11, c.sessaoDono);
+        expect(alterado.ultimaAlteracaoDeOutro).toBeNull();
+
+        const outraVez = await c.servico.alterarQuantidade(
+          c.idOrcamento,
+          idItem,
+          12,
+          c.sessaoOutro,
+        );
+        expect(outraVez.ultimaAlteracaoDeOutro?.idOperador).toBe(c.idOutro);
+
+        const removido = await c.servico.removerItem(c.idOrcamento, idItem, c.sessaoDono);
+        expect(removido.ultimaAlteracaoDeOutro).toBeNull();
+      });
+
+      it('orçamento legado (coluna nula) segue o histórico; edição do responsável depois do evento apaga o aviso', async () => {
+        const c = await montarRascunhoComItem();
+        await new RepositorioDeOrcamentos(c.cenario.proxy).registrarHistorico({
+          idOrcamento: c.idOrcamento,
+          idOperador: c.idOutro,
+          tipoEvento: 'ATUALIZACAO_FOLLOWUP',
+          statusAnterior: 'RASCUNHO',
+          statusNovo: 'RASCUNHO',
+          observacao: null,
+        });
+        expect((await c.servico.obter(c.idOrcamento)).ultimaAlteracaoDeOutro?.nome).toBe('colega');
+
+        const detalhe = await c.servico.atualizarCabecalho(
+          c.idOrcamento,
+          { contatoSolicitacao: 'Ana' },
+          c.sessaoDono,
+        );
+        expect(detalhe.ultimaAlteracaoDeOutro).toBeNull();
+      });
+
+      it('não grava o editor em orçamento fora de rascunho', async () => {
+        const c = await montarRascunhoComItem();
+        await new RepositorioDeOrcamentos(c.cenario.proxy).atualizarStatus(
+          c.idOrcamento,
+          'ALTERACAO_SOLICITADA',
+          new Date(),
+        );
+        await c.servico.atualizarCabecalho(
+          c.idOrcamento,
+          { contatoSolicitacao: 'Ana' },
+          c.sessaoOutro,
+        );
+        expect(c.cenario.banco.linhas('orcamento')[0]?.id_operador_ultima_edicao).toBeNull();
+      });
+    });
   });
 
   describe('cancelar', () => {

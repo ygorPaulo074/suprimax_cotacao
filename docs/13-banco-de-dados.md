@@ -419,6 +419,7 @@ Orçamento (cotação de venda) emitido a um cliente por um operador/vendedor, c
 | valor_total_proposta | DECIMAL(12,2) | CK | Valor total da proposta: valor_total_itens + valor_frete (quando destacado). Gravado na emissão; nulo em rascunho. |
 | justificativa | TEXT |  | Motivo do cancelamento/recusa; opcional (aceita nulo ou vazio). |
 | chave_seguranca | VARCHAR(64) | UK | Hash/código antifraude gerado na emissão; nulo enquanto for rascunho. |
+| id_operador_ultima_edicao | INTEGER | FK | Último operador que editou o rascunho (itens, cabeçalho ou condições); base do aviso de edição por outro operador. Nulo em orçamentos anteriores à coluna e se ninguém editou depois da criação. |
 
 
 ### 13.7.9 Tabela item_orcamento
@@ -728,6 +729,7 @@ Relação das chaves estrangeiras, com o lado N (tabela que contém a coluna) e 
 | item_pedido | id_fardo | fardo (id_fardo) | Não |
 | orcamento | id_pedido | pedido (id_pedido) | Não |
 | orcamento | id_orcamento_origem | orcamento (id_orcamento) | Não |
+| orcamento | id_operador_ultima_edicao | operador (id_operador) | Não |
 | resposta_orcamento | id_orcamento | orcamento (id_orcamento) | Sim |
 | resposta_orcamento | id_operador_vendedor | operador (id_operador) | Sim |
 | resposta_orcamento | id_operador_tratamento | operador (id_operador) | Não |
