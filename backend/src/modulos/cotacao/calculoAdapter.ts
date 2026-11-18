@@ -5,6 +5,7 @@
 import {
   calcularCondicaoCreditoReprovado,
   calcularFaltaParaFaturamentoMinimo,
+  escolherCondicaoPadrao,
   listarCondicoesPermitidas,
   calcularFrete,
   calcularImpostoItem,
@@ -33,6 +34,7 @@ import { ErroDeValidacao, ErroInterno } from '../../erros';
 export {
   calcularCondicaoCreditoReprovado,
   calcularFaltaParaFaturamentoMinimo,
+  escolherCondicaoPadrao,
   listarCondicoesPermitidas,
   calcularFrete,
   calcularImpostoItem,

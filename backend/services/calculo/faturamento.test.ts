@@ -1,6 +1,10 @@
 // UC18 — faturamento mínimo e condições permitidas (docs/04, seções 4.1 e 4.2; docs/11, 11.6.3.1).
 import { CalculoError } from './erros';
-import { calcularFaltaParaFaturamentoMinimo, listarCondicoesPermitidas } from './faturamento';
+import {
+  calcularFaltaParaFaturamentoMinimo,
+  escolherCondicaoPadrao,
+  listarCondicoesPermitidas,
+} from './faturamento';
 
 describe('calcularFaltaParaFaturamentoMinimo', () => {
   it.each([
@@ -68,5 +72,34 @@ describe('listarCondicoesPermitidas', () => {
     expect(
       listarCondicoesPermitidas({ ...base, resultadoCredito: null, valorTotalItens: 200000 }),
     ).toEqual(['ADIANTADO_100', 'BOLETO', 'PARCELADO']);
+  });
+});
+
+describe('escolherCondicaoPadrao', () => {
+  it.each([
+    [true, null, 'ADIANTADO_100'],
+    [true, 'REPROVADO', 'ADIANTADO_100'],
+    [false, null, 'ADIANTADO_100'],
+    [false, 'APROVADO', 'ADIANTADO_100'],
+    [false, 'REPROVADO', 'ADIANTADO_50_50'],
+  ] as const)(
+    'primeira compra %s, crédito %s: %s',
+    (primeiraCompra, resultadoCredito, esperada) => {
+      expect(escolherCondicaoPadrao({ primeiraCompra, resultadoCredito })).toBe(esperada);
+    },
+  );
+
+  it('o padrão sempre está entre as condições permitidas e não exige prazo nem parcelas', () => {
+    for (const primeiraCompra of [true, false]) {
+      for (const resultadoCredito of [null, 'APROVADO', 'REPROVADO'] as const) {
+        for (const valorTotalItens of [0, 49999, 50000, 150000]) {
+          const padrao = escolherCondicaoPadrao({ primeiraCompra, resultadoCredito });
+          expect(
+            listarCondicoesPermitidas({ valorTotalItens, primeiraCompra, resultadoCredito }),
+          ).toContain(padrao);
+          expect(['ADIANTADO_100', 'ADIANTADO_50_50']).toContain(padrao);
+        }
+      }
+    }
   });
 });

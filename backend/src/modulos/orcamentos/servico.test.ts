@@ -12,6 +12,7 @@ import {
   ErroDeOrcamentoNaoEncontrado,
   ErroDePdfIndisponivel,
   ErroDeServicoIndisponivel,
+  ErroDeValidacao,
 } from '../../erros';
 import {
   ErroDeEnvioDeEmail,
@@ -1396,6 +1397,297 @@ describe('ServicoDeOrcamentos', () => {
       });
     });
   });
+  describe('condição de pagamento automática (UC18)', () => {
+    async function montar(opcoes: {
+      segundaCompra: boolean;
+      precoUnitario: number;
+      creditoReprovado?: boolean;
+      creditoAprovado?: boolean;
+    }) {
+      const cenario = montarCenarioDeCadastros();
+      const servico = montarServico(cenario);
+      const idOperador = cenario.semearUsuario('OPERADOR', 'quem-padroniza');
+      const sessao = sessaoDoOperador(idOperador, 'quem-padroniza');
+      const idCliente = semearCliente(cenario);
+      if (opcoes.segundaCompra) semearCompraAnterior(cenario, idCliente, idOperador);
+      if (opcoes.creditoReprovado || opcoes.creditoAprovado) {
+        cenario.banco.semear('analise_credito', {
+          id_cliente: idCliente,
+          resultado: opcoes.creditoReprovado ? 'REPROVADO' : 'APROVADO',
+          data_solicitacao: '2026-11-01',
+        });
+      }
+      const { idVariacao } = semearVariacao(cenario, { precoUnitario: opcoes.precoUnitario });
+      const criado = await servico.criar(
+        { idCliente, numeroSolicitacaoCompra: null, contatoSolicitacao: null },
+        sessao,
+      );
+      return { cenario, servico, sessao, idVariacao, idOrcamento: criado.idOrcamento, criado };
+    }
+    const avulso = (idVariacao: number, quantidade: number) =>
+      ({ idVariacao, granularidade: 'AVULSO', quantidade }) as const;
+    const frete = { origemTransportadora: 'SUPRIMAX', valorFrete: 2000 } as const;
+
+    it('ao criar, grava 100% adiantado sem aviso (primeira compra)', async () => {
+      const { criado } = await montar({ segundaCompra: false, precoUnitario: 60000 });
+
+      expect(criado.condicoes.condicaoPagamento).toBe('ADIANTADO_100');
+      expect(criado.condicoes.avisos).toEqual([]);
+    });
+
+    it('ao criar, grava 100% adiantado também na segunda compra', async () => {
+      const { criado } = await montar({ segundaCompra: true, precoUnitario: 60000 });
+
+      expect(criado.condicoes.condicaoPagamento).toBe('ADIANTADO_100');
+    });
+
+    it('crédito reprovado: o padrão é 50% adiantado + 50% após a entrega', async () => {
+      const { criado } = await montar({
+        segundaCompra: true,
+        precoUnitario: 60000,
+        creditoReprovado: true,
+      });
+
+      expect(criado.condicoes.condicaoPagamento).toBe('ADIANTADO_50_50');
+      expect(criado.condicoes.condicoesPagamentoPermitidas).toEqual([
+        'ADIANTADO_100',
+        'ADIANTADO_50_50',
+      ]);
+    });
+
+    it('o operador troca entre as permitidas e a escolha é mantida nas edições seguintes', async () => {
+      const { servico, sessao, idVariacao, idOrcamento } = await montar({
+        segundaCompra: true,
+        precoUnitario: 60000,
+        creditoReprovado: true,
+      });
+      await servico.adicionarItem(idOrcamento, avulso(idVariacao, 1), sessao);
+
+      await servico.atualizarCondicoes(
+        idOrcamento,
+        { condicaoPagamento: 'ADIANTADO_100', ...frete },
+        sessao,
+      );
+      const detalhe = await servico.adicionarItem(idOrcamento, avulso(idVariacao, 1), sessao);
+
+      expect(detalhe.condicoes.condicaoPagamento).toBe('ADIANTADO_100');
+      expect(detalhe.condicoes.avisos).toEqual([]);
+      expect(detalhe.condicoes.bloqueios.map((b) => b.codigo)).not.toContain(
+        'CONDICAO_NAO_PERMITIDA',
+      );
+    });
+
+    it('segunda compra aceita escolher 50/50 com crédito reprovado', async () => {
+      const { servico, sessao, idVariacao, idOrcamento } = await montar({
+        segundaCompra: true,
+        precoUnitario: 60000,
+        creditoReprovado: true,
+      });
+      await servico.adicionarItem(idOrcamento, avulso(idVariacao, 1), sessao);
+
+      const detalhe = await servico.atualizarCondicoes(
+        idOrcamento,
+        { condicaoPagamento: 'ADIANTADO_50_50', ...frete },
+        sessao,
+      );
+
+      expect(detalhe.condicoes.condicaoPagamento).toBe('ADIANTADO_50_50');
+      expect(detalhe.condicoes.bloqueios).toEqual([]);
+    });
+
+    it('recusa 50/50 quando o crédito não está reprovado', async () => {
+      const { servico, sessao, idVariacao, idOrcamento } = await montar({
+        segundaCompra: true,
+        precoUnitario: 60000,
+      });
+      await servico.adicionarItem(idOrcamento, avulso(idVariacao, 1), sessao);
+
+      await expect(
+        servico.atualizarCondicoes(
+          idOrcamento,
+          { condicaoPagamento: 'ADIANTADO_50_50', ...frete },
+          sessao,
+        ),
+      ).rejects.toBeInstanceOf(ErroDeValidacao);
+    });
+
+    it('valor cai abaixo de R$ 500,00: boleto volta ao padrão, zera o prazo e avisa', async () => {
+      // 1 un. a 30000 = 35400 (abaixo do mínimo); 2 un. = 70800 (boleto liberado).
+      const { servico, sessao, idVariacao, idOrcamento } = await montar({
+        segundaCompra: true,
+        precoUnitario: 30000,
+      });
+      const { itens } = await servico.adicionarItem(idOrcamento, avulso(idVariacao, 2), sessao);
+      await servico.atualizarCondicoes(
+        idOrcamento,
+        { condicaoPagamento: 'BOLETO', prazoDias: 30, ...frete },
+        sessao,
+      );
+      const idItem = (itens[0] as { idItem: number }).idItem;
+
+      const detalhe = await servico.alterarQuantidade(idOrcamento, idItem, 1, sessao);
+
+      expect(detalhe.condicoes.condicaoPagamento).toBe('ADIANTADO_100');
+      expect(detalhe.condicoes.prazoDias).toBeNull();
+      expect(detalhe.condicoes.numeroParcelas).toBeNull();
+      expect(detalhe.condicoes.avisos).toEqual([
+        expect.objectContaining({ codigo: 'CONDICAO_TROCADA_AUTOMATICAMENTE' }),
+      ]);
+      expect(detalhe.condicoes.bloqueios.map((b) => b.codigo)).not.toContain(
+        'CONDICAO_NAO_PERMITIDA',
+      );
+      // Só a resposta da mutação traz o aviso; a leitura seguinte já vem sem ele.
+      expect((await servico.obter(idOrcamento)).condicoes.avisos).toEqual([]);
+    });
+
+    it('parcelado volta ao padrão quando o total cai abaixo de R$ 1.500,00', async () => {
+      // 2 un. a 63560: 127120 + 22882 de imposto = 150002 (parcelado liberado); 1 un. = 75001.
+      const { servico, sessao, idVariacao, idOrcamento } = await montar({
+        segundaCompra: true,
+        precoUnitario: 63560,
+        creditoAprovado: true,
+      });
+      const { itens } = await servico.adicionarItem(idOrcamento, avulso(idVariacao, 2), sessao);
+      const comParcelado = await servico.atualizarCondicoes(
+        idOrcamento,
+        { condicaoPagamento: 'PARCELADO', numeroParcelas: 3, ...frete },
+        sessao,
+      );
+      expect(comParcelado.condicoes.condicaoPagamento).toBe('PARCELADO');
+      expect(comParcelado.condicoes.numeroParcelas).toBe(3);
+
+      const detalhe = await servico.alterarQuantidade(
+        idOrcamento,
+        (itens[0] as { idItem: number }).idItem,
+        1,
+        sessao,
+      );
+
+      expect(detalhe.condicoes.valorTotalItens).toBe(75001);
+      expect(detalhe.condicoes.condicaoPagamento).toBe('ADIANTADO_100');
+      expect(detalhe.condicoes.numeroParcelas).toBeNull();
+      expect(detalhe.condicoes.avisos).toHaveLength(1);
+    });
+
+    it('sem origemTransportadora abaixo de R$ 1.500,00 responde validação (400), não erro interno', async () => {
+      const { servico, sessao, idVariacao, idOrcamento } = await montar({
+        segundaCompra: true,
+        precoUnitario: 60000,
+      });
+      await servico.adicionarItem(idOrcamento, avulso(idVariacao, 1), sessao);
+
+      await expect(
+        servico.atualizarCondicoes(idOrcamento, { condicaoPagamento: 'ADIANTADO_100' }, sessao),
+      ).rejects.toBeInstanceOf(ErroDeValidacao);
+    });
+
+    it('segunda compra grava ADIANTADO_100 só com a origem do frete, sem prazo nem parcelas', async () => {
+      const { servico, sessao, idVariacao, idOrcamento } = await montar({
+        segundaCompra: true,
+        precoUnitario: 60000,
+      });
+      await servico.adicionarItem(idOrcamento, avulso(idVariacao, 1), sessao);
+
+      const detalhe = await servico.atualizarCondicoes(
+        idOrcamento,
+        { condicaoPagamento: 'ADIANTADO_100', origemTransportadora: 'SUPRIMAX' },
+        sessao,
+      );
+
+      expect(detalhe.condicoes.condicaoPagamento).toBe('ADIANTADO_100');
+      expect(detalhe.condicoes.prazoDias).toBeNull();
+      expect(detalhe.condicoes.modalidadeFrete).toBe('FOB');
+    });
+
+    it('acima de R$ 1.500,00 (CIF) o corpo só com a condição é aceito', async () => {
+      // 2 un. a 63560 = 150002.
+      const { servico, sessao, idVariacao, idOrcamento } = await montar({
+        segundaCompra: true,
+        precoUnitario: 63560,
+      });
+      await servico.adicionarItem(idOrcamento, avulso(idVariacao, 2), sessao);
+
+      const detalhe = await servico.atualizarCondicoes(
+        idOrcamento,
+        { condicaoPagamento: 'ADIANTADO_100' },
+        sessao,
+      );
+
+      expect(detalhe.condicoes.modalidadeFrete).toBe('CIF');
+      expect(detalhe.condicoes.condicaoPagamento).toBe('ADIANTADO_100');
+    });
+
+    it('limite inclusivo: exatamente R$ 500,00 mantém o boleto, sem aviso', async () => {
+      // 42373 + 7627 de imposto = 50000.
+      const { servico, sessao, idVariacao, idOrcamento } = await montar({
+        segundaCompra: true,
+        precoUnitario: 42373,
+      });
+      await servico.adicionarItem(idOrcamento, avulso(idVariacao, 1), sessao);
+      const comBoleto = await servico.atualizarCondicoes(
+        idOrcamento,
+        { condicaoPagamento: 'BOLETO', prazoDias: 30, ...frete },
+        sessao,
+      );
+      expect(comBoleto.condicoes.valorTotalItens).toBe(50000);
+
+      const detalhe = await servico.adicionarItem(idOrcamento, avulso(idVariacao, 1), sessao);
+
+      expect(detalhe.condicoes.valorTotalItens).toBe(100000);
+      expect(detalhe.condicoes.condicaoPagamento).toBe('BOLETO');
+      expect(detalhe.condicoes.avisos).toEqual([]);
+    });
+
+    it('escolha explícita fora das permitidas segue como bloqueio, sem troca automática', async () => {
+      const { servico, sessao, idVariacao, idOrcamento } = await montar({
+        segundaCompra: true,
+        precoUnitario: 100000,
+      });
+      await servico.adicionarItem(idOrcamento, avulso(idVariacao, 1), sessao);
+
+      const detalhe = await servico.atualizarCondicoes(
+        idOrcamento,
+        { condicaoPagamento: 'PARCELADO', numeroParcelas: 3, origemTransportadora: 'SUPRIMAX' },
+        sessao,
+      );
+
+      expect(detalhe.condicoes.condicaoPagamento).toBe('PARCELADO');
+      expect(detalhe.condicoes.bloqueios.map((b) => b.codigo)).toContain('CONDICAO_NAO_PERMITIDA');
+      expect(detalhe.condicoes.avisos).toEqual([]);
+    });
+
+    it('não grava o editor do rascunho ao aplicar o padrão (não é edição do operador)', async () => {
+      const { cenario } = await montar({ segundaCompra: false, precoUnitario: 60000 });
+
+      expect(cenario.banco.linhas('orcamento')[0]?.id_operador_ultima_edicao ?? null).toBeNull();
+    });
+
+    it('orçamento emitido é imutável: a condição nunca é alterada', async () => {
+      const { cenario, servico, sessao, idVariacao, idOrcamento } = await montar({
+        segundaCompra: false,
+        precoUnitario: 60000,
+      });
+      const { itens } = await servico.adicionarItem(idOrcamento, avulso(idVariacao, 1), sessao);
+      await servico.atualizarCondicoes(
+        idOrcamento,
+        { condicaoPagamento: 'ADIANTADO_100', ...frete },
+        sessao,
+      );
+      await servico.emitir(idOrcamento, sessao);
+      const antes = cenario.proxy.chamadas.length;
+
+      await expect(
+        servico.alterarQuantidade(idOrcamento, (itens[0] as { idItem: number }).idItem, 1, sessao),
+      ).rejects.toBeInstanceOf(ErroDeOrcamentoNaoEditavel);
+
+      const escritas = cenario.proxy.chamadas
+        .slice(antes)
+        .filter((chamada) => chamada.operacao === 'dados.atualizar');
+      expect(escritas).toEqual([]);
+      expect(cenario.banco.linhas('orcamento')[0]?.condicao_pagamento).toBe('ADIANTADO_100');
+    });
+  });
+
   describe('obter: chamadas ao proxy (RNF03)', () => {
     const LIMITE_DE_CHAMADAS = 4;
 

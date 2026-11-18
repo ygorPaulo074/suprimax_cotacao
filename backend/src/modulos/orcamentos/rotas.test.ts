@@ -339,3 +339,41 @@ describe('POST /orcamentos/:id/enviar (UC08)', () => {
     expect(resposta.status).toBe(404);
   });
 });
+
+describe('PUT /orcamentos/:id/condicoes (UC18)', () => {
+  async function comItem() {
+    const contexto = await montar();
+    const { app, operador, idOrcamento } = contexto;
+    const idVariacao = semearVariacao(contexto);
+    await request(app)
+      .post(`/orcamentos/${idOrcamento}/itens`)
+      .set('Authorization', operador.autorizacao)
+      .send({ idVariacao, granularidade: 'AVULSO', quantidade: 1 });
+    return contexto;
+  }
+
+  it('responde 400 (não 500) quando falta a origem do frete abaixo de R$ 1.500,00', async () => {
+    const { app, operador, idOrcamento } = await comItem();
+
+    const resposta = await request(app)
+      .put(`/orcamentos/${idOrcamento}/condicoes`)
+      .set('Authorization', operador.autorizacao)
+      .send({ condicaoPagamento: 'ADIANTADO_100' });
+
+    expect(resposta.status).toBe(400);
+    expect(resposta.body.codigo).toBe('VALIDATION_ERROR');
+  });
+
+  it('com a origem do frete grava a condição e devolve o detalhe', async () => {
+    const { app, operador, idOrcamento } = await comItem();
+
+    const resposta = await request(app)
+      .put(`/orcamentos/${idOrcamento}/condicoes`)
+      .set('Authorization', operador.autorizacao)
+      .send({ condicaoPagamento: 'ADIANTADO_100', origemTransportadora: 'SUPRIMAX' });
+
+    expect(resposta.status).toBe(200);
+    expect(resposta.body.condicoes.condicaoPagamento).toBe('ADIANTADO_100');
+    expect(resposta.body.condicoes.avisos).toEqual([]);
+  });
+});
