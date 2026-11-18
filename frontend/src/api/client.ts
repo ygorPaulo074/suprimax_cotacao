@@ -63,6 +63,7 @@ async function requisitar(
   opcoes: OpcoesRequisicao = {},
 ): Promise<Response> {
   const headers: Record<string, string> = { Accept: 'application/json' };
+  const tokenUsado = token; // um 401 só vale para a sessão que fez a chamada
   if (token) headers.Authorization = `Bearer ${token}`;
   let body: BodyInit | undefined;
   if (opcoes.formData) body = opcoes.formData;
@@ -103,7 +104,9 @@ async function requisitar(
 
   if (!resposta.ok) {
     const erro = (await resposta.json().catch(() => null)) as Partial<ErroApi> | null;
-    if (resposta.status === 401 && caminho !== '/auth/login') aoNaoAutorizado?.();
+    // Requisição em voo com token antigo não pode derrubar um login mais novo.
+    if (resposta.status === 401 && caminho !== '/auth/login' && tokenUsado === token)
+      aoNaoAutorizado?.();
     throw new ApiError(
       resposta.status,
       erro?.codigo ?? `HTTP_${resposta.status}`,

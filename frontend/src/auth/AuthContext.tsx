@@ -14,6 +14,7 @@ import {
   definirToken,
   limparCacheLocal,
   limparFila,
+  obterToken,
   type LoginRequest,
   type Sessao,
 } from '@/api';
@@ -73,7 +74,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     authApi
       .me()
       .then(setSessao)
-      .catch(limpar)
+      .catch(() => {
+        if (obterToken() === salvo) limpar(); // login novo no meio do caminho não é derrubado
+      })
       .finally(() => setCarregando(false));
   }, [limpar]);
 
