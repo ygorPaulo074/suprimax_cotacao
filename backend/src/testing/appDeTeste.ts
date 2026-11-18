@@ -44,6 +44,8 @@ export interface OpcoesDoAppDeTeste {
   readonly notificador?: DependenciasDoApp['notificador'];
   /** Dublê do envio de e-mails de recuperação de senha. */
   readonly notificadorDeRecuperacao?: DependenciasDoApp['notificadorDeRecuperacao'];
+  /** Dublê do envio de e-mail com anexo (UC08). */
+  readonly enviadorDeEmail?: DependenciasDoApp['enviadorDeEmail'];
 }
 
 export interface AppDeTeste {
@@ -80,6 +82,7 @@ export function montarAppDeTeste(opcoes: OpcoesDoAppDeTeste = {}): AppDeTeste {
     auth: { senhas, agora: opcoes.agora, ...opcoes.auth },
     notificador: opcoes.notificador,
     notificadorDeRecuperacao: opcoes.notificadorDeRecuperacao,
+    enviadorDeEmail: opcoes.enviadorDeEmail,
   };
   return {
     app: createApp(dependencias),

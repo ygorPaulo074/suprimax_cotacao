@@ -11,11 +11,13 @@ import {
   NotificadorDeEmailPorEmail,
   type NotificadorDeEmail,
 } from '../modulos/usuarios/notificador';
-import { EmailViaResend, type FetchDeEmail } from './enviador';
+import { EmailViaResend, type EnviadorDeEmail, type FetchDeEmail } from './enviador';
 
 export interface NotificadoresDeEmail {
   readonly notificador: NotificadorDeEmail;
   readonly notificadorDeRecuperacao: NotificadorDeRecuperacaoDeSenha;
+  /** Envio genérico (UC08, com anexo); ausente no modo mudo (sem `RESEND_API_KEY`). */
+  readonly enviadorDeEmail?: EnviadorDeEmail;
 }
 
 /**
@@ -42,5 +44,6 @@ export function criarNotificadoresDeEmail(
   return {
     notificador: new NotificadorDeEmailPorEmail(enviador, frontendUrl),
     notificadorDeRecuperacao: new NotificadorDeRecuperacaoDeSenhaPorEmail(enviador, frontendUrl),
+    enviadorDeEmail: enviador,
   };
 }
