@@ -31,7 +31,7 @@ import { RepositorioDePedidos } from '../pedidos/repositorio';
 import { RepositorioDeProdutos } from '../produtos/repositorio';
 import { RepositorioDeUsuarios } from '../usuarios/repositorio';
 import { RepositorioDeOrcamentos } from './repositorio';
-import { ServicoDeOrcamentos } from './servico';
+import { deduplicarHistorico, ServicoDeOrcamentos } from './servico';
 
 const LOGGER_SILENCIOSO = criarLogger({ nivel: 'silent', destino: { write: () => undefined } });
 let contador = 0;
@@ -884,6 +884,46 @@ describe('ServicoDeOrcamentos', () => {
       const [reserva] = cenario.banco.linhas('reserva_estoque');
       expect(reserva?.quantidade_reservada).toBe(300);
       expect(reserva?.status).toBe('CONFIRMADA');
+    });
+
+    it('registra exatamente um evento RASCUNHO -> ABERTO (o gatilho do banco já grava)', async () => {
+      const cenario = montarCenarioDeCadastros();
+      const servico = montarServico(cenario);
+      const idOperador = cenario.semearUsuario('OPERADOR', 'quem-emite');
+      const idCliente = semearCliente(cenario);
+      const { idVariacao } = semearVariacao(cenario, {
+        precoUnitario: 600,
+        quantidadeEstoque: 1000,
+      });
+      const sessao = sessaoDoOperador(idOperador, 'quem-emite');
+      const { idOrcamento } = await servico.criar(
+        { idCliente, numeroSolicitacaoCompra: null, contatoSolicitacao: null },
+        sessao,
+      );
+      await servico.adicionarItem(
+        idOrcamento,
+        { idVariacao, granularidade: 'AVULSO', quantidade: 300 },
+        sessao,
+      );
+      await servico.atualizarCondicoes(
+        idOrcamento,
+        { condicaoPagamento: 'ADIANTADO_100', origemTransportadora: 'SUPRIMAX', valorFrete: 2000 },
+        sessao,
+      );
+
+      const emitido = await servico.emitir(idOrcamento, sessao);
+
+      const emissoes = emitido.historico.filter((evento) => evento.statusNovo === 'ABERTO');
+      expect(emissoes).toHaveLength(1);
+      expect(emissoes[0]).toMatchObject({
+        statusAnterior: 'RASCUNHO',
+        usuario: 'quem-emite',
+      });
+      expect(
+        cenario.banco
+          .linhas('historico_orcamento')
+          .filter((linha) => linha.id_orcamento === idOrcamento && linha.status_novo === 'ABERTO'),
+      ).toHaveLength(1);
     });
 
     it('devolve de orcamento.emitir só id, número e validade, como no contrato (docs/12, 12.8.3)', async () => {
@@ -1963,5 +2003,104 @@ describe('ServicoDeOrcamentos', () => {
       // O histórico e os anexos só entram no detalhe devolvido, que é montado uma vez.
       expect(lidas.filter((tabela) => tabela === 'anexo_orcamento')).toHaveLength(1);
     });
+  });
+});
+
+describe('numeroPedido no detalhe do orçamento', () => {
+  async function criarRascunho() {
+    const cenario = montarCenarioDeCadastros();
+    const servico = montarServico(cenario);
+    const idOperador = cenario.semearUsuario('OPERADOR', 'quem-cria');
+    const idCliente = semearCliente(cenario);
+    const { idOrcamento } = await servico.criar(
+      { idCliente, numeroSolicitacaoCompra: null, contatoSolicitacao: null },
+      sessaoDoOperador(idOperador, 'quem-cria'),
+    );
+    return { cenario, servico, idOrcamento };
+  }
+
+  it('devolve PED-0009 quando o orçamento nasceu do pedido 9', async () => {
+    const { cenario, servico, idOrcamento } = await criarRascunho();
+    cenario.banco.semear('pedido', {
+      id_pedido: 9,
+      id_cliente: cenario.banco.linhas('cliente')[0]?.id_cliente,
+      id_operador_vendedor: cenario.semearUsuario('VENDEDOR', 'vendedor-do-pedido'),
+      status: 'EM_ANALISE',
+    });
+    await cenario.proxy.executar(
+      'dados.atualizar',
+      {
+        tabela: 'orcamento',
+        filtros: { e: [['id_orcamento', '=', idOrcamento]] },
+        valores: { id_pedido: 9 },
+      },
+      'teste-vincular-pedido',
+    );
+
+    const detalhe = await servico.obter(idOrcamento);
+
+    expect(detalhe.idPedido).toBe(9);
+    expect(detalhe.numeroPedido).toBe('PED-0009');
+  });
+
+  it('devolve null quando não há pedido de origem', async () => {
+    const { servico, idOrcamento } = await criarRascunho();
+
+    const detalhe = await servico.obter(idOrcamento);
+
+    expect(detalhe.idPedido).toBeNull();
+    expect(detalhe.numeroPedido).toBeNull();
+  });
+});
+
+describe('deduplicarHistorico', () => {
+  const base = {
+    idOrcamento: 1,
+    idOperador: 7,
+    tipoEvento: 'MUDANCA_STATUS' as const,
+    statusAnterior: 'RASCUNHO' as const,
+    statusNovo: 'ABERTO' as const,
+    observacao: null,
+  };
+  const evento = (idHistorico: number, dataRegistro: string, extra = {}) => ({
+    ...base,
+    idHistorico,
+    dataRegistro,
+    ...extra,
+  });
+
+  it('colapsa mudanças de status idênticas com menos de 5 s de diferença', () => {
+    const resultado = deduplicarHistorico([
+      evento(1, '2026-11-18T10:00:00.000Z'),
+      evento(2, '2026-11-18T10:00:00.120Z'),
+    ]);
+
+    expect(resultado.map((e) => e.idHistorico)).toEqual([1]);
+  });
+
+  it('prefere o evento com observação e mantém o operador', () => {
+    const resultado = deduplicarHistorico([
+      evento(1, '2026-11-18T10:00:00.000Z'),
+      evento(2, '2026-11-18T10:00:00.200Z', { observacao: 'Cliente desistiu', idOperador: null }),
+    ]);
+
+    expect(resultado).toHaveLength(1);
+    expect(resultado[0]).toMatchObject({
+      idHistorico: 2,
+      observacao: 'Cliente desistiu',
+      idOperador: 7,
+    });
+  });
+
+  it('mantém eventos iguais separados por 5 s ou mais, de status diferente ou de follow-up', () => {
+    const resultado = deduplicarHistorico([
+      evento(1, '2026-11-18T10:00:00.000Z'),
+      evento(2, '2026-11-18T10:00:05.000Z'),
+      evento(3, '2026-11-18T10:00:05.100Z', { statusNovo: 'CANCELADO' }),
+      evento(4, '2026-11-18T10:00:06.000Z', { tipoEvento: 'ATUALIZACAO_FOLLOWUP' }),
+      evento(5, '2026-11-18T10:00:06.100Z', { tipoEvento: 'ATUALIZACAO_FOLLOWUP' }),
+    ]);
+
+    expect(resultado.map((e) => e.idHistorico)).toEqual([1, 2, 3, 4, 5]);
   });
 });

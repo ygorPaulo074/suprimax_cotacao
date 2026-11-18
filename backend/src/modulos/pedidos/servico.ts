@@ -16,10 +16,8 @@ import type {
   RepositorioDePedidos,
   StatusDoPedido,
 } from './repositorio';
+import { numeroDoPedido } from './numero';
 
-/** Prefixo de exibição do número do pedido (`id_pedido` não tem coluna própria de numeração). */
-const PREFIXO_DO_NUMERO = 'PED-';
-const DIGITOS_DO_NUMERO = 4;
 const OPERACAO_SITUACAO_CLIENTE = 'UC10-situacao-cliente';
 
 /** Linha da fila de pedidos. É o tipo `PedidoResumo` do frontend. */
@@ -398,7 +396,7 @@ export class ServicoDePedidos {
         : (usuarios.get(pedido.idOperadorAtendimento)?.usuario ?? null);
     return {
       idPedido: pedido.idPedido,
-      numero: `${PREFIXO_DO_NUMERO}${String(pedido.idPedido).padStart(DIGITOS_DO_NUMERO, '0')}`,
+      numero: numeroDoPedido(pedido.idPedido),
       idCliente: pedido.idCliente,
       cliente: cliente?.razaoSocial ?? '',
       cnpj: cliente?.cnpj ?? '',

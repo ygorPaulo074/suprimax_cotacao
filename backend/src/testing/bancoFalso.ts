@@ -829,6 +829,7 @@ export class BancoFalso {
       });
     }
 
+    const statusAnteriorDoOrcamento = String(orcamento.status);
     orcamento.status = STATUS_ORCAMENTO_ABERTO;
     orcamento.numero_orcamento = numeroOrcamento;
     orcamento.chave_seguranca = chaveSeguranca;
@@ -852,7 +853,14 @@ export class BancoFalso {
         (linha) => linha.id_orcamento === orcamento.id_orcamento_origem,
       );
       if (original) {
+        const statusDoOriginal = String(original.status);
         original.status = STATUS_ORCAMENTO_SUBSTITUIDO;
+        this.registrarHistoricoDoGatilho(
+          original.id_orcamento as number,
+          statusDoOriginal,
+          STATUS_ORCAMENTO_SUBSTITUIDO,
+          idOperador,
+        );
         const idsDosItensOriginais = this.linhasDa('item_orcamento')
           .filter((item) => item.id_orcamento === original.id_orcamento)
           .map((item) => item.id_item);
@@ -867,10 +875,9 @@ export class BancoFalso {
       }
     }
 
-    // Sem historico_orcamento aqui: o contrato real de `orcamento.emitir` (docs/12-proxy.md,
-    // seção 12.8.3) não grava histórico — isso é responsabilidade do backend, que já registra o
-    // evento por uma chamada separada (`historico_orcamento:inserir`) depois de chamar esta
-    // operação (ver `ServicoDeOrcamentos.emitir`).
+    // Simula o gatilho orcamento_status_auditar: o UPDATE de status grava o histórico (com o
+    // operador). O backend não registra a emissão por conta própria.
+    this.registrarHistoricoDoGatilho(idOrcamento, statusAnteriorDoOrcamento, 'ABERTO', idOperador);
     return {
       ok: true,
       dados: {
@@ -879,6 +886,26 @@ export class BancoFalso {
         data_validade: dataValidade,
       },
     };
+  }
+
+  /** Grava a linha de histórico que o gatilho `orcamento_status_auditar` grava no UPDATE de status. */
+  private registrarHistoricoDoGatilho(
+    idOrcamento: number,
+    statusAnterior: string,
+    statusNovo: string,
+    idOperador: number,
+  ): void {
+    this.inserir({
+      tabela: 'historico_orcamento',
+      valores: {
+        id_orcamento: idOrcamento,
+        id_operador: idOperador,
+        tipo_evento: 'MUDANCA_STATUS',
+        status_anterior: statusAnterior,
+        status_novo: statusNovo,
+        observacao: null,
+      },
+    });
   }
 
   /** Soma as reservas CONFIRMADA de uma variação, pelo mesmo caminho de `somarReservasPorVariacao`. */
