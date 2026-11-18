@@ -1,5 +1,6 @@
 import express from 'express';
 import request from 'supertest';
+import { operadorDaRequisicao } from '../../dados/usuarioDaRequisicao';
 import { criarLogger } from '../../log';
 import { PERFIS, RepositorioDeSessoesEmMemoria, type Sessao } from '../../modulos/auth/sessoes';
 import { exigirPerfil, exigirSessao, obterSessao, obterTokenDaSessao } from './autenticacao';
@@ -33,6 +34,10 @@ async function montar(sessao: Sessao = SESSAO) {
       res.json({ ok: true });
     },
   );
+  app.get('/operador', exigirSessao(sessoes), async (_req, res) => {
+    await new Promise((resolver) => setTimeout(resolver, 1));
+    res.json({ idOperador: operadorDaRequisicao() ?? null });
+  });
   app.get('/sem-middleware', (_req, res) => {
     res.json(obterSessao(res));
   });
@@ -51,6 +56,15 @@ describe('exigirSessao', () => {
 
     expect(resposta.status).toBe(200);
     expect(resposta.body).toEqual({ sessao: SESSAO, token });
+  });
+
+  it('roda o restante da requisição em nome do operador da sessão (X-User-Id do proxy)', async () => {
+    const { app, token } = await montar();
+
+    const resposta = await request(app).get('/operador').set('Authorization', `Bearer ${token}`);
+
+    expect(resposta.body).toEqual({ idOperador: SESSAO.idOperador });
+    expect(operadorDaRequisicao()).toBeUndefined();
   });
 
   it.each([

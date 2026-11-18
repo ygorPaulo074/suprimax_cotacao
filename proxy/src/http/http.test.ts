@@ -69,6 +69,7 @@ interface Opcoes {
   serviceId?: string;
   admin?: boolean;
   corpoBruto?: string;
+  idUsuario?: string;
 }
 
 /** Cada chamada usa um timestamp diferente, para não cair na proteção contra replay. */
@@ -83,6 +84,7 @@ async function chamar(operacao: string, payload: unknown, o: Opcoes = {}) {
       'x-timestamp': new Date(relogio).toISOString(),
       'x-service-id': o.serviceId ?? 'admin',
       'x-operation-id': 'teste',
+      ...(o.idUsuario !== undefined ? { 'x-user-id': o.idUsuario } : {}),
     },
     body: o.corpoBruto ?? JSON.stringify({ operacao, payload }),
   });
@@ -674,6 +676,40 @@ describe('auditoria e erros internos', () => {
     expect(texto).not.toContain('segredo-no-payload');
     expect(ok?.requestId).toEqual(expect.any(String));
     expect(ok?.duracaoMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it('X-User-Id: grava o usuário que originou a operação em id_usuario (só após autenticar)', async () => {
+    const i = await integrante(['*:consultar', 'pedido:inserir']);
+    await chamar('dados.consultar', { tabela: 'pedido' }, { ...como(i), idUsuario: '42' });
+    await chamar(
+      'dados.inserir',
+      { tabela: 'pedido', valores: { id_cliente: 1 } },
+      { ...como(i), idUsuario: '42' },
+    );
+    await chamar('dados.consultar', { tabela: 'pedido' }, como(i));
+    // Credencial inválida: o cabeçalho não é aceito como autoria.
+    await chamar('dados.consultar', { tabela: 'pedido' }, { token: 'lixo', idUsuario: '42' });
+    expect(auditoria.entradas.slice(1).map((e) => [e.operacao, e.resultado, e.idUsuario])).toEqual([
+      ['dados.consultar', 'ok', '42'],
+      ['dados.inserir', 'ok', '42'],
+      ['dados.consultar', 'ok', null],
+      ['desconhecida', 'TOKEN_INVALIDO', null],
+    ]);
+  });
+
+  it('X-User-Id fora do formato (ex.: token ou hash de sessão) é recusado e não vai à auditoria', async () => {
+    const i = await integrante(['*:consultar']);
+    const hash = 'a'.repeat(64);
+    for (const valor of [hash, 'Bearer abc', 'x'.repeat(41), "1'; DROP"]) {
+      const r = await chamar(
+        'dados.consultar',
+        { tabela: 'pedido' },
+        { ...como(i), idUsuario: valor },
+      );
+      expect([r.status, r.corpo.erro.codigo]).toEqual([400, 'PAYLOAD_INVALIDO']);
+    }
+    expect(auditoria.entradas.slice(1).every((e) => e.idUsuario === null)).toBe(true);
+    expect(JSON.stringify(auditoria.entradas)).not.toContain(hash);
   });
 
   it('erro de integridade do banco vira 400 e erro inesperado vira 500, sem detalhes', async () => {

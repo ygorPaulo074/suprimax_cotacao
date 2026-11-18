@@ -7,6 +7,7 @@ import {
   ProxyNaoConfiguradoError,
   type OpcoesDoClienteProxy,
 } from './proxyCliente';
+import { executarComoOperador } from './usuarioDaRequisicao';
 
 // Os testes trocam o `fetch` por uma função simulada (opção `fetch` do cliente): sem rede.
 const CONFIG = { url: 'https://proxy.teste', serviceId: 'sistema2-backend', token: 'tok-123' };
@@ -80,6 +81,31 @@ describe('ClienteProxy.executar — requisição', () => {
       'X-Timestamp': '2026-11-10T12:00:00.000Z',
       'X-Operation-Id': 'UC10-listar',
     });
+  });
+
+  it('envia X-User-Id com o operador da requisição, só quando há um (auditoria do proxy)', async () => {
+    const fetchSimulado = fetchQueDevolve(
+      resposta(200, SUCESSO),
+      resposta(200, SUCESSO),
+      resposta(200, SUCESSO),
+    );
+    const { cliente } = montar(fetchSimulado);
+
+    await executarComoOperador(42, async () => {
+      // Continua valendo depois de um await, como dentro de um manipulador de rota.
+      await Promise.resolve();
+      await cliente.executar('dados.inserir', { tabela: 'cliente' }, 'UC02');
+    });
+    await cliente.executar('dados.consultar', { tabela: 'cliente' }, 'jobs');
+    await montar(fetchSimulado, { usuarioAtual: () => 0 }).cliente.executar(
+      'dados.consultar',
+      { tabela: 'cliente' },
+      'x',
+    );
+
+    expect(cabecalhosDaChamada(fetchSimulado, 0)['X-User-Id']).toBe('42');
+    expect(cabecalhosDaChamada(fetchSimulado, 1)).not.toHaveProperty('X-User-Id');
+    expect(cabecalhosDaChamada(fetchSimulado, 2)).not.toHaveProperty('X-User-Id');
   });
 
   it('gera um X-Timestamp novo a cada chamada, mesmo dentro do mesmo milissegundo', async () => {

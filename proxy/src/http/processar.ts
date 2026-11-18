@@ -58,7 +58,7 @@ const SchemaEnvelope = z
   .strict();
 
 /** Erros do banco de regra de integridade (CHECK, UNIQUE, FK, gatilhos) viram 400; o resto, 500. */
-function normalizarErro(e: unknown): AppError {
+export function normalizarErro(e: unknown): AppError {
   if (e instanceof AppError) return e;
   // Regra levantada por gatilho em dados.* (RAISE EXCEPTION 'CODIGO'): mesmo tratamento das nomeadas.
   const regra = erroDeRegraDoBanco(e);
@@ -81,6 +81,46 @@ function armazenamentoDe(deps: DepsServidor): Armazenamento {
   return a;
 }
 
+/**
+ * Usuário que originou a operação, declarado pelo integrante no cabeçalho opcional X-User-Id (no
+ * Sistema 2, o id_operador da sessão). Vai só para `log_auditoria.id_usuario`. O formato é restrito
+ * (até 40 letras, dígitos, `_` ou `-`) para que nunca caiba ali um token ou um hash de sessão
+ * (64 caracteres); fora dele, a requisição é recusada com PAYLOAD_INVALIDO.
+ */
+export const CABECALHO_ID_USUARIO = 'x-user-id';
+const FORMATO_ID_USUARIO = /^[A-Za-z0-9_-]{1,40}$/;
+
+export function lerIdUsuario(headers: Cabecalhos): string | null {
+  const v = headers[CABECALHO_ID_USUARIO];
+  const bruto = (Array.isArray(v) ? v[0] : v)?.trim();
+  if (!bruto) return null;
+  if (!FORMATO_ID_USUARIO.test(bruto)) {
+    throw new AppError('PAYLOAD_INVALIDO', undefined, 'X-User-Id fora do formato');
+  }
+  return bruto;
+}
+
+/** Contexto de execução de uma operação para um integrante autenticado (também na retomada). */
+export function montarContexto(
+  deps: DepsServidor,
+  auth: ContextoAutenticado,
+  registrarRisco: (r: ResultadoRisco) => void,
+): ContextoOperacao {
+  return {
+    esquema: deps.esquema,
+    banco: deps.banco,
+    auth,
+    deps: {
+      integrantes: deps.integrantes,
+      segredoJwt: deps.config.jwtSigningSecret,
+      agora: deps.agora,
+    },
+    credenciais: podeLerCredenciais(auth.escopos),
+    armazenamento: armazenamentoDe(deps),
+    registrarRisco,
+  };
+}
+
 export async function processar(deps: DepsServidor, req: Requisicao): Promise<Resposta> {
   const requestId = randomUUID();
   const inicio = Date.now();
@@ -88,6 +128,7 @@ export async function processar(deps: DepsServidor, req: Requisicao): Promise<Re
   let sistema = 'desconhecido';
   let risco: ResultadoRisco = 'NAO_APLICAVEL';
   let codigo = 'ok';
+  let idUsuario: string | null = null;
 
   try {
     // A chave mestra vale só para integrante.*; o resto exige token de integrante.
@@ -106,32 +147,24 @@ export async function processar(deps: DepsServidor, req: Requisicao): Promise<Re
       : await autenticarIntegrante(depsAuth, req.headers, req.corpoBruto);
     sistema = auth.serviceId;
     req.aposAutenticar?.(auth.serviceId);
+    // Só depois da autenticação: quem não se identificou não atribui a operação a ninguém.
+    idUsuario = lerIdUsuario(req.headers);
 
     const envelope = analisar(SchemaEnvelope, req.corpo);
     operacao = envelope.operacao;
     const op = OPERACOES.get(envelope.operacao);
     if (!op) throw new AppError('OPERACAO_DESCONHECIDA');
 
-    const ctx: ContextoOperacao = {
-      esquema: deps.esquema,
-      banco: deps.banco,
-      auth,
-      deps: {
-        integrantes: deps.integrantes,
-        segredoJwt: deps.config.jwtSigningSecret,
-        agora: deps.agora,
-      },
-      credenciais: podeLerCredenciais(auth.escopos),
-      armazenamento: armazenamentoDe(deps),
-      registrarRisco: (r) => {
-        risco = r;
-      },
-    };
+    const ctx = montarContexto(deps, auth, (r) => {
+      risco = r;
+    });
 
     const preparada = op.preparar(envelope.payload, ctx);
     exigirEscopos(auth.escopos, preparada.escopos);
 
     // `somenteLeitura` só vem da própria operação (lote cujos passos são todos leituras conhecidas).
+    // Na fila, a operação é preparada de novo sobre a transação da fila, para que a escrita e a
+    // marcação `concluido` sejam confirmadas juntas (fila.ts).
     const resultado =
       op.escrita && !preparada.somenteLeitura
         ? await deps.fila.executar(
@@ -141,7 +174,8 @@ export async function processar(deps: DepsServidor, req: Requisicao): Promise<Re
               operacao: op.id,
               payload: op.admin || op.sigilosa ? null : envelope.payload,
             },
-            preparada.executar,
+            (tx) => op.preparar(envelope.payload, { ...ctx, banco: tx }).executar(),
+            deps.banco,
           )
         : await preparada.executar();
     return { status: 200, corpo: { ok: true, ...resultado } };
@@ -165,7 +199,7 @@ export async function processar(deps: DepsServidor, req: Requisicao): Promise<Re
       duracaoMs: Date.now() - inicio,
       requestId,
       resultado: codigo,
-      idUsuario: null,
+      idUsuario,
       ipOrigem: req.ip,
     });
   }
