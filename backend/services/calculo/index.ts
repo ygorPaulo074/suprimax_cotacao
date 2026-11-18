@@ -1,7 +1,7 @@
 // Módulo de cálculo de regras comerciais. Funções puras: sem banco, relógio ou rede.
 // UC18, UC19 e UC20 — docs/11, seção 11.6.
 // Incrementar a cada mudança de regra e registrar em backend/CHANGELOG.md.
-export const VERSAO_REGRAS = '1.2.0';
+export const VERSAO_REGRAS = '1.3.0';
 
 export * from './types';
 export * from './erros';
@@ -10,6 +10,7 @@ export * from './validacao';
 export { calcularImpostoItem } from './imposto';
 export {
   calcularFaltaParaFaturamentoMinimo,
+  escolherCondicaoPadrao,
   listarCondicoesPermitidas,
   validarCondicaoFaturamento,
 } from './faturamento';

@@ -126,3 +126,24 @@ export function listarCondicoesPermitidas({
   if (semItens || valorTotalItens >= LIMITE_PARCELAMENTO) condicoes.push('PARCELADO');
   return condicoes;
 }
+
+/**
+ * Condição de pagamento que o sistema aplica sozinho (UC18). Ponto único da regra: para mudar o
+ * padrão, altere só esta função. Primeira compra: 100% adiantado (a única permitida). Crédito
+ * reprovado: 50% adiantado + 50% após a entrega. Demais casos: 100% adiantado, a mais segura.
+ * Só devolve condições que não exigem `prazoDias` nem `numeroParcelas`, e sempre uma que
+ * `listarCondicoesPermitidas` aceita para os mesmos dados. Boleto e parcelado ficam a cargo do operador.
+ */
+export function escolherCondicaoPadrao({
+  primeiraCompra,
+  resultadoCredito,
+}: {
+  primeiraCompra: boolean;
+  resultadoCredito: ResultadoCredito;
+}): CondicaoPagamento {
+  if (typeof primeiraCompra !== 'boolean') {
+    throw new CalculoError('CALC_ENTRADA_INVALIDA', 'primeiraCompra', 'booleano esperado');
+  }
+  if (!primeiraCompra && resultadoCredito === 'REPROVADO') return 'ADIANTADO_50_50';
+  return 'ADIANTADO_100';
+}

@@ -38,6 +38,7 @@ import {
   calcularFaltaParaFaturamentoMinimo,
   calcularFrete,
   calcularLinhaDoItem,
+  escolherCondicaoPadrao,
   FATURAMENTO_MINIMO,
   listarCondicoesPermitidas,
   hojeComoDataISO,
@@ -155,6 +156,12 @@ export interface BloqueioDeEmissao {
   readonly mensagem: string;
 }
 
+/** Aviso ao operador sobre algo que o sistema fez sozinho (UC18). */
+export interface AvisoDoOrcamento {
+  readonly codigo: 'CONDICAO_TROCADA_AUTOMATICAMENTE';
+  readonly mensagem: string;
+}
+
 /** Condições comerciais calculadas (sempre ao vivo: nunca confiar só no que está salvo). */
 export interface CondicoesComerciais {
   readonly valorTotalItens: number;
@@ -171,6 +178,11 @@ export interface CondicoesComerciais {
   readonly valorTotalProposta: number;
   readonly creditoStatus: 'NAO_EXIGIDO' | 'PENDENTE' | 'APROVADO' | 'REPROVADO';
   readonly bloqueios: readonly BloqueioDeEmissao[];
+  /**
+   * Avisos que não impedem a emissão. Só a resposta da mutação que causou o aviso os traz (o `GET`
+   * devolve `[]`): hoje, `CONDICAO_TROCADA_AUTOMATICAMENTE`.
+   */
+  readonly avisos: readonly AvisoDoOrcamento[];
 }
 
 /** Um evento do histórico de mudanças do orçamento (UC06). */
@@ -393,7 +405,7 @@ export class ServicoDeOrcamentos
       statusNovo: 'RASCUNHO',
       observacao: null,
     });
-    return this.obter(idOrcamento);
+    return this.detalharAposEdicao(idOrcamento, autor, true);
   }
 
   /** Cria o orçamento em RASCUNHO a partir de um pedido aprovado (UC10 → UC14). */
@@ -437,6 +449,7 @@ export class ServicoDeOrcamentos
       statusNovo: 'RASCUNHO',
       observacao: null,
     });
+    await this.aplicarCondicaoPadrao(await this.buscarOuFalhar(idOrcamento), autor, true);
     return idOrcamento;
   }
 
@@ -590,7 +603,7 @@ export class ServicoDeOrcamentos
       idOrcamento,
       idAutor: autor.idOperador,
     });
-    return this.obter(idOrcamento);
+    return this.detalharAposEdicao(idOrcamento, autor, true);
   }
 
   /**
@@ -849,7 +862,7 @@ SupriMax`,
       idItem,
       idAutor: autor.idOperador,
     });
-    return this.obter(idOrcamento);
+    return this.detalharAposEdicao(idOrcamento, autor, true);
   }
 
   /**
@@ -874,7 +887,7 @@ SupriMax`,
       idItem,
       idAutor: autor.idOperador,
     });
-    return this.obter(idOrcamento);
+    return this.detalharAposEdicao(idOrcamento, autor, true);
   }
 
   /**
@@ -891,11 +904,17 @@ SupriMax`,
     this.exigirEditavel(orcamento);
     const itens = await this.orcamentos.listarItens(idOrcamento);
     const valorTotalItens = itens.reduce((total, item) => total + item.valorTotalItem, 0);
-    const frete = calcularFrete({
-      valorTotalItens,
-      origemTransportadora: dados.origemTransportadora,
-      valorFreteCotado: dados.valorFrete ?? null,
-    });
+    let frete: ReturnType<typeof calcularFrete>;
+    try {
+      frete = calcularFrete({
+        valorTotalItens,
+        origemTransportadora: dados.origemTransportadora,
+        valorFreteCotado: dados.valorFrete ?? null,
+      });
+    } catch (erro) {
+      // Frete FOB (abaixo de R$ 1.500,00) sem `origemTransportadora`: entrada inválida (400), não 500.
+      throw new ErroDeValidacao({ causa: erro });
+    }
     const dividaEmAberto = await this.clientes.somarDividaEmAberto(orcamento.idCliente);
     const situacao = await obterSituacaoCliente(
       this.proxy,
@@ -957,7 +976,9 @@ SupriMax`,
       idOrcamento,
       idAutor: autor.idOperador,
     });
-    return this.obter(idOrcamento);
+    // A escolha explícita do operador não é desfeita aqui (segue como bloqueio
+    // CONDICAO_NAO_PERMITIDA); só preenche o padrão se ainda não houver condição.
+    return this.detalharAposEdicao(idOrcamento, autor, false);
   }
 
   /**
@@ -1262,6 +1283,110 @@ SupriMax`,
   }
 
   /**
+   * Devolve o detalhe depois de uma edição, aplicando antes a condição de pagamento padrão (UC18)
+   * e anexando o aviso se ela foi trocada.
+   */
+  private async detalharAposEdicao(
+    idOrcamento: number,
+    autor: Sessao,
+    reverterInvalida: boolean,
+  ): Promise<OrcamentoDetalhado> {
+    const orcamento = await this.buscarOuFalhar(idOrcamento);
+    const { orcamento: atualizado, avisos } = await this.aplicarCondicaoPadrao(
+      orcamento,
+      autor,
+      reverterInvalida,
+    );
+    return this.montarDetalhe(atualizado, avisos);
+  }
+
+  /**
+   * Condição de pagamento automática (UC18). Em rascunho: se não há condição, grava o padrão de
+   * `escolherCondicaoPadrao`; se `reverterInvalida` e a gravada deixou de ser permitida (ex.: o
+   * valor caiu abaixo de R$ 500,00), volta ao padrão, zera `prazoDias`/`numeroParcelas` e avisa.
+   * Orçamento emitido (fora de rascunho) nunca é alterado.
+   */
+  private async aplicarCondicaoPadrao(
+    orcamento: Orcamento,
+    autor: Sessao,
+    reverterInvalida: boolean,
+  ): Promise<{ orcamento: Orcamento; avisos: AvisoDoOrcamento[] }> {
+    const semMudanca = { orcamento, avisos: [] };
+    if (!STATUS_DE_RASCUNHO.has(orcamento.status)) {
+      return semMudanca;
+    }
+    const atual = orcamento.condicaoPagamento;
+    // Com condição gravada, só se confere quando é para reverter uma que ficou inválida.
+    if (atual !== null && !reverterInvalida) {
+      return semMudanca;
+    }
+    const itens = await this.orcamentos.listarItens(orcamento.idOrcamento);
+    const valorTotalItens = itens.reduce((total, item) => total + item.valorTotalItem, 0);
+    const creditoAprovado = orcamento.primeiraCompra
+      ? null
+      : (await obterSituacaoCliente(this.proxy, orcamento.idCliente, 0, OPERACAO_SITUACAO_CLIENTE))
+          .creditoAprovado;
+    const resultadoCredito =
+      creditoAprovado === null ? null : creditoAprovado ? 'APROVADO' : 'REPROVADO';
+    if (atual !== null) {
+      const permitidas = listarCondicoesPermitidas({
+        valorTotalItens,
+        primeiraCompra: orcamento.primeiraCompra,
+        resultadoCredito,
+      });
+      if ((permitidas as readonly string[]).includes(atual)) {
+        return semMudanca;
+      }
+    }
+    const padrao = escolherCondicaoPadrao({
+      primeiraCompra: orcamento.primeiraCompra,
+      resultadoCredito,
+    });
+    await this.orcamentos.atualizarCondicoes(
+      orcamento.idOrcamento,
+      {
+        condicaoPagamento: padrao,
+        prazoDias: null,
+        numeroParcelas: null,
+        modalidadeFrete: orcamento.modalidadeFrete,
+        origemTransportadora: orcamento.origemTransportadora,
+        transportadora: orcamento.transportadora,
+        valorFrete: orcamento.valorFrete,
+        freteProvisorio: orcamento.freteProvisorio,
+        valorTotalProposta: orcamento.valorTotalProposta,
+      },
+      this.agora(),
+      // Ajuste do sistema, não edição do operador: não mexe em `id_operador_ultima_edicao`.
+      null,
+    );
+    const trocado: Orcamento = {
+      ...orcamento,
+      condicaoPagamento: padrao,
+      prazoDias: null,
+      numeroParcelas: null,
+    };
+    if (atual === null) {
+      return { orcamento: trocado, avisos: [] };
+    }
+    this.logger.info({
+      evento: 'orcamento_condicao_trocada_automaticamente',
+      idOrcamento: orcamento.idOrcamento,
+      de: atual,
+      para: padrao,
+    });
+    const rotulo = (condicao: string): string => ROTULO_DA_CONDICAO[condicao] ?? condicao;
+    return {
+      orcamento: trocado,
+      avisos: [
+        {
+          codigo: 'CONDICAO_TROCADA_AUTOMATICAMENTE',
+          mensagem: `A condição de pagamento (${rotulo(atual)}) deixou de estar disponível para este orçamento e foi trocada para ${rotulo(padrao)}. Confira antes de emitir.`,
+        },
+      ],
+    };
+  }
+
+  /**
    * Operador a gravar em `id_operador_ultima_edicao`: só em RASCUNHO e PENDENTE_CREDITO, os únicos
    * status em que o banco aceita editar (orçamento emitido é imutável); fora deles, `null` omite.
    */
@@ -1312,6 +1437,33 @@ SupriMax`,
     resultadoCredito: boolean | null,
     escolha: { condicaoPagamento?: string; prazoDias?: number; numeroParcelas?: number },
   ): ResultadoFaturamento {
+    const adiantada =
+      escolha.condicaoPagamento === 'ADIANTADO_100' ||
+      escolha.condicaoPagamento === 'ADIANTADO_50_50';
+    if (adiantada && !primeiraCompra) {
+      // Adiantado não exige crédito, prazo nem parcelas: não passa por `validarCondicaoFaturamento`
+      // (que só trata boleto e parcelado); basta estar entre as permitidas.
+      const condicao = escolha.condicaoPagamento as 'ADIANTADO_100' | 'ADIANTADO_50_50';
+      const permitidas = listarCondicoesPermitidas({
+        valorTotalItens,
+        primeiraCompra,
+        resultadoCredito:
+          resultadoCredito === null ? null : resultadoCredito ? 'APROVADO' : 'REPROVADO',
+      });
+      if (!permitidas.includes(condicao)) {
+        throw new ErroDeValidacao({
+          causa: new Error(`condição ${condicao} não disponível para este orçamento`),
+        });
+      }
+      return {
+        ok: true,
+        condicao,
+        prazoDias: null,
+        numeroParcelas: null,
+        valorParcela: null,
+        exigeAnaliseCredito: false,
+      };
+    }
     try {
       return validarCondicaoFaturamento({
         valorTotalItens,
@@ -1607,10 +1759,14 @@ SupriMax`,
       valorTotalProposta: orcamento.valorTotalProposta ?? valorTotalItens,
       creditoStatus,
       bloqueios,
+      avisos: [],
     };
   }
 
-  private async montarDetalhe(orcamento: Orcamento): Promise<OrcamentoDetalhado> {
+  private async montarDetalhe(
+    orcamento: Orcamento,
+    avisos: readonly AvisoDoOrcamento[] = [],
+  ): Promise<OrcamentoDetalhado> {
     const leitores = this.leitoresEmLote();
     // Tudo é pedido junto: as leituras independentes caem na mesma rodada do lote.
     const [base, complementos] = await Promise.all([
@@ -1644,7 +1800,7 @@ SupriMax`,
     const { historicoDetalhado, versoes, anexosDoOrcamento, responsavel, ultimaAlteracaoDeOutro } =
       complementos;
     const itens = this.detalharItens(base.itensDoOrcamento, base.variacoes);
-    const condicoes = this.avaliarCondicoes(orcamento, base);
+    const condicoes = { ...this.avaliarCondicoes(orcamento, base), avisos };
     return {
       ...this.paraResumo(
         orcamento,

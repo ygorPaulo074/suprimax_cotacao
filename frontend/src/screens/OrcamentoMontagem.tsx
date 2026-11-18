@@ -15,7 +15,12 @@ import {
 import { useAuth } from '@/auth/AuthContext';
 import { avisoDeEdicaoDeRascunho } from '@/lib/avisoDeRascunho';
 import { formatarBRL, reaisParaCentavos } from '@/lib/dinheiro';
-import { PARCELAS_DISPONIVEIS, PRAZOS_BOLETO_DIAS, ROTULO_CONDICAO_PAGAMENTO } from '@/lib/opcoes';
+import {
+  ehFreteFob,
+  PARCELAS_DISPONIVEIS,
+  PRAZOS_BOLETO_DIAS,
+  ROTULO_CONDICAO_PAGAMENTO,
+} from '@/lib/opcoes';
 import { Bloqueios, GradeItens, ResumoTotais } from '@/components/orcamento';
 import {
   Alerta,
@@ -117,7 +122,19 @@ export default function OrcamentoMontagem({ orcamento }: { orcamento: OrcamentoD
   const id = orcamento.idOrcamento;
   const navegar = useNavigate();
   const queryClient = useQueryClient();
-  const aplicar = (novo: OrcamentoDetalhe) => queryClient.setQueryData(['orcamentos', id], novo);
+  // Aviso de troca automática da condição de pagamento: vem só na resposta da mutação, então fica
+  // guardado até a próxima resposta (que o substitui).
+  const [avisosDeTroca, setAvisosDeTroca] = useState<string[]>([]);
+  const aplicar = (novo: OrcamentoDetalhe) => {
+    setAvisosDeTroca(novo.condicoes.avisos.map((a) => a.mensagem));
+    // O backend grava e troca a condição sozinho (padrão e reversão): os campos acompanham o gravado.
+    setPagamento(novo.condicoes.condicaoPagamento ?? '');
+    if (novo.condicoes.prazoDias !== null) setPrazoDias(String(novo.condicoes.prazoDias));
+    if (novo.condicoes.numeroParcelas !== null) {
+      setParcelas(String(novo.condicoes.numeroParcelas));
+    }
+    queryClient.setQueryData(['orcamentos', id], novo);
+  };
   const aoFalhar = () => void queryClient.invalidateQueries({ queryKey: ['orcamentos', id] });
 
   // Cabeçalho
@@ -189,19 +206,20 @@ export default function OrcamentoMontagem({ orcamento }: { orcamento: OrcamentoD
     c.valorFrete === null ? '' : (c.valorFrete / 100).toFixed(2).replace('.', ','),
   );
   const freteInvalido = valorFrete.trim() !== '' && reaisParaCentavos(valorFrete) === null;
+  // Frete FOB abaixo de R$ 1.500,00 (150000 centavos = CIF, inclusivo), mesmo antes do primeiro
+  // salvamento, quando a modalidade ainda não foi gravada: sem isso o operador não escolheria a
+  // transportadora e a origem nunca seria enviada.
+  const ehFob = ehFreteFob(c.modalidadeFrete, c.valorTotalItens);
   const salvarCondicoes = useMutation({
     mutationFn: () =>
       orcamentosApi.atualizarCondicoes(id, {
         condicaoPagamento: pagamento || undefined,
         prazoDias: pagamento === 'BOLETO' ? Number(prazoDias) : undefined,
         numeroParcelas: pagamento === 'PARCELADO' ? Number(parcelas) : undefined,
-        origemTransportadora: c.modalidadeFrete === 'FOB' ? origem : undefined,
-        transportadora:
-          c.modalidadeFrete === 'FOB' && transportadora.trim() ? transportadora.trim() : undefined,
+        origemTransportadora: ehFob ? origem : undefined,
+        transportadora: ehFob && transportadora.trim() ? transportadora.trim() : undefined,
         valorFrete:
-          c.modalidadeFrete === 'FOB' && origem === 'SUPRIMAX'
-            ? (reaisParaCentavos(valorFrete) ?? undefined)
-            : undefined,
+          ehFob && origem === 'SUPRIMAX' ? (reaisParaCentavos(valorFrete) ?? undefined) : undefined,
       }),
     onSuccess: aplicar,
   });
@@ -469,6 +487,9 @@ export default function OrcamentoMontagem({ orcamento }: { orcamento: OrcamentoD
                 </option>
               ))}
             </Selecao>
+            {avisosDeTroca.map((mensagem) => (
+              <Alerta key={mensagem}>{mensagem}</Alerta>
+            ))}
             {pagamento === 'BOLETO' && (
               <Selecao
                 rotulo="Prazo do boleto"
@@ -496,7 +517,7 @@ export default function OrcamentoMontagem({ orcamento }: { orcamento: OrcamentoD
               </Selecao>
             )}
 
-            {c.modalidadeFrete === 'FOB' && (
+            {ehFob && (
               <>
                 <Selecao
                   rotulo="Transportadora"
