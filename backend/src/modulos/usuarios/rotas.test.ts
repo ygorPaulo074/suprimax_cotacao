@@ -294,6 +294,97 @@ describe('PATCH /usuarios/:id (UC25)', () => {
     expect(sessao.status).toBe(200);
   });
 
+  describe('troca de e-mail', () => {
+    it('grava o e-mail aparado e em minúsculas, sem encerrar sessões nem reenviar convite', async () => {
+      const { alterar, entrarComo, usuarioNoBanco, app, proxy } = await montar();
+      const operador = await entrarComo('OPERADOR', 'otto');
+
+      const resposta = await alterar(operador.idOperador, {
+        email: '  Otto.Novo@Suprimax.com.br ',
+      });
+
+      expect(resposta.status).toBe(200);
+      expect(resposta.body).toMatchObject({ idOperador: operador.idOperador, perfil: 'OPERADOR' });
+      expect(resposta.body.email).toBe('otto.novo@suprimax.com.br');
+      expect(usuarioNoBanco(operador.idOperador)?.email).toBe('otto.novo@suprimax.com.br');
+      const sessao = await request(app).get('/auth/me').set('Authorization', operador.autorizacao);
+      expect(sessao.status).toBe(200);
+      expect(proxy.chamadasDe('dados.lote').length).toBeGreaterThan(0);
+    });
+
+    it('rejeita e-mail já usado por outro usuário (409)', async () => {
+      const { alterar, entrarComo, semearUsuario, usuarioNoBanco } = await montar();
+      const operador = await entrarComo('OPERADOR', 'otto');
+      const idOutro = semearUsuario('OPERADOR', 'olga');
+      const emailDoOutro = String(usuarioNoBanco(idOutro)?.email);
+      const antes = usuarioNoBanco(operador.idOperador)?.email;
+
+      const resposta = await alterar(operador.idOperador, { email: emailDoOutro.toUpperCase() });
+
+      expect(resposta.status).toBe(409);
+      expect(resposta.body.codigo).toBe('USUARIO_JA_CADASTRADO');
+      expect(usuarioNoBanco(operador.idOperador)?.email).toBe(antes);
+    });
+
+    it.each(['sem-arroba', '', '   ', 'a@b'])(
+      'rejeita o formato inválido %j (400)',
+      async (email) => {
+        const { alterar, entrarComo, usuarioNoBanco } = await montar();
+        const operador = await entrarComo('OPERADOR', 'otto');
+        const antes = usuarioNoBanco(operador.idOperador)?.email;
+
+        const resposta = await alterar(operador.idOperador, { email });
+
+        expect(resposta.status).toBe(400);
+        expect(usuarioNoBanco(operador.idOperador)?.email).toBe(antes);
+      },
+    );
+
+    it('não grava nem falha quando o e-mail repete o atual', async () => {
+      const { alterar, entrarComo, usuarioNoBanco, proxy } = await montar();
+      const operador = await entrarComo('OPERADOR', 'otto');
+
+      const resposta = await alterar(operador.idOperador, {
+        email: String(usuarioNoBanco(operador.idOperador)?.email),
+      });
+
+      expect(resposta.status).toBe(200);
+      expect(proxy.chamadasDe('dados.lote')).toEqual([]);
+    });
+
+    it('perfil sem permissão não troca e-mail (403)', async () => {
+      const { alterar, entrarComo, usuarioNoBanco } = await montar();
+      const vendedor = await entrarComo('VENDEDOR', 'vera');
+      const operador = await entrarComo('OPERADOR', 'otto');
+
+      const resposta = await alterar(
+        operador.idOperador,
+        { email: 'x@suprimax.com.br' },
+        vendedor.autorizacao,
+      );
+
+      expect(resposta.status).toBe(403);
+      expect(usuarioNoBanco(operador.idOperador)?.email).not.toBe('x@suprimax.com.br');
+    });
+
+    it('OPERADOR_CHEFE não troca o e-mail de um ADMIN (403), mas ADMIN troca', async () => {
+      const { alterar, entrarComo, semearUsuario, usuarioNoBanco } = await montar();
+      const idAdmin = semearUsuario('ADMIN', 'adm');
+      const admin = await entrarComo('ADMIN', 'adm2');
+
+      const negado = await alterar(idAdmin, { email: 'novo.adm@suprimax.com.br' });
+      const permitido = await alterar(
+        idAdmin,
+        { email: 'novo.adm@suprimax.com.br' },
+        admin.autorizacao,
+      );
+
+      expect(negado.status).toBe(403);
+      expect(permitido.status).toBe(200);
+      expect(usuarioNoBanco(idAdmin)?.email).toBe('novo.adm@suprimax.com.br');
+    });
+  });
+
   describe('vendedor com clientes na carteira', () => {
     async function montarComCarteira(clientes = 3) {
       const cenario = await montar();

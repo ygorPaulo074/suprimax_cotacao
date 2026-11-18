@@ -23,7 +23,7 @@ export interface DependenciasDasRotasDeUsuarios {
  * Rotas de usuários, todas restritas a OPERADOR_CHEFE:
  * - `GET /usuarios`: lista com o tamanho da carteira de cada um;
  * - `POST /usuarios`: `{ usuario, email, perfil }` → 201 com o usuário criado;
- * - `PATCH /usuarios/:id`: `{ perfil?, status?, idNovoVendedor? }` → o usuário alterado.
+ * - `PATCH /usuarios/:id`: `{ perfil?, status?, email?, idNovoVendedor? }` → o usuário alterado.
  */
 export function criarRotasDeUsuarios({ servico, sessoes }: DependenciasDasRotasDeUsuarios): Router {
   const rotas = Router();
