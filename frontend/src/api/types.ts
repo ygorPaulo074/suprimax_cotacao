@@ -309,6 +309,16 @@ export interface CondicoesComerciais {
   creditoStatus: 'NAO_EXIGIDO' | 'PENDENTE' | 'APROVADO' | 'REPROVADO';
   /** Motivos que bloqueiam a emissão; a tela os exibe em alerta laranja com o texto recebido. */
   bloqueios: BloqueioEmissao[];
+  /**
+   * Avisos que não impedem a emissão. Só a resposta da mutação que os causou os traz (GET devolve
+   * `[]`): `CONDICAO_TROCADA_AUTOMATICAMENTE` quando o backend voltou a condição de pagamento ao
+   * padrão porque a anterior deixou de ser permitida. A tela mostra a `mensagem` recebida.
+   */
+  avisos: AvisoOrcamento[];
+}
+export interface AvisoOrcamento {
+  codigo: 'CONDICAO_TROCADA_AUTOMATICAMENTE';
+  mensagem: string;
 }
 export interface BloqueioEmissao {
   codigo:
