@@ -80,8 +80,49 @@ describe('repositórios sobre o Postgres (SQL parametrizado)', () => {
     });
     expect(g.consultas[0]?.texto).toMatch(/^INSERT INTO fila_escrita/);
     expect(g.consultas[0]?.valores[4]).toBe('{"a":1}');
-    await repo.atualizar('1', { status: 'concluido' });
-    expect(g.consultas[1]).toMatchObject({ valores: ['1', 'concluido', null, null] });
+    // Início condicional (só pendente/processando) e conclusão na transação, após travar a linha.
+    g.resposta = { linhas: [{ tentativas: 1 }], contagem: 1 };
+    expect(await repo.iniciar('1')).toBe(1);
+    expect(g.consultas[1]?.texto).toMatch(/status IN \('pendente', 'processando'\) RETURNING/);
+    g.resposta = { linhas: [], contagem: 0 };
+    expect(await repo.iniciar('1')).toBeNull();
+    g.resposta = { linhas: [{ status: 'processando' }], contagem: 1 };
+    expect(await repo.travar('1', g)).toBe(true);
+    expect(g.consultas.at(-1)?.texto).toMatch(/FOR UPDATE$/);
+    g.resposta = { linhas: [{ status: 'concluido' }], contagem: 1 };
+    expect(await repo.travar('1', g)).toBe(false);
+    await repo.concluir('1', g);
+    expect(g.consultas.at(-1)).toMatchObject({ valores: ['1'] });
+    await repo.falhar('1', 'boom');
+    expect(g.consultas.at(-1)?.texto).toMatch(/status <> 'concluido'$/);
+    expect(g.consultas.at(-1)?.valores).toEqual(['1', 'boom']);
+
+    g.resposta = {
+      linhas: [
+        {
+          id: '2',
+          sistema_origem: 's',
+          dominio: 'pedido',
+          operacao: 'dados.inserir',
+          payload: { a: 1 },
+          status: 'processando',
+          tentativas: 1,
+          criado_em: '2026-11-18T12:00:00.000Z',
+          atualizado_em: '2026-11-18T12:00:01.000Z',
+          erro_mensagem: null,
+        },
+      ],
+      contagem: 1,
+    };
+    expect(await repo.listarRetomaveis(10)).toEqual([
+      expect.objectContaining({
+        id: '2',
+        payload: { a: 1 },
+        status: 'processando',
+        criadoEm: new Date('2026-11-18T12:00:00.000Z'),
+      }),
+    ]);
+    expect(g.consultas.at(-1)?.valores).toEqual([10]);
   });
 
   it('auditoria: grava em log_auditoria e não derruba a requisição se falhar', async () => {
