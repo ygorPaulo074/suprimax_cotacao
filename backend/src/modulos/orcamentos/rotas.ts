@@ -7,6 +7,7 @@ import { rotaAssincrona } from '../../http/rotaAssincrona';
 import { validarEntrada } from '../../http/validacao';
 import type { RepositorioDeSessoes } from '../auth/sessoes';
 import { esquemaDeIdNaRota, esquemaDeParametroId } from '../comum/campos';
+import { lerParametrosDePagina } from '../comum/paginacao';
 import { MENSAGEM_DE_ARQUIVO_AUSENTE, processarUploadDeArquivo } from '../comum/uploadDeArquivo';
 import {
   esquemaDeAnexoNovo,
@@ -73,7 +74,14 @@ export function criarRotasDeOrcamentos({
     operador,
     rotaAssincrona(async (req, res) => {
       const filtro = validarEntrada(esquemaDeFiltroDeOrcamentos, req.query);
-      res.status(STATUS_HTTP.OK).json(await servico.listar(filtro));
+      const pagina = lerParametrosDePagina(filtro);
+      res
+        .status(STATUS_HTTP.OK)
+        .json(
+          pagina === null
+            ? await servico.listar(filtro)
+            : await servico.listarPagina(filtro, pagina),
+        );
     }),
   );
 

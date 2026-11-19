@@ -3,9 +3,11 @@ import { z } from 'zod';
 import {
   esquemaDeCentavos,
   esquemaDeId,
+  esquemaDeDataISO,
   esquemaDeQuantidade,
   textoOpcional,
 } from '../comum/campos';
+import { esquemaDeParametrosDePagina } from '../comum/paginacao';
 import { GRANULARIDADES } from '../pedidos/repositorio';
 import {
   CONDICOES_DE_PAGAMENTO,
@@ -30,14 +32,21 @@ export const esquemaDeOrcamentoNovo = z.object({
   prazoEntregaDias: z.number().int().positive().nullish(),
 });
 
+/** Data 'AAAA-MM-DD' que existe no calendário (rejeita, por exemplo, 2026-02-31). */
+const dataExistente = esquemaDeDataISO.refine((texto) => {
+  const data = new Date(`${texto}T00:00:00Z`);
+  return !Number.isNaN(data.getTime()) && data.toISOString().startsWith(texto);
+}, 'data inválida');
+
 /** `GET /orcamentos`: filtros da listagem (UC01). */
 export const esquemaDeFiltroDeOrcamentos = z.object({
   status: z.enum(STATUS_DO_ORCAMENTO).optional(),
   cliente: z.string().trim().min(1).optional(),
   cnpj: z.string().trim().min(1).optional(),
   numero: z.string().trim().min(1).optional(),
-  de: z.string().optional(),
-  ate: z.string().optional(),
+  de: dataExistente.optional(),
+  ate: dataExistente.optional(),
+  ...esquemaDeParametrosDePagina.shape,
 });
 
 /** `PATCH /orcamentos/:id`: cabeçalho (UC14). */

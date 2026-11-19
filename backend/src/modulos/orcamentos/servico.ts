@@ -1,7 +1,7 @@
 // UC01, UC05, UC14-19 — regras do orçamento: rascunho, itens, condições comerciais, emissão e
 // cancelamento. Implementa `MontadorDeOrcamentos` para o módulo de pedidos (UC10 → UC14).
 import { randomBytes } from 'node:crypto';
-import { LeitorEmLote, type ClienteDeProxy } from '../../dados';
+import { LeitorEmLote, type ClienteDeProxy, type CondicaoDeFiltro } from '../../dados';
 import {
   ErroDeArquivoNaoEncontrado,
   type ArmazenamentoDeArquivos,
@@ -33,6 +33,7 @@ import type {
   OrcamentoEmAbertoDoCliente,
 } from '../clientes/servico';
 import { calcularSaldoDisponivel, somarReservasPorVariacao } from '../comum/estoque';
+import type { PaginaPorCursor, ParametrosDePagina } from '../comum/paginacao';
 import { obterSituacaoCliente } from '../comum/situacaoCliente';
 import {
   calcularFaltaParaFaturamentoMinimo,
@@ -336,6 +337,29 @@ export interface DadosDoUploadDeAnexo {
   readonly conteudo: Buffer;
 }
 
+/**
+ * Condições de status e de período da listagem (UC01). `de` e `ate` são datas 'AAAA-MM-DD',
+ * inclusivas nos dois extremos, sobre `data_emissao` (DATE): rascunhos, sem emissão, ficam de fora
+ * quando há período.
+ */
+function condicoesDeStatusEData(filtro: {
+  status?: StatusDoOrcamento;
+  de?: string;
+  ate?: string;
+}): CondicaoDeFiltro[] {
+  const condicoes: CondicaoDeFiltro[] = [];
+  if (filtro.status) {
+    condicoes.push(['status', '=', filtro.status]);
+  }
+  if (filtro.de) {
+    condicoes.push(['data_emissao', '>=', filtro.de]);
+  }
+  if (filtro.ate) {
+    condicoes.push(['data_emissao', '<=', filtro.ate]);
+  }
+  return condicoes;
+}
+
 /** Regras do orçamento (UC01, UC05, UC14-19). */
 export class ServicoDeOrcamentos
   implements
@@ -468,9 +492,12 @@ export class ServicoDeOrcamentos
     cliente?: string;
     cnpj?: string;
     numero?: string;
+    de?: string;
+    ate?: string;
   }): Promise<OrcamentoResumido[]> {
+    const condicoes = condicoesDeStatusEData(filtro);
     const orcamentos = await this.orcamentos.listar(
-      filtro.status ? { e: [['status', '=', filtro.status]] } : undefined,
+      condicoes.length > 0 ? { e: condicoes } : undefined,
     );
     const clientes = await this.mapaDeClientes(orcamentos.map((orcamento) => orcamento.idCliente));
     const filtrados = orcamentos.filter((orcamento) => {
@@ -490,6 +517,52 @@ export class ServicoDeOrcamentos
       return true;
     });
     return filtrados.map((orcamento) => this.paraResumo(orcamento, clientes));
+  }
+
+  /**
+   * Uma página da listagem (UC01), com os filtros aplicados no banco e a ordem estável por id
+   * decrescente. Faz no máximo 3 leituras ao proxy, qualquer que seja o tamanho da página: ids dos
+   * clientes (só com `cliente`/`cnpj`), a página e o resumo dos clientes dela.
+   */
+  async listarPagina(
+    filtro: {
+      status?: StatusDoOrcamento;
+      cliente?: string;
+      cnpj?: string;
+      numero?: string;
+      de?: string;
+      ate?: string;
+    },
+    pagina: ParametrosDePagina,
+  ): Promise<PaginaPorCursor<OrcamentoResumido>> {
+    const vazia = { itens: [], temMais: false, proximo: null };
+    const condicoes = condicoesDeStatusEData(filtro);
+    if (filtro.numero) {
+      if (!/^[1-9]\d{0,8}$/.test(filtro.numero)) {
+        return vazia;
+      }
+      condicoes.push(['numero_orcamento', '=', Number(filtro.numero)]);
+    }
+    if (filtro.cliente || filtro.cnpj) {
+      const ids = await this.clientes.idsPorBusca({
+        ...(filtro.cliente && { razaoSocial: filtro.cliente }),
+        ...(filtro.cnpj && { cnpj: filtro.cnpj }),
+      });
+      if (ids.length === 0) {
+        return vazia;
+      }
+      condicoes.push(['id_cliente', 'em', ids]);
+    }
+    const { orcamentos, temMais } = await this.orcamentos.listarPagina(condicoes, pagina);
+    const clientes = await this.clientes.resumirPorIds(
+      orcamentos.map((orcamento) => orcamento.idCliente),
+    );
+    const ultimo = orcamentos[orcamentos.length - 1];
+    return {
+      itens: orcamentos.map((orcamento) => this.paraResumo(orcamento, clientes)),
+      temMais,
+      proximo: temMais && ultimo ? ultimo.idOrcamento : null,
+    };
   }
 
   /**

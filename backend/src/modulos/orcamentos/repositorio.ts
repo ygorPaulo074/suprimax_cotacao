@@ -9,6 +9,7 @@ import {
   decimalParaCentavos,
   validarLinha,
   type ClienteDeProxy,
+  type CondicaoDeFiltro,
   type FiltroDoProxy,
 } from '../../dados';
 import { ErroProxy } from '../../dados/proxyCliente';
@@ -19,6 +20,7 @@ import {
   ErroDeOrcamentoNaoEncontrado,
 } from '../../erros';
 import { liberarReservasDosItens } from '../comum/estoque';
+import type { ParametrosDePagina } from '../comum/paginacao';
 import type { Granularidade } from '../pedidos/repositorio';
 
 export const STATUS_DO_ORCAMENTO = [
@@ -305,6 +307,34 @@ export class RepositorioDeOrcamentos {
       OPERACOES_DE_ORCAMENTOS.LISTAR,
     );
     return linhas.map((linha) => validarLinha(esquemaDoOrcamento, linha, TABELA_DE_ORCAMENTOS));
+  }
+
+  /**
+   * Uma página de orçamentos, do mais recente (maior id) para o mais antigo. O limite e o cursor
+   * (`depois`: só ids menores) vão para o banco; lê-se uma linha a mais para saber se há outra página.
+   */
+  async listarPagina(
+    filtros: readonly (CondicaoDeFiltro | FiltroDoProxy)[],
+    { limite, depois }: ParametrosDePagina,
+  ): Promise<{ orcamentos: Orcamento[]; temMais: boolean }> {
+    const condicoes: (CondicaoDeFiltro | FiltroDoProxy)[] = [...filtros];
+    if (depois !== undefined) {
+      condicoes.push(['id_orcamento', '<', depois]);
+    }
+    const linhas = await consultar(
+      this.proxy,
+      {
+        tabela: TABELA_DE_ORCAMENTOS,
+        ...(condicoes.length > 0 && { filtros: { e: condicoes } }),
+        ordenacao: [['id_orcamento', 'desc']],
+        limite: limite + 1,
+      },
+      OPERACOES_DE_ORCAMENTOS.LISTAR,
+    );
+    const orcamentos = linhas
+      .slice(0, limite)
+      .map((linha) => validarLinha(esquemaDoOrcamento, linha, TABELA_DE_ORCAMENTOS));
+    return { orcamentos, temMais: linhas.length > limite };
   }
 
   /** Busca o orçamento pelo identificador; `null` se não existir. */
