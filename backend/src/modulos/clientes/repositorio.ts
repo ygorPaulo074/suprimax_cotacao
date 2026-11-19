@@ -6,7 +6,10 @@ import {
   consultar,
   linhasDe,
   decimalParaCentavos,
+  emBlocos,
   executarLote,
+  LIMITE_DE_LINHAS_POR_PAGINA,
+  MAXIMO_DE_VALORES_NO_FILTRO_EM,
   linhasDoPasso,
   referenciaAoPasso,
   validarLinha,
@@ -41,6 +44,7 @@ export const OPERACOES_DE_CLIENTES = {
   CADASTRAR: 'UC02-cadastrar-cliente',
   LISTAR: 'UC03-listar-clientes',
   DIVIDAS_DA_LISTA: 'UC03-dividas-da-lista',
+  RESUMIR: 'UC03-resumir-clientes',
   ADICIONAR_ENDERECO: 'UC02-adicionar-endereco',
 } as const;
 
@@ -182,10 +186,80 @@ function filtroDaLista({ q, status }: FiltroDaListaDeClientes): FiltroDoProxy | 
 
 const esquemaDoTotalDaDivida = z.object({ total: z.string().nullable() });
 const esquemaDoIdDoCliente = z.object({ idCliente: z.number().int() });
+const esquemaDoResumoDoCliente = z.object({
+  idCliente: z.number().int(),
+  razaoSocial: z.string(),
+  cnpj: z.string(),
+  status: z.string(),
+});
+/** Dados do cliente que as listagens de orçamentos e pedidos mostram. */
+export interface ResumoDoCliente {
+  readonly razaoSocial: string;
+  readonly cnpj: string;
+  readonly status: string;
+}
 
 /** Acesso aos clientes, sempre pelo proxy. */
 export class RepositorioDeClientes {
   constructor(private readonly proxy: ClienteDeProxy) {}
+
+  /**
+   * Resume vários clientes numa só leitura (por `em`, em blocos de 100): razão social, CNPJ e
+   * status, sem endereços. Serve às listagens paginadas, que não podem fazer uma chamada por linha.
+   */
+  async resumirPorIds(idsDosClientes: readonly number[]): Promise<Map<number, ResumoDoCliente>> {
+    const resumos = new Map<number, ResumoDoCliente>();
+    for (const bloco of emBlocos([...new Set(idsDosClientes)], MAXIMO_DE_VALORES_NO_FILTRO_EM)) {
+      const linhas = await consultar(
+        this.proxy,
+        {
+          tabela: TABELA_DE_CLIENTES,
+          campos: ['id_cliente', 'razao_social', 'cnpj', 'status'],
+          filtros: { e: [['id_cliente', 'em', bloco]] },
+          limite: LIMITE_DE_LINHAS_POR_PAGINA,
+        },
+        OPERACOES_DE_CLIENTES.RESUMIR,
+      );
+      for (const linha of linhas) {
+        const { idCliente, ...resumo } = validarLinha(
+          esquemaDoResumoDoCliente,
+          linha,
+          TABELA_DE_CLIENTES,
+        );
+        resumos.set(idCliente, resumo);
+      }
+    }
+    return resumos;
+  }
+
+  /**
+   * Ids dos clientes cuja razão social contém `razaoSocial` (sem diferenciar maiúsculas) e/ou cujo
+   * CNPJ é `cnpj`. No máximo `MAXIMO_DE_VALORES_NO_FILTRO_EM` ids: é o que cabe numa condição
+   * `em` da listagem que os usa.
+   */
+  async idsPorBusca(busca: { razaoSocial?: string; cnpj?: string }): Promise<number[]> {
+    const condicoes: CondicaoDeFiltro[] = [];
+    if (busca.razaoSocial !== undefined) {
+      condicoes.push(['razao_social', 'contem', busca.razaoSocial]);
+    }
+    if (busca.cnpj !== undefined) {
+      condicoes.push(['cnpj', '=', busca.cnpj]);
+    }
+    const linhas = await consultar(
+      this.proxy,
+      {
+        tabela: TABELA_DE_CLIENTES,
+        campos: ['id_cliente'],
+        filtros: { e: condicoes },
+        ordenacao: [['id_cliente', 'desc']],
+        limite: MAXIMO_DE_VALORES_NO_FILTRO_EM,
+      },
+      OPERACOES_DE_CLIENTES.RESUMIR,
+    );
+    return linhas.map(
+      (linha) => validarLinha(esquemaDoIdDoCliente, linha, TABELA_DE_CLIENTES).idCliente,
+    );
+  }
 
   /** Busca o cliente pelo CNPJ (14 dígitos), com os endereços; `null` se não existir. */
   async buscarPorCnpj(cnpj: string): Promise<ClienteCadastrado | null> {

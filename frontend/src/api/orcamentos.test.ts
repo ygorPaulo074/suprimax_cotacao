@@ -25,3 +25,37 @@ describe('orcamentosApi.criar (UC14)', () => {
     expect(detalhe.idOrcamento).toBe(7);
   });
 });
+
+describe('orcamentosApi.listarPagina (UC01)', () => {
+  const fetchMock = jest.fn();
+  beforeEach(() => {
+    fetchMock.mockReset();
+    global.fetch = fetchMock as unknown as typeof fetch;
+    definirToken('abc');
+  });
+
+  it('pede GET /orcamentos com limite e depois e devolve a página', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ itens: [], temMais: false, proximo: null }),
+    } as Response);
+    const pagina = await orcamentosApi.listarPagina(
+      { status: 'ABERTO' },
+      { limite: 20, depois: 9 },
+    );
+    const [url] = fetchMock.mock.calls[0];
+    expect(url).toBe('http://api.teste/orcamentos?status=ABERTO&limite=20&depois=9');
+    expect(pagina).toEqual({ itens: [], temMais: false, proximo: null });
+  });
+
+  it('manda o limite padrão na primeira página', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ itens: [], temMais: false, proximo: null }),
+    } as Response);
+    await orcamentosApi.listarPagina();
+    expect(fetchMock.mock.calls[0][0]).toBe('http://api.teste/orcamentos?limite=50');
+  });
+});

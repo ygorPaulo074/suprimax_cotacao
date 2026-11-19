@@ -6,6 +6,7 @@ import { rotaAssincrona } from '../../http/rotaAssincrona';
 import { validarEntrada } from '../../http/validacao';
 import type { RepositorioDeSessoes } from '../auth/sessoes';
 import { esquemaDeParametroId } from '../comum/campos';
+import { lerParametrosDePagina } from '../comum/paginacao';
 import { esquemaDeFiltroDePedidos, esquemaDeNegativa } from './esquemas';
 import type { ServicoDePedidos } from './servico';
 
@@ -25,7 +26,7 @@ export interface DependenciasDasRotasDePedidos {
 
 /**
  * Rotas da fila de pedidos, para OPERADOR e OPERADOR_CHEFE:
- * - `GET /pedidos?status=`: fila com os indicadores da tela 2;
+ * - `GET /pedidos?status=&limite=&depois=`: fila com os indicadores da tela 2 (paginada se `limite`/`depois`);
  * - `GET /pedidos/:id`: detalhe do pedido (tela 3), com a situação de crédito do cliente;
  * - `POST /pedidos/:id/assumir`: `pedido.assumir` (SOLICITADO → EM_ANALISE);
  * - `POST /pedidos/:id/devolver`: devolve o pedido à lista (EM_ANALISE → SOLICITADO, UC10-A3);
@@ -40,8 +41,16 @@ export function criarRotasDePedidos({ servico, sessoes }: DependenciasDasRotasDe
     ROTAS_DE_PEDIDOS.COLECAO,
     operador,
     rotaAssincrona(async (req, res) => {
-      const { status } = validarEntrada(esquemaDeFiltroDePedidos, req.query);
-      res.status(STATUS_HTTP.OK).json(await servico.listarFila(obterSessao(res), status));
+      const consulta = validarEntrada(esquemaDeFiltroDePedidos, req.query);
+      const pagina = lerParametrosDePagina(consulta);
+      const sessao = obterSessao(res);
+      res
+        .status(STATUS_HTTP.OK)
+        .json(
+          pagina === null
+            ? await servico.listarFila(sessao, consulta.status)
+            : await servico.listarFilaPaginada(sessao, consulta.status, pagina),
+        );
     }),
   );
 

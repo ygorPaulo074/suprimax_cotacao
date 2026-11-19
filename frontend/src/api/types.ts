@@ -270,6 +270,19 @@ export interface FiltroOrcamentos {
   de?: DataISO;
   ate?: DataISO;
 }
+/** Parâmetros opcionais de `GET /orcamentos` e `GET /pedidos` (docs/frontend-api.md, "Paginação"). */
+export interface ParametrosDePagina {
+  /** 1 a 200 (padrão 50 quando só `depois` vai). */
+  limite?: number;
+  /** `proximo` da página anterior: só vêm itens com id menor. */
+  depois?: number;
+}
+/** Página por cursor: `proximo` é o `depois` da página seguinte (`null` no fim). */
+export interface PaginaPorCursor<T> {
+  itens: T[];
+  temMais: boolean;
+  proximo: number | null;
+}
 export interface ItemOrcamento {
   idItem: number;
   idVariacao: number;

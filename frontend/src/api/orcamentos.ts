@@ -7,6 +7,8 @@ import type {
   OrcamentoDetalhe,
   OrcamentoNovo,
   OrcamentoResumo,
+  PaginaPorCursor,
+  ParametrosDePagina,
   TipoAnexo,
 } from './types';
 
@@ -17,6 +19,12 @@ import type {
 export const orcamentosApi = {
   listar: (filtro: FiltroOrcamentos = {}) =>
     api.get<OrcamentoResumo[]>('/orcamentos', { query: { ...filtro } }),
+  /** Uma página (mais recentes primeiro); `proximo` da resposta vai em `depois` na seguinte. */
+  listarPagina: (filtro: FiltroOrcamentos = {}, pagina: ParametrosDePagina = {}) =>
+    api.get<PaginaPorCursor<OrcamentoResumo>>('/orcamentos', {
+      // Sem limite nem depois o backend devolveria o formato antigo; a página sempre manda limite.
+      query: { ...filtro, limite: pagina.limite ?? 50, depois: pagina.depois },
+    }),
   obter: (id: number) => api.get<OrcamentoDetalhe>(`/orcamentos/${id}`),
 
   /** UC14: cria o rascunho (201) já com o `idOrcamento`; só OPERADOR e OPERADOR_CHEFE (ADMIN também, no backend). */

@@ -5,6 +5,7 @@ import { ErroDePedidoNaoAssumidoPorVoce, ErroDePedidoNaoEncontrado } from '../..
 import type { Logger } from '../../log';
 import type { Sessao } from '../auth/sessoes';
 import type { RepositorioDeClientes } from '../clientes/repositorio';
+import type { ParametrosDePagina } from '../comum/paginacao';
 import { calcularSaldoDisponivel, somarReservasPorVariacao } from '../comum/estoque';
 import { obterSituacaoCliente, type SituacaoCliente } from '../comum/situacaoCliente';
 import type { RepositorioDeProdutos, VariacaoComProduto } from '../produtos/repositorio';
@@ -80,6 +81,12 @@ export interface FilaDePedidos {
   readonly indicadores: IndicadoresDaFila;
 }
 
+/** Fila paginada: `proximo` é o `depois` da página seguinte (ou `null`). */
+export interface PaginaDaFilaDePedidos extends FilaDePedidos {
+  readonly temMais: boolean;
+  readonly proximo: number | null;
+}
+
 /**
  * Monta o orçamento em RASCUNHO a partir de um pedido aprovado (UC10 → UC14). Implementado pelo
  * módulo de orçamentos; injetado aqui para `pedidos` não depender de `orcamentos` em tempo de
@@ -141,6 +148,31 @@ export class ServicoDePedidos {
       this.paraResumo(pedido, sessao, usuarios, clientes, itensPorPedido.get(pedido.idPedido) ?? 0),
     );
     return { itens, indicadores };
+  }
+
+  /**
+   * Uma página da fila, em ordem estável por id decrescente, com os mesmos indicadores. Faz um
+   * número fixo de leituras ao proxy, qualquer que seja o tamanho da página (RNF03).
+   */
+  async listarFilaPaginada(
+    sessao: Sessao,
+    status: StatusDoPedido | undefined,
+    pagina: ParametrosDePagina,
+  ): Promise<PaginaDaFilaDePedidos> {
+    const [{ pedidos, temMais }, indicadores, usuarios] = await Promise.all([
+      this.pedidos.listarPagina(status, pagina),
+      this.calcularIndicadores(),
+      this.mapaDeUsuarios(),
+    ]);
+    const [clientes, itensPorPedido] = await Promise.all([
+      this.clientes.resumirPorIds(pedidos.map((pedido) => pedido.idCliente)),
+      this.pedidos.contarItensDosPedidos(pedidos.map((pedido) => pedido.idPedido)),
+    ]);
+    const itens = pedidos.map((pedido) =>
+      this.paraResumo(pedido, sessao, usuarios, clientes, itensPorPedido.get(pedido.idPedido) ?? 0),
+    );
+    const ultimo = pedidos[pedidos.length - 1];
+    return { itens, indicadores, temMais, proximo: temMais && ultimo ? ultimo.idPedido : null };
   }
 
   /**

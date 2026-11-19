@@ -4,6 +4,8 @@ import { z } from 'zod';
 import {
   consultar,
   consultarTodas,
+  emBlocos,
+  MAXIMO_DE_VALORES_NO_FILTRO_EM,
   validarLinha,
   type ClienteDeProxy,
   type FiltroDoProxy,
@@ -11,6 +13,7 @@ import {
 import { ErroDePedidoJaAssumido } from '../../erros';
 import { ErroProxy } from '../../dados/proxyCliente';
 import { CODIGOS_DO_PROXY } from '../../dados/traducaoDeErros';
+import type { ParametrosDePagina } from '../comum/paginacao';
 
 export const STATUS_DO_PEDIDO = [
   'SOLICITADO',
@@ -86,6 +89,64 @@ export class RepositorioDePedidos {
       OPERACOES_DE_PEDIDOS.LISTAR,
     );
     return linhas.map((linha) => validarLinha(esquemaDoPedido, linha, TABELA_DE_PEDIDOS));
+  }
+
+  /**
+   * Uma página de pedidos, do mais recente (maior id) para o mais antigo; `status` filtra. O limite
+   * e o cursor (`depois`: só ids menores) vão para o banco; lê-se uma linha a mais para saber se há
+   * outra página.
+   */
+  async listarPagina(
+    status: StatusDoPedido | undefined,
+    { limite, depois }: ParametrosDePagina,
+  ): Promise<{ pedidos: Pedido[]; temMais: boolean }> {
+    const condicoes: [string, string, string | number][] = [];
+    if (status !== undefined) {
+      condicoes.push(['status', '=', status]);
+    }
+    if (depois !== undefined) {
+      condicoes.push(['id_pedido', '<', depois]);
+    }
+    const linhas = await consultar(
+      this.proxy,
+      {
+        tabela: TABELA_DE_PEDIDOS,
+        ...(condicoes.length > 0 && { filtros: { e: condicoes } }),
+        ordenacao: [['id_pedido', 'desc']],
+        limite: limite + 1,
+      },
+      OPERACOES_DE_PEDIDOS.LISTAR,
+    );
+    const pedidos = linhas
+      .slice(0, limite)
+      .map((linha) => validarLinha(esquemaDoPedido, linha, TABELA_DE_PEDIDOS));
+    return { pedidos, temMais: linhas.length > limite };
+  }
+
+  /** Quantidade de itens de cada pedido, lida em blocos (uma chamada por 100 pedidos). */
+  async contarItensDosPedidos(idsDosPedidos: readonly number[]): Promise<Map<number, number>> {
+    const contagens = new Map<number, number>();
+    for (const bloco of emBlocos([...idsDosPedidos], MAXIMO_DE_VALORES_NO_FILTRO_EM)) {
+      const linhas = await consultarTodas(
+        this.proxy,
+        {
+          tabela: TABELA_DE_ITENS,
+          campos: ['id_pedido'],
+          filtros: { e: [['id_pedido', 'em', bloco]] },
+          ordenacao: [['id_item_pedido', 'asc']],
+        },
+        OPERACOES_DE_PEDIDOS.BUSCAR,
+      );
+      for (const linha of linhas) {
+        const { idPedido } = validarLinha(
+          z.object({ idPedido: z.number().int() }),
+          linha,
+          TABELA_DE_ITENS,
+        );
+        contagens.set(idPedido, (contagens.get(idPedido) ?? 0) + 1);
+      }
+    }
+    return contagens;
   }
 
   /** Conta os pedidos em cada status, para os indicadores da fila (tela 2). */
