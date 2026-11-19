@@ -1,7 +1,8 @@
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { orcamentosApi } from '@/api';
 import { DataState } from '@/components/DataState';
+import { ErroRequisicao, Pagina } from '@/components/ui';
 import OrcamentoDetalhe from './OrcamentoDetalhe';
 import OrcamentoMontagem from './OrcamentoMontagem';
 
@@ -12,6 +13,16 @@ export default function Orcamento() {
     queryKey: ['orcamentos', id],
     queryFn: () => orcamentosApi.obter(id),
   });
+  if (consulta.isError) {
+    return (
+      <Pagina titulo="Orçamento">
+        <ErroRequisicao erro={consulta.error} aoTentarNovamente={() => void consulta.refetch()} />
+        <Link className="ml-4 font-semibold text-petroleo underline" to="/orcamentos">
+          Voltar para orçamentos
+        </Link>
+      </Pagina>
+    );
+  }
   return (
     <DataState consulta={consulta}>
       {(o) =>

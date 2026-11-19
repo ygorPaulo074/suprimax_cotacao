@@ -2,10 +2,10 @@ import { ApiError } from '@/api/errors';
 import { criarQueryClient, repetirLeitura } from './queryClient';
 
 describe('criarQueryClient', () => {
-  it('mutações usam networkMode always (offline cai na fila em vez de pausar); leituras mantêm o padrão', () => {
+  it('mutações e leituras usam networkMode always (offline cai na fila ou no erro, em vez de pausar)', () => {
     const o = criarQueryClient().getDefaultOptions();
     expect(o.mutations?.networkMode).toBe('always');
-    expect(o.queries?.networkMode).toBeUndefined(); // padrão 'online'
+    expect(o.queries?.networkMode).toBe('always');
   });
 
   it('só repete leitura em rede e 5xx, no máximo 2 vezes', () => {
