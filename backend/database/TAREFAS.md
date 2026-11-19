@@ -8,7 +8,7 @@ Os artefatos locais foram preparados para revisão e validação:
 
 - Schema Prisma com as 22 entidades do negócio e as três tabelas operacionais do proxy.
 - Três migrations versionadas: estrutura e índices; regras, gatilhos e RLS; funções transacionais e jobs.
-- Script do bucket privado e script opcional de agendamento via `pg_cron`.
+- Script do bucket privado (os jobs rodam por cron externo no backend, não no banco).
 - Seed sintético local, testes de integração com guarda de segurança e instruções de uso.
 
 A validação do schema pelo Prisma CLI passou e a migration inicial foi gerada e comparada. As três migrations foram aplicadas com sucesso nos bancos locais `suprimax_dev` e `suprimax_test`; os testes básicos passaram. Nada foi aplicado no Supabase. A equipe do proxy poderá conectar a aplicação ao Supabase depois; isso não substitui a execução das migrations, que precisa de conexão autorizada para DDL.
@@ -19,7 +19,7 @@ A validação do schema pelo Prisma CLI passou e a migration inicial foi gerada 
 - [x] Migration inicial gerada pelo Prisma CLI e comparada com a versão preparada: 25 tabelas, 240 colunas, 45 chaves estrangeiras e 51 índices, sem diferenças estruturais detectadas; aplicada nos dois bancos locais.
 - [x] Migration SQL de regras aplicada nos dois bancos locais: RLS ativado nas 25 tabelas e sem políticas instaladas.
 - [x] Funções nomeadas do proxy e jobs SQL aplicados localmente; sete funções `proxy_*` presentes. O contrato integrado com o proxy ainda requer conferência conjunta.
-- [x] Bucket privado e agendamento `pg_cron` documentados em scripts separados.
+- [x] Bucket privado documentado em script separado; os jobs agendados rodam por cron externo (`POST /jobs/executar`, docs/03 seção 3.2).
 - [x] Seed de desenvolvimento preparado, restrito a PostgreSQL local `_dev` e sem senha em texto puro.
 - [ ] Executar o seed depois que o backend definir o mecanismo de hash de senha e fornecer um hash compatível.
 - [x] Testes básicos preparados, restritos a PostgreSQL local `_test`; a verificação de saldo foi corrigida para alcançar o gatilho de estoque.
@@ -31,7 +31,6 @@ A validação do schema pelo Prisma CLI passou e a migration inicial foi gerada 
 - [ ] Expandir os testes além dos cinco casos básicos; sem `TEST_DATABASE_URL`, eles serão ignorados.
 - [ ] Revisão/aprovação pelos responsáveis dos três sistemas.
 - [ ] Configurar a conexão autorizada de migration (`DIRECT_URL`) e aplicar migrations no Supabase; não usar a URL do Transaction pooler.
-- [ ] Habilitar `pg_cron`, se disponível, e executar o script de agendamento.
 - [ ] Criar o bucket privado executando o script de Storage autorizado.
 - [ ] Fazer backup antes de alterações estruturais em ambiente compartilhado.
 
@@ -50,11 +49,11 @@ Os bancos locais `suprimax_dev` e `suprimax_test`, as dependências e as migrati
 
 Antes de aplicar qualquer DDL, combinar a janela e revisar os arquivos de migration com os responsáveis. Configure `DIRECT_URL` somente no ambiente local autorizado e use conexão direta ou Session pooler (porta 5432). O endpoint operacional do proxy não transporta migrations nem executa DDL arbitrário. Nunca grave credenciais no repositório.
 
-Para o Supabase, aplique `prisma migrate deploy`; em seguida, se habilitado, execute `supabase/002_agendar_jobs_pg_cron.sql` e `supabase/001_bucket_privado.sql`. Consulte o [README da pasta](README.md) para comandos e backup.
+Para o Supabase, aplique `prisma migrate deploy`; em seguida, execute `supabase/001_bucket_privado.sql`. Consulte o [README da pasta](README.md) para comandos e backup.
 
 ## Premissas a confirmar antes de produção
 
 - O bloqueio após três tentativas está configurado para 15 minutos, pois a documentação funcional só especifica bloqueio temporário.
 - A migration de emissão exige pagamento `ADIANTADO_100` para primeira compra. Confirmar com as regras comerciais e o Sistema 1.
 - A política de acesso do bucket deve ser implementada pelo serviço responsável; o script cria bucket privado sem políticas públicas.
-- Os jobs podem rodar por `pg_cron` ou agendador do proxy, conforme infraestrutura disponível.
+- Os jobs agendados rodam por cron externo chamando `POST /jobs/executar` do backend (docs/03, seção 3.2); `pg_cron` não é usado.
