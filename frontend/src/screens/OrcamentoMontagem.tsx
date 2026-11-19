@@ -14,6 +14,7 @@ import {
 } from '@/api';
 import { useAuth } from '@/auth/AuthContext';
 import { avisoDeEdicaoDeRascunho } from '@/lib/avisoDeRascunho';
+import { useAvisoNaoSalvo } from '@/lib/useAvisoNaoSalvo';
 import { formatarBRL, reaisParaCentavos } from '@/lib/dinheiro';
 import {
   ehFreteFob,
@@ -280,6 +281,14 @@ export default function OrcamentoMontagem({ orcamento }: { orcamento: OrcamentoD
       navegar('/orcamentos');
     },
   });
+
+  // RNF06: texto do cabeçalho digitado e ainda não salvo (a base é o último orçamento lido).
+  const cabecalhoSujo =
+    contato.trim() !== (orcamento.contato ?? '').trim() ||
+    solicitacao.trim() !== (orcamento.numeroSolicitacaoCompra ?? '').trim() ||
+    endereco !== String(orcamento.idEnderecoEntrega ?? enderecoUnico ?? '') ||
+    prazoEntrega !== String(orcamento.prazoEntregaDias ?? '');
+  const bloqueio = useAvisoNaoSalvo(cabecalhoSujo && !cancelar.isSuccess);
 
   const ocupado = adicionar.isPending || alterar.isPending || remover.isPending;
   const { sessao } = useAuth();
@@ -647,6 +656,23 @@ export default function OrcamentoMontagem({ orcamento }: { orcamento: OrcamentoD
         </aside>
       </div>
 
+      {bloqueio.state === 'blocked' && (
+        <Modal
+          titulo="Alterações não salvas"
+          aoFechar={() => bloqueio.reset()}
+          acoes={
+            <>
+              <BotaoSecundario onClick={() => bloqueio.reset()}>Ficar na tela</BotaoSecundario>
+              <BotaoAtencao onClick={() => bloqueio.proceed()}>Sair sem salvar</BotaoAtencao>
+            </>
+          }
+        >
+          <p className="text-sm">
+            Os dados do cabeçalho (contato, solicitação, endereço ou prazo) foram alterados e não
+            foram salvos. Se sair agora, essas alterações serão perdidas.
+          </p>
+        </Modal>
+      )}
       {cancelando && (
         <Modal
           titulo="Cancelar orçamento"

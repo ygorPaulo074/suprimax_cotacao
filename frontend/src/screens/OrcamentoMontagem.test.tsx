@@ -1,7 +1,8 @@
-/** @jest-environment jsdom */
+/** @jest-environment <rootDir>/src/test/ambienteJsdom.cjs */
 import '@testing-library/jest-dom';
-import { screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { Link, useLocation } from 'react-router-dom';
 import type { OrcamentoDetalhe } from '@/api';
 import OrcamentoMontagem from './OrcamentoMontagem';
 import { renderizarTela } from '@/test/renderizar';
@@ -272,5 +273,65 @@ describe('Montagem do orçamento', () => {
     abrir(orcamento());
     await userEvent.click(screen.getByRole('button', { name: 'Emitir orçamento' }));
     expect(await screen.findByText('Estoque insuficiente na emissão.')).toBeInTheDocument();
+  });
+
+  describe('alterações não salvas (RNF06)', () => {
+    function Rota() {
+      return <span data-testid="rota">{useLocation().pathname}</span>;
+    }
+    function abrirComSaida(o: OrcamentoDetalhe) {
+      return renderizarTela(
+        <>
+          <OrcamentoMontagem orcamento={o} />
+          <Link to="/pedidos">Ir para Pedidos</Link>
+          <Rota />
+        </>,
+        `/orcamentos/${o.idOrcamento}`,
+      );
+    }
+
+    it('sem campo alterado, sai da tela sem aviso e sem beforeunload', async () => {
+      abrirComSaida(orcamento());
+      const evento = new Event('beforeunload', { cancelable: true });
+      window.dispatchEvent(evento);
+      expect(evento.defaultPrevented).toBe(false);
+      await userEvent.click(screen.getByRole('link', { name: 'Ir para Pedidos' }));
+      expect(screen.queryByRole('dialog', { name: 'Alterações não salvas' })).toBeNull();
+      expect(screen.getByTestId('rota')).toHaveTextContent('/pedidos');
+    });
+
+    it('com texto digitado, pergunta antes de sair; "Ficar na tela" mantém o texto', async () => {
+      abrirComSaida(orcamento());
+      const contato = screen.getByLabelText(/Contato/);
+      await userEvent.type(contato, 'Joana');
+      const evento = new Event('beforeunload', { cancelable: true });
+      window.dispatchEvent(evento);
+      expect(evento.defaultPrevented).toBe(true);
+
+      await userEvent.click(screen.getByRole('link', { name: 'Ir para Pedidos' }));
+      expect(await screen.findByRole('dialog', { name: 'Alterações não salvas' })).toBeVisible();
+      await userEvent.click(screen.getByRole('button', { name: 'Ficar na tela' }));
+      expect(screen.queryByRole('dialog', { name: 'Alterações não salvas' })).toBeNull();
+      expect(screen.getByLabelText(/Contato/)).toHaveValue('Joana');
+      expect(screen.getByTestId('rota')).toHaveTextContent('/orcamentos/7');
+    });
+
+    it('"Sair sem salvar" deixa a tela', async () => {
+      abrirComSaida(orcamento());
+      await userEvent.type(screen.getByLabelText(/Contato/), 'Joana');
+      await userEvent.click(screen.getByRole('link', { name: 'Ir para Pedidos' }));
+      await userEvent.click(await screen.findByRole('button', { name: 'Sair sem salvar' }));
+      await waitFor(() => expect(screen.getByTestId('rota')).toHaveTextContent('/pedidos'));
+    });
+
+    it('voltar ao valor original desfaz o aviso', async () => {
+      abrirComSaida(orcamento());
+      const contato = screen.getByLabelText(/Contato/);
+      fireEvent.change(contato, { target: { value: 'X' } });
+      fireEvent.change(contato, { target: { value: '' } });
+      await userEvent.click(screen.getByRole('link', { name: 'Ir para Pedidos' }));
+      expect(screen.queryByRole('dialog', { name: 'Alterações não salvas' })).toBeNull();
+      expect(screen.getByTestId('rota')).toHaveTextContent('/pedidos');
+    });
   });
 });
