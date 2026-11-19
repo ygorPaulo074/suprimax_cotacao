@@ -7,7 +7,6 @@ Esta pasta guarda o schema Prisma, o histórico de migrations, funções e regra
 - `schema.prisma`: 22 tabelas do negócio e três tabelas operacionais do proxy.
 - `prisma/migrations/`: criação das tabelas, constraints, gatilhos, funções e RLS.
 - `supabase/001_bucket_privado.sql`: criação idempotente do bucket privado de documentos de crédito.
-- `supabase/002_agendar_jobs_pg_cron.sql`: agenda os jobs depois que `pg_cron` estiver habilitado.
 - `scripts/seed.cjs`: dados sintéticos de desenvolvimento; recusa qualquer banco que não seja local e termine em `_dev`.
 - `tests/database-rules.test.cjs`: testes contra um banco local terminado em `_test`.
 
@@ -66,7 +65,7 @@ Com o responsável pelo projeto Supabase, após revisão e aprovação das alter
 1. Configure temporariamente `DIRECT_URL` para a conexão de migration autorizada.
 2. Confira `npm run migrate:status`.
 3. Aplique apenas migrations pendentes com `npm run migrate:deploy`.
-4. Habilite `pg_cron` no painel, se disponível, e execute `supabase/002_agendar_jobs_pg_cron.sql`.
+4. Os jobs agendados não ficam no banco: rodam por cron externo chamando `POST /jobs/executar` do backend (docs/03, seção 3.2). Não habilite `pg_cron`.
 5. Execute `supabase/001_bucket_privado.sql` para criar o bucket privado. O script não cria políticas de acesso; a service role deve ser mantida apenas no serviço autorizado.
 
 Não execute `migrate dev` na produção. A URL de conexão contém credenciais e nunca deve ser enviada ao repositório.
