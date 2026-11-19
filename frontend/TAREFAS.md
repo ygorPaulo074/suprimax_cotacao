@@ -61,6 +61,10 @@ Origem: o protótipo do Figma foi trazido para `frontend/` e reconstruído como 
 - [x] Perfil `ADMIN` (acesso total; só ADMIN gerencia ADMIN) (PR #31).
 - [x] **RNF06:** fila persistida de alterações de orçamento sem conexão, `Idempotency-Key`, reenvio em ordem ao voltar a rede e saída da fila só após a releitura (`api/filaOffline.ts`).
 - [ ] RNF06 fora do escopo atual: cadastros (clientes, produtos etc.), criação de orçamento (`POST /orcamentos`, precisa do id na resposta) e upload de anexo ficam sem fila; falta teste manual no navegador com rede cortada.
+- [x] **RNF06 (média):** leituras do TanStack Query com `networkMode: 'always'` (`lib/queryClient.ts`): com o evento `offline` a consulta falha e a tela mostra "Sem conexão com o servidor. Tente novamente." em vez de esqueleto cinza para sempre (achado do teste de queda de conexão, TNF 9).
+- [x] **RNF06 (baixa):** a tela de erro do detalhe do orçamento ganha título e o link "Voltar para orçamentos" (`screens/Orcamento.tsx`).
+- [x] **RNF06 (baixa):** aviso de alterações não salvas ao sair da montagem do orçamento (`lib/useAvisoNaoSalvo.ts`: `useBlocker` + `beforeunload`) quando o cabeçalho (contato, solicitação, endereço, prazo) foi editado e não salvo. O app passou a usar roteador de dados (`createBrowserRouter`). Fora do aviso: campos de condições comerciais, busca de produtos e quantidades de itens, e outras telas com formulário (cadastros, usuários); o aviso também aparece para uma alteração já guardada na fila offline (ainda não enviada).
+- [ ] Estender o aviso de alterações não salvas (`useAvisoNaoSalvo`) aos campos de condições comerciais da montagem e aos formulários de cadastro (clientes, fornecedores, produtos, usuários).
 - [ ] Revisar os textos e campos de cada tela contra o capítulo 10 da documentação FINAL (o protótipo partiu de uma revisão anterior).
 - [ ] Resolver os pontos em aberto de [frontend-api.md](../docs/frontend-api.md): “Devolver à lista”, protesto de dívida, efeito de “Enviar”, alcance da busca global.
 - [ ] Pop-up de 7 dias para vencimento (RF16) é do vendedor, no Sistema 1; fora deste frontend.
