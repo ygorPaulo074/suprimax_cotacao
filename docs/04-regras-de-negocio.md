@@ -13,6 +13,7 @@
 | **Crédito reprovado** | Opção alternativa de pagamento: 50% do valor total adiantado e 50% restante após a entrega da mercadoria. |
 | **Contagem dos prazos** | O prazo do boleto conta do aceite (ACEITO). A segunda metade do pagamento 50%/50% vence em até 3 dias corridos após a entrega. |
 | **Base de avaliação** | Faturamento mínimo, frete, parcelamento e prazo são avaliados sobre o total do orçamento aceito, com imposto e sem frete (seção 4.6). |
+| **Cliente com dívida em aberto (RN06)** | Cliente com dívida EM_ABERTO ou PROTESTADA fica bloqueado para novos orçamentos. A liberação só ocorre quando a dívida é renegociada, com pagamento de no mínimo 50% do valor devido (RENEGOCIADA), ou quitada (QUITADA); depois disso, a nova compra segue a análise de crédito normal (seção 4.1) para definir a forma de pagamento. Se o cliente não aceitar renegociar, a venda não é realizada. A dívida EM_ABERTO sem renegociação, vencida há mais de 60 dias corridos, é protestada automaticamente (PROTESTADA). Origem: UC14 e UC23 (seção 5) e seção 13.4. |
 
 
 ### 4.1.1 Documentação exigida para análise de crédito
