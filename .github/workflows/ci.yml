@@ -19,6 +19,7 @@ jobs:
   servico:
     name: ${{ matrix.servico }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -88,26 +89,69 @@ jobs:
 
       - name: Testes (Jest)
         if: steps.node.outputs.existe == 'true'
+        # No frontend o Jest também roda os *.test.tsx (jsdom pelo docblock), conforme jest.config.cjs.
         run: npm test --if-present -- --ci
 
+  # Todo PR que altera código de um serviço atualiza o CHANGELOG.md dele (CLAUDE.md). Só em pull_request.
+  changelog:
+    name: changelog
+    if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verificar CHANGELOG.md dos serviços alterados
+        run: bash .github/scripts/checar-changelog.sh "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}"
+
+  # scripts/ e tests-nfr/ não têm package.json: só sintaxe (node --check) e o teste puro de tests-nfr. Sem npm ci.
+  extras:
+    name: scripts e tests-nfr
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Sintaxe dos scripts (.cjs e .mjs)
+        shell: bash
+        run: |
+          status=0
+          for arquivo in scripts/*.cjs scripts/*.mjs tests-nfr/*.mjs; do
+            [ -f "$arquivo" ] || continue
+            node --check "$arquivo" || { echo "::error file=$arquivo::erro de sintaxe"; status=1; }
+          done
+          exit $status
+      - name: Teste puro de tests-nfr (sem banco nem rede)
+        run: node tests-nfr/lib.urlEhLocal.test.mjs
+
   # Job único para marcar como "required status check" na ruleset da main.
+  # changelog e extras entram aqui; "skipped" (changelog fora de PR) é aceito.
   ci:
     name: ci
-    needs: [servico, database]
+    needs: [servico, database, changelog, extras]
     if: always()
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
-      - name: Verificar resultado dos serviços
+      - name: Verificar resultado dos jobs
         run: |
-          if [ "${{ needs.servico.result }}" != "success" ] || [ "${{ needs.database.result }}" != "success" ]; then
-            echo "Algum job falhou ou foi cancelado: servico=${{ needs.servico.result }}, database=${{ needs.database.result }}"
-            exit 1
-          fi
+          echo "servico=${{ needs.servico.result }} database=${{ needs.database.result }} changelog=${{ needs.changelog.result }} extras=${{ needs.extras.result }}"
+          for r in "${{ needs.servico.result }}" "${{ needs.database.result }}" "${{ needs.extras.result }}"; do
+            [ "$r" = "success" ] || { echo "Algum job falhou ou foi cancelado."; exit 1; }
+          done
+          case "${{ needs.changelog.result }}" in
+            success|skipped) ;;
+            *) echo "A checagem de CHANGELOG falhou ou foi cancelada."; exit 1 ;;
+          esac
 
   # O banco é um pacote próprio dentro de backend/ e valida migrations contra PostgreSQL real.
   database:
     name: database
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     services:
       postgres:
         image: postgres:16
