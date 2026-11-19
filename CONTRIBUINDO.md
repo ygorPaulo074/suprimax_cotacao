@@ -55,3 +55,4 @@ Ordem de dependência: **banco → proxy → backend → integração com o fron
 - **Contrato com o frontend:** `docs/frontend-api.md`. Mudou uma rota ou um tipo? Atualize esse documento e `frontend/src/api/` no mesmo PR (ou avise o responsável pelo frontend).
 - **Testes:** funções do módulo de cálculo têm testes em tabela de casos (Jest). Código novo sem teste só passa com justificativa no PR.
 - **Segredos:** `SUPABASE_SERVICE_ROLE_KEY`, `PROXY_ADMIN_KEY`, `JWT_SIGNING_SECRET` e tokens ficam só em variáveis de ambiente (Render/Vercel), nunca no código.
+- **Fim de linha:** os arquivos do repositório usam LF (o Prettier exige). O `.gitattributes` (`* text=auto eol=lf`) faz o Git gravar e extrair LF mesmo no Windows com `core.autocrlf=true`; o repositório já está todo em LF, então ele não reescreve nada. Se o `format:check` reclamar de CRLF num arquivo seu, rode `npm run format` no serviço (ou `git add --renormalize <arquivo>`). Não renormalize o repositório inteiro.
