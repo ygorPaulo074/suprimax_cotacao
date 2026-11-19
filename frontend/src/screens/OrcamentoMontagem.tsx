@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -339,6 +339,38 @@ export default function OrcamentoMontagem({ orcamento }: { orcamento: OrcamentoD
   const condicoesSujas =
     condicoesAtuais !== (condNaFila && condGuardado ? condGuardado : condicoesLidas);
   const { bloqueio, liberar } = useAvisoNaoSalvo(cabecalhoSujo || condicoesSujas);
+
+  // RNF06: o orçamento lido mudou por fora (a fila offline reenviou a alteração, ou outra releitura).
+  // Se o usuário não editou o bloco desde a leitura anterior, os campos acompanham o novo valor
+  // (sem isso ficariam com o valor antigo e contariam como "sujos"). Bloco editado nunca é sobrescrito.
+  const cabLidoAnterior = useRef(cabecalhoLido);
+  const condLidoAnterior = useRef(condicoesLidas);
+  const atuais = useRef({ cabecalhoAtual, condicoesAtuais });
+  useEffect(() => {
+    atuais.current = { cabecalhoAtual, condicoesAtuais };
+  });
+  useEffect(() => {
+    const anterior = cabLidoAnterior.current;
+    cabLidoAnterior.current = cabecalhoLido;
+    if (anterior === cabecalhoLido || atuais.current.cabecalhoAtual !== anterior) return;
+    setContato(orcamento.contato ?? '');
+    setSolicitacao(orcamento.numeroSolicitacaoCompra ?? '');
+    setEndereco(String(orcamento.idEnderecoEntrega ?? enderecoUnico ?? ''));
+    setPrazoEntrega(String(orcamento.prazoEntregaDias ?? ''));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- só reage à mudança do valor lido
+  }, [cabecalhoLido]);
+  useEffect(() => {
+    const anterior = condLidoAnterior.current;
+    condLidoAnterior.current = condicoesLidas;
+    if (anterior === condicoesLidas || atuais.current.condicoesAtuais !== anterior) return;
+    setPagamento(c.condicaoPagamento ?? c.condicaoPagamentoSugerida);
+    setPrazoDias(String(c.prazoDias ?? PRAZOS_BOLETO_DIAS[0]));
+    setParcelas(String(c.numeroParcelas ?? PARCELAS_DISPONIVEIS[0]));
+    setOrigem(c.origemTransportadora ?? 'SUPRIMAX');
+    setTransportadora(c.transportadora ?? '');
+    setValorFrete(c.valorFrete === null ? '' : (c.valorFrete / 100).toFixed(2).replace('.', ','));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- só reage à mudança do valor lido
+  }, [condicoesLidas]);
 
   const ocupado = adicionar.isPending || alterar.isPending || remover.isPending;
   const { sessao } = useAuth();

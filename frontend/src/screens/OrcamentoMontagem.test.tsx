@@ -2,6 +2,7 @@
 import '@testing-library/jest-dom';
 import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import type { OrcamentoDetalhe } from '@/api';
@@ -483,6 +484,46 @@ describe('Montagem do orçamento', () => {
         await sair();
         expect(dialogo()).toBeNull();
         expect(screen.getByTestId('rota')).toHaveTextContent('/pedidos');
+      });
+    });
+
+    describe('releitura do orçamento depois que a fila sincroniza (falso aviso)', () => {
+      const dialogo = () => screen.queryByRole('dialog', { name: 'Alterações não salvas' });
+      function ComReleitura() {
+        const [o, setO] = useState(orcamento());
+        return (
+          <>
+            <OrcamentoMontagem orcamento={o} />
+            <button onClick={() => setO(orcamento({ prazoEntregaDias: 11, contato: 'Servidor' }))}>
+              Servidor mudou
+            </button>
+            <Link to="/pedidos">Ir para Pedidos</Link>
+            <Rota />
+          </>
+        );
+      }
+      const abrirReleitura = () => renderizarTela(<ComReleitura />, '/orcamentos/7');
+
+      it('sem edição do usuário, o formulário acompanha o valor novo e não avisa', async () => {
+        abrirReleitura();
+        expect(screen.getByLabelText(/Prazo de entrega/)).toHaveValue(5);
+        await userEvent.click(screen.getByRole('button', { name: 'Servidor mudou' }));
+        expect(screen.getByLabelText(/Prazo de entrega/)).toHaveValue(11);
+        const evento = new Event('beforeunload', { cancelable: true });
+        window.dispatchEvent(evento);
+        expect(evento.defaultPrevented).toBe(false);
+        await userEvent.click(screen.getByRole('link', { name: 'Ir para Pedidos' }));
+        expect(dialogo()).toBeNull();
+        expect(screen.getByTestId('rota')).toHaveTextContent('/pedidos');
+      });
+
+      it('texto digitado pelo usuário no bloco não é sobrescrito pela releitura', async () => {
+        abrirReleitura();
+        await userEvent.type(screen.getByLabelText(/Contato/), 'Joana');
+        await userEvent.click(screen.getByRole('button', { name: 'Servidor mudou' }));
+        expect(screen.getByLabelText(/Contato/)).toHaveValue('Joana');
+        await userEvent.click(screen.getByRole('link', { name: 'Ir para Pedidos' }));
+        expect(await screen.findByRole('dialog', { name: 'Alterações não salvas' })).toBeVisible();
       });
     });
 
