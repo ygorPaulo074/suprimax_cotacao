@@ -97,14 +97,14 @@ describe('FilaEscrita', () => {
     expect(banco.confirmadas.map((c) => c.texto)).toEqual(['INSERT 1']);
   });
 
-  it('retomar não executa de novo um item já concluído (chave de idempotência = id do item)', async () => {
+  it('processar não executa de novo um item já concluído (chave de idempotência = id do item)', async () => {
     const repo = new RepositorioFilaMemoria();
     const fila = new FilaEscrita(repo);
     await fila.executar(meta('dados.inserir'), async () => 'ok');
     const [item] = [...repo.itens.values()];
     const id = item?.id ?? '';
     const tarefa = jest.fn(async () => 'de novo');
-    await expect(fila.retomar(id, tarefa)).rejects.toMatchObject({
+    await expect(fila['processar'](id, tarefa, new BancoTransacional())).rejects.toMatchObject({
       motivoInterno: ITEM_JA_TRATADO,
     });
     expect(tarefa).not.toHaveBeenCalled();
@@ -129,7 +129,7 @@ describe('FilaEscrita', () => {
       return false;
     });
     const tarefa = jest.fn(async () => 'x');
-    await expect(fila.retomar(id, tarefa)).rejects.toMatchObject({
+    await expect(fila['processar'](id, tarefa, new BancoTransacional())).rejects.toMatchObject({
       motivoInterno: ITEM_JA_TRATADO,
     });
     expect(tarefa).not.toHaveBeenCalled();

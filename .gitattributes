@@ -1,0 +1,5 @@
+# Fixa fim de linha LF (Prettier exige LF), independente do core.autocrlf do Windows.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.jpeg binary

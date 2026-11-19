@@ -70,7 +70,7 @@ O proxy usa estas tabelas e funções, que **precisam existir** no banco:
 
 ## O que está pronto e o que falta
 
-Pronto e testado (83 testes, banco simulado): autenticação, escopos, replay, rate limit, geração de SQL, risco, fila FIFO, `dados.*`, lote, rpc, `pedido.assumir`, administração de integrantes, auditoria e tradução de erros.
+Pronto e testado (banco simulado; `npm test` mostra a contagem atual): autenticação, escopos, replay, rate limit, geração de SQL, risco, fila FIFO, `dados.*`, lote, rpc, `pedido.assumir`, administração de integrantes, auditoria e tradução de erros.
 
 **Ainda sem teste contra um Postgres real** (aguarda o schema): `src/banco/pg.ts`, os repositórios `*Pg` e as funções do banco acima. O `incluir`, a paginação por cursor e os `UPDATE`/`DELETE` com alias foram só verificados pelo texto do SQL.
 

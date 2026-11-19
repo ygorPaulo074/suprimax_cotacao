@@ -152,11 +152,6 @@ export class FilaEscrita {
     });
   }
 
-  /** Executa na fila um item já registrado (a retomada após reinício NÃO o usa: só marca `erro`). */
-  retomar<T>(id: string, tarefa: TarefaFila<T>, banco: Executor = SEM_BANCO): Promise<T> {
-    return this.enfileirar(() => this.processar(id, tarefa, banco));
-  }
-
   private enfileirar<T>(passo: () => Promise<T>): Promise<T> {
     const resultado = this.cauda.then(passo);
     // A fila segue mesmo que esta tarefa falhe.
