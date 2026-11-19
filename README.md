@@ -25,7 +25,7 @@ O frontend só fala com o backend; os backends só falam com o banco através do
 | Frontend  | React                                                                                                   |
 | Banco     | Supabase (PostgreSQL); migrations com Prisma, schema com fonte única neste repo                         |
 | Deploy    | Vercel (frontend) + Render (backend e proxy), plano gratuito, deploy a cada merge na `main`             |
-| Outros    | Resend (e-mail), Supabase Storage privado (documentos de crédito), PDFKit/pdfmake (PDF), pg_cron (jobs) |
+| Outros    | Resend (e-mail), Supabase Storage privado (documentos de crédito), PDFKit/pdfmake (PDF), cron externo chamando `POST /jobs/executar` (jobs) |
 | Qualidade | ESLint + Prettier, Jest (`*.test.ts` junto ao código), k6/Artillery em `tests-nfr/`                     |
 
 ## Estrutura
