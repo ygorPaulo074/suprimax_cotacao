@@ -2,6 +2,8 @@ import { useState, type FormEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { clientesApi, type EnderecoCliente, type TipoUnidade } from '@/api';
+import { AvisoNaoSalvoModal } from '@/components/AvisoNaoSalvoModal';
+import { textoNormalizado, useAvisoNaoSalvo } from '@/lib/useAvisoNaoSalvo';
 import { EnderecoCampos, enderecoCompleto, enderecoVazio } from '@/components/EnderecoCampos';
 import {
   Alerta,
@@ -22,7 +24,8 @@ export default function CadastroCliente() {
   const queryClient = useQueryClient();
   const vendedores = useQuery({ queryKey: ['vendedores'], queryFn: clientesApi.vendedores });
 
-  const [cnpj, setCnpj] = useState(params.get('cnpj') ?? '');
+  const cnpjInicial = params.get('cnpj') ?? '';
+  const [cnpj, setCnpj] = useState(cnpjInicial);
   const [razaoSocial, setRazaoSocial] = useState('');
   const [nomeContato, setNomeContato] = useState('');
   const [telefone, setTelefone] = useState('');
@@ -47,9 +50,27 @@ export default function CadastroCliente() {
       }),
     onSuccess: (cliente) => {
       void queryClient.invalidateQueries({ queryKey: ['clientes'] });
+      liberar(); // salvou: a saída é de propósito
       navegar(`/clientes?cnpj=${cliente.cnpj}`);
     },
   });
+
+  // RNF06: algo digitado além do que a tela já trazia (CNPJ da URL, matriz, LGPD desmarcado).
+  // Compara só os dígitos do CNPJ (a máscara não conta) e ignora espaços.
+  const vazio = enderecoVazio('CADASTRAL');
+  const sujo =
+    cnpj.replace(/\D/g, '') !== cnpjInicial.replace(/\D/g, '') ||
+    [razaoSocial, nomeContato, telefone, email].some((v) => textoNormalizado(v) !== '') ||
+    tipoUnidade !== 'MATRIZ' ||
+    idVendedor !== '' ||
+    aceiteLgpd ||
+    enderecos.length !== 1 ||
+    enderecos.some((e) =>
+      (Object.keys(vazio) as (keyof EnderecoCliente)[]).some(
+        (k) => k !== 'tipo' && textoNormalizado(e[k] as string | undefined) !== '',
+      ),
+    );
+  const { bloqueio, liberar } = useAvisoNaoSalvo(sujo);
 
   const alterarEndereco = (i: number, campo: keyof EnderecoCliente, valor: string) =>
     setEnderecos((lista) => lista.map((e, idx) => (idx === i ? { ...e, [campo]: valor } : e)));
@@ -179,9 +200,19 @@ export default function CadastroCliente() {
           <BotaoPrimario type="submit" disabled={!aceiteLgpd || !completo || salvar.isPending}>
             Salvar
           </BotaoPrimario>
-          <BotaoSecundario onClick={() => navegar('/clientes')}>Cancelar</BotaoSecundario>
+          <BotaoSecundario
+            onClick={() => {
+              liberar(); // Cancelar descarta de propósito, sem aviso
+              navegar('/clientes');
+            }}
+          >
+            Cancelar
+          </BotaoSecundario>
         </div>
       </form>
+      <AvisoNaoSalvoModal bloqueio={bloqueio}>
+        O cadastro do cliente não foi salvo. Se sair agora, o que foi digitado será perdido.
+      </AvisoNaoSalvoModal>
     </Pagina>
   );
 }

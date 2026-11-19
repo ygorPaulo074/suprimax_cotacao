@@ -6,6 +6,8 @@ import { useAuth } from '@/auth/AuthContext';
 import { formatarBRL, reaisParaCentavos } from '@/lib/dinheiro';
 import { ehOperadorChefe } from '@/lib/perfis';
 import { DataState } from '@/components/DataState';
+import { AvisoNaoSalvoModal } from '@/components/AvisoNaoSalvoModal';
+import { textoNormalizado, useAvisoNaoSalvo } from '@/lib/useAvisoNaoSalvo';
 import {
   Alerta,
   BotaoPrimario,
@@ -57,6 +59,33 @@ function formularioDe(p: Produto | null) {
   };
 }
 
+/** Preço digitado comparável em centavos (nunca pelo texto formatado); texto inválido fica como está. */
+const precoComparavel = (texto: string): number | string => {
+  const t = texto.trim();
+  if (t === '') return '';
+  return reaisParaCentavos(t) ?? `?${t}`;
+};
+
+/** Forma canônica do formulário para detectar alteração: espaços, máscara e número vs texto não contam. */
+export function formularioComparavel(f: ReturnType<typeof formularioDe>): string {
+  return JSON.stringify({
+    c: textoNormalizado(f.codigoInterno),
+    d: textoNormalizado(f.descricao),
+    n: textoNormalizado(f.ncm),
+    e: textoNormalizado(f.ean),
+    k: textoNormalizado(f.categoria),
+    a: f.ativo,
+    v: f.variacoes.map((v) => ({
+      i: v.idVariacao ?? null,
+      m: textoNormalizado(v.marca),
+      t: textoNormalizado(v.tamanhoEmbalagem),
+      q: Number(v.quantidadeEstoque) || 0,
+      f: v.faixas.map((x) => [Number(x.quantidadeMinima) || 0, precoComparavel(x.preco)]),
+      r: v.fardos.map((x) => [Number(x.quantidadeUnidades) || 0, precoComparavel(x.preco)]),
+    })),
+  });
+}
+
 function FormularioProduto({
   produto,
   aoFechar,
@@ -68,6 +97,10 @@ function FormularioProduto({
   const chefe = sessao ? ehOperadorChefe(sessao.perfil) : false;
   const queryClient = useQueryClient();
   const [f, setF] = useState(() => formularioDe(produto));
+  // RNF06: base = produto lido ao abrir (ou formulário vazio). Cancelar e salvar fecham o formulário
+  // (aoFechar) e desmontam o aviso; só sair da tela com o formulário aberto e alterado avisa.
+  const [base] = useState(() => formularioComparavel(formularioDe(produto)));
+  const { bloqueio } = useAvisoNaoSalvo(formularioComparavel(f) !== base);
   const [erroPreco, setErroPreco] = useState<string | null>(null);
 
   const salvar = useMutation({
@@ -346,6 +379,9 @@ function FormularioProduto({
         </BotaoPrimario>
         <BotaoSecundario onClick={aoFechar}>Cancelar</BotaoSecundario>
       </div>
+      <AvisoNaoSalvoModal bloqueio={bloqueio}>
+        O cadastro do produto não foi salvo. Se sair agora, as alterações serão perdidas.
+      </AvisoNaoSalvoModal>
     </form>
   );
 }
