@@ -3,6 +3,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { fornecedoresApi } from '@/api';
 import { formatarCnpj } from '@/lib/datas';
 import { DataState } from '@/components/DataState';
+import { AvisoNaoSalvoModal } from '@/components/AvisoNaoSalvoModal';
+import { textoNormalizado, useAvisoNaoSalvo } from '@/lib/useAvisoNaoSalvo';
 import {
   Alerta,
   BotaoPrimario,
@@ -25,6 +27,9 @@ export default function Fornecedores() {
   const consulta = useQuery({ queryKey: ['fornecedores'], queryFn: fornecedoresApi.listar });
   const [f, setF] = useState(vazio);
   const cnpjValido = f.cnpj.replace(/\D/g, '').length === 14;
+  // RNF06: algum campo com texto (só espaços não conta). Salvar limpa o formulário (setF(vazio)).
+  const sujo = Object.values(f).some((v) => textoNormalizado(v) !== '');
+  const { bloqueio } = useAvisoNaoSalvo(sujo);
 
   const criar = useMutation({
     mutationFn: () =>
@@ -138,6 +143,9 @@ export default function Fornecedores() {
           )}
         </DataState>
       </Cartao>
+      <AvisoNaoSalvoModal bloqueio={bloqueio}>
+        O cadastro do fornecedor não foi salvo. Se sair agora, o que foi digitado será perdido.
+      </AvisoNaoSalvoModal>
     </Pagina>
   );
 }

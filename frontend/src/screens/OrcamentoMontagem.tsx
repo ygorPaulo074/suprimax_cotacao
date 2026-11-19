@@ -15,6 +15,9 @@ import {
 import { useAuth } from '@/auth/AuthContext';
 import { avisoDeEdicaoDeRascunho } from '@/lib/avisoDeRascunho';
 import { useAvisoNaoSalvo } from '@/lib/useAvisoNaoSalvo';
+import { useAlteracaoNaFila } from '@/lib/useAlteracaoNaFila';
+import { cabecalhoComparavel, condicoesComparaveis } from '@/lib/montagemComparavel';
+import { AvisoNaoSalvoModal } from '@/components/AvisoNaoSalvoModal';
 import { formatarBRL, reaisParaCentavos } from '@/lib/dinheiro';
 import {
   ehFreteFob,
@@ -136,6 +139,13 @@ export default function OrcamentoMontagem({ orcamento }: { orcamento: OrcamentoD
     }
     queryClient.setQueryData(['orcamentos', id], novo);
   };
+  // RNF06: última alteração que foi parar na fila offline (resposta ENFILEIRADA), por bloco. Enquanto
+  // ela estiver na fila persistida, vale como base da comparação no lugar do orçamento lido: o dado
+  // não se perde ao sair, então só um texto novo, depois dela, conta como não salvo.
+  const [cabGuardado, setCabGuardado] = useState<string | null>(null);
+  const [condGuardado, setCondGuardado] = useState<string | null>(null);
+  const cabNaFila = useAlteracaoNaFila('PATCH', `/orcamentos/${id}`);
+  const condNaFila = useAlteracaoNaFila('PUT', `/orcamentos/${id}/condicoes`);
   const aoFalhar = () => void queryClient.invalidateQueries({ queryKey: ['orcamentos', id] });
 
   // Cabeçalho
@@ -149,7 +159,8 @@ export default function OrcamentoMontagem({ orcamento }: { orcamento: OrcamentoD
     String(orcamento.idEnderecoEntrega ?? enderecoUnico ?? ''),
   );
   const [prazoEntrega, setPrazoEntrega] = useState(String(orcamento.prazoEntregaDias ?? ''));
-  const salvarCabecalho = useMutation({
+  // Variável da mutação = forma comparável do que foi enviado (vira a base se for para a fila).
+  const salvarCabecalho = useMutation<OrcamentoDetalhe, Error, string>({
     mutationFn: () =>
       orcamentosApi.atualizarCabecalho(id, {
         contato: contato.trim() || null,
@@ -158,6 +169,9 @@ export default function OrcamentoMontagem({ orcamento }: { orcamento: OrcamentoD
         prazoEntregaDias: prazoEntrega ? Number(prazoEntrega) : null,
       }),
     onSuccess: aplicar,
+    onError: (erro, comparavel) => {
+      if (erro instanceof ApiError && erro.codigo === 'ENFILEIRADA') setCabGuardado(comparavel);
+    },
   });
 
   // Busca de produtos
@@ -230,7 +244,13 @@ export default function OrcamentoMontagem({ orcamento }: { orcamento: OrcamentoD
       valorFrete:
         ehFob && origem === 'SUPRIMAX' ? (reaisParaCentavos(valorFrete) ?? undefined) : undefined,
     });
-  const salvarCondicoes = useMutation({ mutationFn: gravarCondicoes, onSuccess: aplicar });
+  const salvarCondicoes = useMutation<OrcamentoDetalhe, Error, string>({
+    mutationFn: () => gravarCondicoes(),
+    onSuccess: aplicar,
+    onError: (erro, comparavel) => {
+      if (erro instanceof ApiError && erro.codigo === 'ENFILEIRADA') setCondGuardado(comparavel);
+    },
+  });
   // Condição ainda não gravada (só a sugerida está selecionada na tela): o único bloqueio é o de
   // condições incompletas, que a gravação da seleção resolve. Com condição gravada, nada muda.
   const gravarAntesDeEmitir =
@@ -278,17 +298,47 @@ export default function OrcamentoMontagem({ orcamento }: { orcamento: OrcamentoD
     mutationFn: () => orcamentosApi.cancelar(id, justificativa.trim() || undefined),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['orcamentos'] });
+      liberar(); // cancelou o orçamento de propósito: sem aviso
       navegar('/orcamentos');
     },
   });
 
-  // RNF06: texto do cabeçalho digitado e ainda não salvo (a base é o último orçamento lido).
-  const cabecalhoSujo =
-    contato.trim() !== (orcamento.contato ?? '').trim() ||
-    solicitacao.trim() !== (orcamento.numeroSolicitacaoCompra ?? '').trim() ||
-    endereco !== String(orcamento.idEnderecoEntrega ?? enderecoUnico ?? '') ||
-    prazoEntrega !== String(orcamento.prazoEntregaDias ?? '');
-  const bloqueio = useAvisoNaoSalvo(cabecalhoSujo && !cancelar.isSuccess);
+  // RNF06: campos editados e ainda não salvos (base = último orçamento lido, ou a alteração
+  // guardada na fila offline enquanto ela estiver lá). Cabeçalho e condições comerciais.
+  const cabecalhoAtual = cabecalhoComparavel({
+    contato,
+    solicitacao,
+    endereco,
+    prazoEntrega,
+  });
+  const cabecalhoLido = cabecalhoComparavel({
+    contato: orcamento.contato,
+    solicitacao: orcamento.numeroSolicitacaoCompra,
+    endereco: orcamento.idEnderecoEntrega ?? enderecoUnico ?? '',
+    prazoEntrega: orcamento.prazoEntregaDias,
+  });
+  const condicoesAtuais = condicoesComparaveis({
+    pagamento,
+    prazoDias,
+    parcelas,
+    ehFob,
+    origem,
+    transportadora,
+    frete: valorFrete,
+  });
+  const condicoesLidas = condicoesComparaveis({
+    pagamento: c.condicaoPagamento ?? c.condicaoPagamentoSugerida,
+    prazoDias: c.prazoDias ?? PRAZOS_BOLETO_DIAS[0],
+    parcelas: c.numeroParcelas ?? PARCELAS_DISPONIVEIS[0],
+    ehFob,
+    origem: c.origemTransportadora ?? 'SUPRIMAX',
+    transportadora: c.transportadora,
+    frete: c.valorFrete,
+  });
+  const cabecalhoSujo = cabecalhoAtual !== (cabNaFila && cabGuardado ? cabGuardado : cabecalhoLido);
+  const condicoesSujas =
+    condicoesAtuais !== (condNaFila && condGuardado ? condGuardado : condicoesLidas);
+  const { bloqueio, liberar } = useAvisoNaoSalvo(cabecalhoSujo || condicoesSujas);
 
   const ocupado = adicionar.isPending || alterar.isPending || remover.isPending;
   const { sessao } = useAuth();
@@ -373,7 +423,7 @@ export default function OrcamentoMontagem({ orcamento }: { orcamento: OrcamentoD
             <div className="mt-3 flex items-center gap-3">
               <BotaoSecundario
                 disabled={salvarCabecalho.isPending}
-                onClick={() => salvarCabecalho.mutate()}
+                onClick={() => salvarCabecalho.mutate(cabecalhoAtual)}
               >
                 Salvar dados
               </BotaoSecundario>
@@ -577,7 +627,7 @@ export default function OrcamentoMontagem({ orcamento }: { orcamento: OrcamentoD
             )}
             <BotaoSecundario
               disabled={salvarCondicoes.isPending || freteInvalido}
-              onClick={() => salvarCondicoes.mutate()}
+              onClick={() => salvarCondicoes.mutate(condicoesAtuais)}
             >
               Aplicar condições
             </BotaoSecundario>
@@ -656,23 +706,10 @@ export default function OrcamentoMontagem({ orcamento }: { orcamento: OrcamentoD
         </aside>
       </div>
 
-      {bloqueio.state === 'blocked' && (
-        <Modal
-          titulo="Alterações não salvas"
-          aoFechar={() => bloqueio.reset()}
-          acoes={
-            <>
-              <BotaoSecundario onClick={() => bloqueio.reset()}>Ficar na tela</BotaoSecundario>
-              <BotaoAtencao onClick={() => bloqueio.proceed()}>Sair sem salvar</BotaoAtencao>
-            </>
-          }
-        >
-          <p className="text-sm">
-            Os dados do cabeçalho (contato, solicitação, endereço ou prazo) foram alterados e não
-            foram salvos. Se sair agora, essas alterações serão perdidas.
-          </p>
-        </Modal>
-      )}
+      <AvisoNaoSalvoModal bloqueio={bloqueio}>
+        Há dados do orçamento (cabeçalho ou condições comerciais) alterados e não salvos. Se sair
+        agora, essas alterações serão perdidas.
+      </AvisoNaoSalvoModal>
       {cancelando && (
         <Modal
           titulo="Cancelar orçamento"

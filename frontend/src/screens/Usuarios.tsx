@@ -4,6 +4,8 @@ import { ApiError, clientesApi, usuariosApi, type Perfil, type Usuario } from '@
 import { useAuth } from '@/auth/AuthContext';
 import { perfisAtribuiveis, ROTULO_PERFIL } from '@/lib/perfis';
 import { DataState } from '@/components/DataState';
+import { AvisoNaoSalvoModal } from '@/components/AvisoNaoSalvoModal';
+import { textoNormalizado, useAvisoNaoSalvo } from '@/lib/useAvisoNaoSalvo';
 import {
   Alerta,
   Badge,
@@ -145,6 +147,10 @@ export default function Usuarios() {
   const [perfil, setPerfil] = useState<Perfil>('OPERADOR');
   const [transferindo, setTransferindo] = useState<Usuario | null>(null);
   const [editandoEmail, setEditandoEmail] = useState<Usuario | null>(null);
+  // RNF06: nome ou e-mail digitados e ainda não salvos (o perfil tem valor padrão e não conta).
+  // Salvar com sucesso limpa os dois campos.
+  const sujo = textoNormalizado(nome) !== '' || textoNormalizado(email) !== '';
+  const { bloqueio } = useAvisoNaoSalvo(sujo);
 
   const criar = useMutation({
     mutationFn: () => usuariosApi.criar({ usuario: nome.trim(), email: email.trim(), perfil }),
@@ -276,6 +282,9 @@ export default function Usuarios() {
       {editandoEmail && (
         <ModalEditarEmail usuario={editandoEmail} aoFechar={() => setEditandoEmail(null)} />
       )}
+      <AvisoNaoSalvoModal bloqueio={bloqueio}>
+        O cadastro do novo usuário não foi salvo. Se sair agora, o que foi digitado será perdido.
+      </AvisoNaoSalvoModal>
     </Pagina>
   );
 }

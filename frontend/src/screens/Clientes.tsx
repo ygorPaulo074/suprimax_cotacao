@@ -34,6 +34,8 @@ import {
 import { useAuth } from '@/auth/AuthContext';
 import { temPerfil } from '@/lib/perfis';
 import { DataState } from '@/components/DataState';
+import { AvisoNaoSalvoModal } from '@/components/AvisoNaoSalvoModal';
+import { textoNormalizado, useAvisoNaoSalvo } from '@/lib/useAvisoNaoSalvo';
 
 /** UC14: cria o rascunho direto da ficha. O backend autoriza; aqui só se oculta e se explica o bloqueio. */
 function NovoOrcamento({ cliente }: { cliente: ClienteFicha }) {
@@ -214,6 +216,15 @@ function Enderecos({ cliente }: { cliente: ClienteFicha }) {
       setAberto(false);
     },
   });
+  // RNF06: formulário de endereço aberto com algum campo preenchido. Cancelar e salvar fecham o
+  // formulário (`aberto` falso), o que desfaz o aviso; o texto do endereço vazio não conta.
+  const modelo = enderecoVazio('ENTREGA');
+  const sujo =
+    aberto &&
+    (Object.keys(modelo) as (keyof EnderecoCliente)[]).some(
+      (k) => k !== 'tipo' && textoNormalizado(novo[k] as string | undefined) !== '',
+    );
+  const { bloqueio } = useAvisoNaoSalvo(sujo);
   const enviar = (e: FormEvent) => {
     e.preventDefault();
     if (enderecoCompleto(novo)) adicionar.mutate();
@@ -268,6 +279,9 @@ function Enderecos({ cliente }: { cliente: ClienteFicha }) {
           </div>
         )}
       </div>
+      <AvisoNaoSalvoModal bloqueio={bloqueio}>
+        O endereço novo não foi salvo. Se sair agora, o que foi digitado será perdido.
+      </AvisoNaoSalvoModal>
     </Secao>
   );
 }
