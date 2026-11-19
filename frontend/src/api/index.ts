@@ -1,5 +1,6 @@
 export * from './types';
 export { api, ApiError, definirToken, obterToken, aoReceberNaoAutorizado } from './client';
+export { assinarLentidao, haLeituraLenta } from './lentidao';
 export { authApi } from './auth';
 export { pedidosApi } from './pedidos';
 export { clientesApi } from './clientes';

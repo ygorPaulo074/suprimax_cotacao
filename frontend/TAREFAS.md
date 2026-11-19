@@ -55,6 +55,8 @@ Origem: o protótipo do Figma foi trazido para `frontend/` e reconstruído como 
 
 - [x] Login real com token, bloqueio após 3 tentativas e recuperação de senha.
 - [x] Sessão encerrada automaticamente em `401`.
+- [x] Leitura que nunca responde: prazo de 60 s nos GET (erro "Sem conexão com o servidor. Tente novamente.") e aviso "O servidor está demorando para responder…" após 15 s (RNF06). Gravações e fila não têm prazo.
+- [ ] Ajustar o prazo de 60 s se o plano do Render deixar de hibernar, ou se o acordar do backend passar disso na prática (medir no teste manual).
 - [x] Redefinir senha (UC13): tela `/redefinir-senha` (PR #24). O e-mail com o link ainda não é enviado (sem provedor); use `scripts/definir-senha.cjs`.
 - [x] Quitar dívida (UC23), abrir anexo por URL assinada e erros de upload (UC19) (PR #24).
 - [x] Upload do documento de crédito (PDF/JPEG/PNG, até 10 MB) e botão Abrir por URL assinada na análise de crédito (UC07).

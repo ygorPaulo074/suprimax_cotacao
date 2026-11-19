@@ -7,6 +7,7 @@ import {
   processarFila,
   quantidadePendente,
 } from './filaOffline';
+import { AVISO_LENTIDAO_MS, LIMITE_LEITURA_MS, marcarLeituraLenta } from './lentidao';
 import type { ErroApi } from './types';
 
 export { ApiError };
@@ -94,20 +95,47 @@ async function requisitar(
   // Já há alterações esperando: esta entra atrás delas para manter a ordem.
   if (guardavel && quantidadePendente() > 0) guardar();
 
+  // Só leituras têm prazo: gravações e fila têm idempotência própria e não podem ser abortadas aqui.
+  let estourou = false;
+  let sinal = opcoes.signal;
+  let desfazerLentidao: (() => void) | undefined;
+  const temporizadores: ReturnType<typeof setTimeout>[] = [];
+  if (metodo === 'GET') {
+    const controle = new AbortController();
+    opcoes.signal?.addEventListener('abort', () => controle.abort(), { once: true });
+    if (opcoes.signal?.aborted) controle.abort();
+    sinal = controle.signal;
+    temporizadores.push(
+      setTimeout(() => {
+        desfazerLentidao = marcarLeituraLenta();
+      }, AVISO_LENTIDAO_MS),
+      setTimeout(() => {
+        estourou = true;
+        controle.abort();
+      }, LIMITE_LEITURA_MS),
+    );
+  }
+  const limparPrazo = (): void => {
+    temporizadores.forEach(clearTimeout);
+    desfazerLentidao?.();
+  };
+
   let resposta: Response;
   try {
     resposta = await fetch(montarUrl(caminho, opcoes.query), {
       method: metodo,
       headers,
       body,
-      signal: opcoes.signal,
+      signal: sinal,
     });
   } catch (e) {
-    if (e instanceof DOMException && e.name === 'AbortError') throw e;
+    limparPrazo();
+    if (e instanceof DOMException && e.name === 'AbortError' && !estourou) throw e;
     if (guardavel) guardar();
     throw new ApiError(0, 'SEM_CONEXAO', 'Sem conexão com o servidor. Tente novamente.');
   }
 
+  limparPrazo();
   if (!resposta.ok) {
     const erro = (await resposta.json().catch(() => null)) as Partial<ErroApi> | null;
     // Requisição em voo com token antigo não pode derrubar um login mais novo.
