@@ -1,4 +1,4 @@
-/** @jest-environment jsdom */
+/** @jest-environment <rootDir>/src/test/ambienteJsdom.cjs */
 import '@testing-library/jest-dom';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';

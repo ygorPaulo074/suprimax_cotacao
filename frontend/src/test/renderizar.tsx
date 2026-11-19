@@ -1,16 +1,20 @@
 import type { ReactElement } from 'react';
-import { MemoryRouter } from 'react-router-dom';
+import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render } from '@testing-library/react';
 
-/** Renderiza uma tela com roteador em memória e um TanStack Query sem novas tentativas. */
+/** Renderiza uma tela com roteador de dados em memória e um TanStack Query sem novas tentativas. */
 export function renderizarTela(tela: ReactElement, rota = '/') {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
+  // Roteador de dados (como em `main.tsx`): `useBlocker` só funciona nele.
+  const roteador = createMemoryRouter([{ path: '*', element: tela }], {
+    initialEntries: [rota],
+  });
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={[rota]}>{tela}</MemoryRouter>
+      <RouterProvider router={roteador} />
     </QueryClientProvider>,
   );
 }
