@@ -51,7 +51,7 @@ describe('fila offline (RNF06)', () => {
     global.fetch = fetchMock as unknown as typeof fetch;
     (globalThis as { localStorage?: Storage }).localStorage = armazenamentoFalso();
     reiniciarFilaEmMemoria();
-    definirToken('abc');
+    definirToken('tok-secreto-zzz');
     configurarFila({ reler, descartado });
   });
 
@@ -155,7 +155,7 @@ describe('fila offline (RNF06)', () => {
     await api.post('/orcamentos/1/itens', { n: 1 }).catch(() => undefined);
     const salvo = localStorage.getItem('suprimax.fila')!;
     expect(salvo).toContain('/orcamentos/1/itens');
-    expect(salvo).not.toContain('abc'); // o token nunca vai para o armazenamento
+    expect(salvo).not.toContain('tok-secreto-zzz'); // o token nunca vai para o armazenamento
     reiniciarFilaEmMemoria();
     expect(quantidadePendente()).toBe(1); // recarregou do armazenamento
     limparFila();
