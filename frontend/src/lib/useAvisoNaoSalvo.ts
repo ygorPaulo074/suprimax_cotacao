@@ -21,7 +21,13 @@ export function useAvisoNaoSalvo(sujo: boolean): AvisoNaoSalvo {
   const liberado = useRef(false);
   const bloqueio = useBlocker(
     ({ currentLocation, nextLocation }) =>
-      sujo && !liberado.current && currentLocation.pathname !== nextLocation.pathname,
+      sujo &&
+      !liberado.current &&
+      // Também a busca (`?cnpj=`): na ficha do cliente, `/clientes?cnpj=…` → `/clientes` troca a tela
+      // dentro do mesmo pathname e desmonta o formulário. Só entra aqui com `sujo`, então listas e
+      // filtros sem formulário sujo nunca avisam; o hash (âncora) não conta.
+      currentLocation.pathname + currentLocation.search !==
+        nextLocation.pathname + nextLocation.search,
   );
   useEffect(() => {
     if (!sujo) return;

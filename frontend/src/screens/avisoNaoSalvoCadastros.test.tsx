@@ -379,6 +379,40 @@ describe('Ficha do cliente (novo endereço de entrega)', () => {
     expect(dialogo()).toBeNull();
   });
 
+  it('menu "Clientes" (mesmo pathname, sem ?cnpj=) com o formulário sujo avisa', async () => {
+    abrir(
+      <>
+        <Clientes />
+        <Link to="/clientes">Clientes</Link>
+      </>,
+      '/clientes?cnpj=12345678000190',
+    );
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Adicionar endereço de entrega' }),
+    );
+    fireEvent.change(await screen.findByLabelText('Logradouro'), { target: { value: 'Rua B' } });
+    await userEvent.click(screen.getByRole('link', { name: 'Clientes' }));
+    expect(await screen.findByRole('dialog', { name: 'Alterações não salvas' })).toBeVisible();
+    expect(screen.getByLabelText('Logradouro')).toHaveValue('Rua B');
+  });
+
+  it('menu "Clientes" com o formulário limpo não avisa', async () => {
+    abrir(
+      <>
+        <Clientes />
+        <Link to="/clientes">Clientes</Link>
+      </>,
+      '/clientes?cnpj=12345678000190',
+    );
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Adicionar endereço de entrega' }),
+    );
+    await screen.findByLabelText('Logradouro');
+    await userEvent.click(screen.getByRole('link', { name: 'Clientes' }));
+    expect(dialogo()).toBeNull();
+    await waitFor(() => expect(screen.queryByLabelText('Logradouro')).toBeNull());
+  });
+
   it('salvar fecha o formulário e não avisa', async () => {
     mockAdicionarEndereco.mockResolvedValue({});
     const rua = await abrirFormulario();
