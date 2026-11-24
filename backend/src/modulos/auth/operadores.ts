@@ -23,6 +23,12 @@ export const OPERACOES_DE_LOGIN = {
   DEFINIR_NOVA_SENHA: 'UC13-redefinir-senha-gravar',
 } as const;
 
+/**
+ * Prazo da gravação que conta a senha errada. Ela passa pela fila de escrita do proxy (vários
+ * passos no banco) e, com o prazo padrão de 10 s, estourava e virava 503 no login.
+ */
+export const TEMPO_LIMITE_DA_GRAVACAO_DE_FALHA_MS = 25_000;
+
 const TABELA = 'operador';
 const COLUNAS_DO_BLOQUEIO = ['tentativas_login_invalidas', 'bloqueado_ate'];
 const COLUNAS_DAS_CREDENCIAIS = [
@@ -154,6 +160,7 @@ export class RepositorioDeOperadores {
         retornar: COLUNAS_DO_BLOQUEIO,
       },
       OPERACOES_DE_LOGIN.REGISTRAR_FALHA,
+      { tempoLimiteMs: TEMPO_LIMITE_DA_GRAVACAO_DE_FALHA_MS },
     );
     const [linha] = linhasDe(resposta);
     return linha === undefined

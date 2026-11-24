@@ -12,13 +12,22 @@ import {
   NotificadorDeRecuperacaoDeSenhaMudo,
   type NotificadorDeRecuperacaoDeSenha,
 } from './notificador';
-import type { CredenciaisDoOperador, RepositorioDeOperadores } from './operadores';
+import {
+  MAXIMO_DE_TENTATIVAS_INVALIDAS,
+  type CredenciaisDoOperador,
+  type RepositorioDeOperadores,
+} from './operadores';
 import type { ServicoDeSenha } from './senha';
 import type { RepositorioDeSessoes, Sessao } from './sessoes';
 import { gerarTokenDeSenha, resumoDoTokenDeSenha } from './tokenDeSenha';
 
 /** Por quanto tempo vale o link de recuperação de senha enviado ao e-mail do usuário. */
 export const VALIDADE_DO_LINK_DE_RECUPERACAO_DE_SENHA_MS = 60 * 60 * 1000;
+
+/** Quantas vezes se tenta gravar a senha errada no banco antes de usar o contador de reserva. */
+const TENTATIVAS_DE_GRAVACAO = 2;
+/** Mesmo bloqueio do gatilho do banco (docs/13, seção 13.4). */
+const DURACAO_DO_BLOQUEIO_MS = 15 * 60 * 1000;
 
 /** Dados informados na tela de login. */
 export interface CredenciaisInformadas {
@@ -64,6 +73,11 @@ export class ServicoDeAutenticacao {
   private readonly logger: Logger;
   private readonly notificador: NotificadorDeRecuperacaoDeSenha;
   private readonly agora: () => Date;
+  /** Contador de reserva (por operador) para tentativas que o banco não conseguiu gravar. */
+  private readonly falhasEmMemoria = new Map<
+    number,
+    { naoGravadas: number; bloqueadoAte: Date | null }
+  >();
 
   constructor(dependencias: DependenciasDoServicoDeAutenticacao) {
     this.operadores = dependencias.operadores;
@@ -95,10 +109,10 @@ export class ServicoDeAutenticacao {
     }
 
     const agora = this.agora();
-    this.recusarSeBloqueada(operador.bloqueadoAte, agora, operador, requestId);
+    this.recusarSeBloqueada(this.bloqueioVigente(operador, agora), agora, operador, requestId);
 
     if (!(await this.senhas.verificar(senha, operador.senhaHash))) {
-      const { bloqueadoAte } = await this.operadores.registrarFalha(operador, agora);
+      const bloqueadoAte = await this.contarTentativaInvalida(operador, agora, requestId);
       this.recusarSeBloqueada(bloqueadoAte, agora, operador, requestId);
       this.registrar(RESULTADOS_DO_LOGIN.SENHA_INCORRETA, requestId, operador);
       throw new ErroDeCredenciaisInvalidas();
@@ -108,8 +122,9 @@ export class ServicoDeAutenticacao {
       throw new ErroDeUsuarioInativo();
     }
 
+    this.falhasEmMemoria.delete(operador.idOperador);
     if (operador.tentativasLoginInvalidas > 0) {
-      await this.operadores.zerarTentativas(operador.idOperador);
+      await this.zerarTentativasSemFalhar(operador, requestId);
     }
     const sessao: Sessao = {
       idOperador: operador.idOperador,
@@ -195,6 +210,87 @@ export class ServicoDeAutenticacao {
       { evento: 'senha_redefinida', idOperador: operador.idOperador },
       MENSAGEM_DO_LOG_DE_RECUPERACAO,
     );
+  }
+
+  /**
+   * Conta a senha errada no banco. Se a gravação falhar (proxy lento, hibernado ou limitado), ela
+   * é repetida uma vez (a gravação é condicionada ao contador lido, então repetir não conta duas
+   * vezes). Se falhar de novo, a tentativa entra no contador de reserva em memória, que bloqueia
+   * a conta após 3 erros como o banco faria. Em qualquer caso a resposta continua sendo "usuário
+   * ou senha inválidos": a senha está errada, e dizer "serviço indisponível" esconderia isso.
+   */
+  private async contarTentativaInvalida(
+    operador: CredenciaisDoOperador,
+    agora: Date,
+    requestId?: string,
+  ): Promise<Date | null> {
+    let ultimoErro: unknown;
+    for (let tentativa = 1; tentativa <= TENTATIVAS_DE_GRAVACAO; tentativa += 1) {
+      try {
+        const { bloqueadoAte } = await this.operadores.registrarFalha(operador, agora);
+        this.falhasEmMemoria.delete(operador.idOperador);
+        return bloqueadoAte;
+      } catch (erro) {
+        ultimoErro = erro;
+      }
+    }
+    const bloqueadoAte = this.contarEmMemoria(operador, agora);
+    this.logger.error(
+      {
+        requestId,
+        idOperador: operador.idOperador,
+        evento: 'tentativa_contada_em_memoria',
+        err: ultimoErro,
+      },
+      'Não foi possível gravar a tentativa de login inválida; contada em memória.',
+    );
+    return bloqueadoAte;
+  }
+
+  /**
+   * Zera o contador depois do login certo. Se a gravação falhar, a senha certa continua entrando:
+   * negar o acesso por causa de um contador não ajuda o usuário. O contador fica alto no banco e
+   * a falha vai ao log.
+   */
+  private async zerarTentativasSemFalhar(
+    operador: CredenciaisDoOperador,
+    requestId?: string,
+  ): Promise<void> {
+    try {
+      await this.operadores.zerarTentativas(operador.idOperador);
+    } catch (erro) {
+      this.logger.error(
+        { requestId, idOperador: operador.idOperador, evento: 'contador_nao_zerado', err: erro },
+        'Não foi possível zerar o contador de tentativas de login.',
+      );
+    }
+  }
+
+  /** Contador de reserva: soma a tentativa ao que o banco já tinha e bloqueia ao chegar a 3. */
+  private contarEmMemoria(operador: CredenciaisDoOperador, agora: Date): Date | null {
+    const bloqueioVencido = operador.bloqueadoAte !== null && operador.bloqueadoAte <= agora;
+    const anterior = this.falhasEmMemoria.get(operador.idOperador);
+    const naoGravadas = (anterior?.naoGravadas ?? 0) + 1;
+    const base = bloqueioVencido ? 0 : operador.tentativasLoginInvalidas;
+    const bloqueadoAte =
+      base + naoGravadas >= MAXIMO_DE_TENTATIVAS_INVALIDAS
+        ? new Date(agora.getTime() + DURACAO_DO_BLOQUEIO_MS)
+        : null;
+    this.falhasEmMemoria.set(operador.idOperador, { naoGravadas, bloqueadoAte });
+    return bloqueadoAte;
+  }
+
+  /** Fim do bloqueio mais longo entre o do banco e o do contador de reserva. */
+  private bloqueioVigente(operador: CredenciaisDoOperador, agora: Date): Date | null {
+    const emMemoria = this.falhasEmMemoria.get(operador.idOperador)?.bloqueadoAte ?? null;
+    if (emMemoria !== null && emMemoria <= agora) {
+      this.falhasEmMemoria.delete(operador.idOperador);
+      return operador.bloqueadoAte;
+    }
+    if (emMemoria === null) return operador.bloqueadoAte;
+    return operador.bloqueadoAte !== null && operador.bloqueadoAte > emMemoria
+      ? operador.bloqueadoAte
+      : emMemoria;
   }
 
   private recusarSeBloqueada(

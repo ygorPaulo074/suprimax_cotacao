@@ -1,12 +1,13 @@
 // Item 2 do backend/TAREFAS.md — dublê do cliente do proxy para os testes dos módulos que leem e
 // gravam dados. Substitui o ClienteProxy sem rede (comunicacao-backend-proxy.md, seção 7).
-import type { ClienteDeProxy, RespostaDoProxy } from '../dados/proxyCliente';
+import type { ClienteDeProxy, OpcoesDaOperacao, RespostaDoProxy } from '../dados/proxyCliente';
 
 /** Uma chamada recebida pelo dublê. */
 export interface ChamadaAoProxy {
   readonly operacao: string;
   readonly payload: Readonly<Record<string, unknown>>;
   readonly operationId: string;
+  readonly opcoes?: OpcoesDaOperacao;
 }
 
 /**
@@ -78,8 +79,9 @@ export class ProxyClienteFalso implements ClienteDeProxy {
     operacao: string,
     payload: Readonly<Record<string, unknown>>,
     operationId: string,
+    opcoes?: OpcoesDaOperacao,
   ): Promise<T> {
-    const chamada: ChamadaAoProxy = { operacao, payload, operationId };
+    const chamada: ChamadaAoProxy = { operacao, payload, operationId, opcoes };
     this.chamadasRecebidas.push(chamada);
     const resposta = this.proximaResposta(operacao);
     if (resposta instanceof Error) {
