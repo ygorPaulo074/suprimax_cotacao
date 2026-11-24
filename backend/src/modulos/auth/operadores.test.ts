@@ -1,6 +1,10 @@
 import { ErroInterno } from '../../erros';
 import { ProxyClienteFalso } from '../../testing/proxyClienteFalso';
-import { RepositorioDeOperadores, type CredenciaisDoOperador } from './operadores';
+import {
+  RepositorioDeOperadores,
+  TEMPO_LIMITE_DA_GRAVACAO_DE_FALHA_MS,
+  type CredenciaisDoOperador,
+} from './operadores';
 
 const AGORA = new Date('2026-11-10T12:00:00Z');
 const LINHA = {
@@ -126,6 +130,7 @@ describe('RepositorioDeOperadores.registrarFalha', () => {
         valores: { tentativas_login_invalidas: esperado },
         retornar: ['tentativas_login_invalidas', 'bloqueado_ate'],
       },
+      opcoes: { tempoLimiteMs: TEMPO_LIMITE_DA_GRAVACAO_DE_FALHA_MS },
     });
   });
 

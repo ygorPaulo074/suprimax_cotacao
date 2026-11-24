@@ -98,7 +98,7 @@ export class ServicoDeAutenticacao {
     this.recusarSeBloqueada(operador.bloqueadoAte, agora, operador, requestId);
 
     if (!(await this.senhas.verificar(senha, operador.senhaHash))) {
-      const { bloqueadoAte } = await this.operadores.registrarFalha(operador, agora);
+      const bloqueadoAte = await this.contarTentativaInvalida(operador, agora, requestId);
       this.recusarSeBloqueada(bloqueadoAte, agora, operador, requestId);
       this.registrar(RESULTADOS_DO_LOGIN.SENHA_INCORRETA, requestId, operador);
       throw new ErroDeCredenciaisInvalidas();
@@ -195,6 +195,27 @@ export class ServicoDeAutenticacao {
       { evento: 'senha_redefinida', idOperador: operador.idOperador },
       MENSAGEM_DO_LOG_DE_RECUPERACAO,
     );
+  }
+
+  /**
+   * Conta a senha errada. Se a gravação falhar (proxy lento, hibernado ou limitado), a resposta
+   * continua sendo "usuário ou senha inválidos": a senha está errada, e dizer "serviço
+   * indisponível" esconderia isso. A tentativa deixa de contar para o bloqueio e a falha vai ao log.
+   */
+  private async contarTentativaInvalida(
+    operador: CredenciaisDoOperador,
+    agora: Date,
+    requestId?: string,
+  ): Promise<Date | null> {
+    try {
+      return (await this.operadores.registrarFalha(operador, agora)).bloqueadoAte;
+    } catch (erro) {
+      this.logger.error(
+        { requestId, idOperador: operador.idOperador, evento: 'tentativa_nao_contada', err: erro },
+        'Não foi possível gravar a tentativa de login inválida.',
+      );
+      return null;
+    }
   }
 
   private recusarSeBloqueada(

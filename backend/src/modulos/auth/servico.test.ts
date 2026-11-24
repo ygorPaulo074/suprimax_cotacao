@@ -1,6 +1,7 @@
 import {
   ErroDeContaBloqueada,
   ErroDeCredenciaisInvalidas,
+  ErroDeServicoIndisponivel,
   ErroDeTokenDeRecuperacaoInvalido,
   ErroDeUsuarioInativo,
 } from '../../erros';
@@ -13,7 +14,7 @@ import {
 } from '../../testing/operadorFalso';
 import { ProxyClienteFalso } from '../../testing/proxyClienteFalso';
 import type { NotificadorDeRecuperacaoDeSenha, RecuperacaoDeSenha } from './notificador';
-import { RepositorioDeOperadores } from './operadores';
+import { RepositorioDeOperadores, TEMPO_LIMITE_DA_GRAVACAO_DE_FALHA_MS } from './operadores';
 import { ServicoDeSenha } from './senha';
 import { ServicoDeAutenticacao } from './servico';
 import { RepositorioDeSessoesEmMemoria } from './sessoes';
@@ -94,6 +95,27 @@ describe('ServicoDeAutenticacao.entrar', () => {
 
     await expect(entrar(SENHA_ERRADA)).rejects.toBeInstanceOf(ErroDeCredenciaisInvalidas);
     expect(operador.linha.tentativasLoginInvalidas).toBe(1);
+  });
+
+  it('se a gravação da tentativa falhar, a senha errada ainda responde credenciais inválidas', async () => {
+    const { entrar, proxy, operador, linhasDeLog } = montar();
+    proxy.responder('dados.atualizar', new ErroDeServicoIndisponivel());
+
+    await expect(entrar(SENHA_ERRADA)).rejects.toBeInstanceOf(ErroDeCredenciaisInvalidas);
+
+    expect(operador.linha.tentativasLoginInvalidas).toBe(0);
+    expect(linhasDeLog.join('\n')).toContain('tentativa_nao_contada');
+    expect(linhasDeLog.join('\n')).toContain('senha_incorreta');
+  });
+
+  it('a gravação da tentativa usa um prazo maior que o padrão do proxy', async () => {
+    const { entrar, proxy } = montar();
+
+    await entrar(SENHA_ERRADA).catch(() => undefined);
+
+    expect(proxy.chamadasDe('dados.atualizar')[0]?.opcoes).toEqual({
+      tempoLimiteMs: TEMPO_LIMITE_DA_GRAVACAO_DE_FALHA_MS,
+    });
   });
 
   it('a terceira senha errada já responde conta bloqueada, com o fim do bloqueio', async () => {
