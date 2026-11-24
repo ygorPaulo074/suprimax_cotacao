@@ -251,6 +251,69 @@ test('bloqueia emissão sem saldo e mantém o rascunho intacto', { skip: !enable
 });
 
 test(
+  'emitir nova versão (com origem): marca o original como SUBSTITUIDO e libera suas reservas (UC15, UC16)',
+  { skip: !enabled },
+  async () => {
+    await withRollback(async () => {
+      const fixture = await createFixture({ stock: 10 });
+      await db.query('SELECT * FROM public.proxy_orcamento_emitir($1,$2,$3)', [
+        fixture.quoteId,
+        fixture.operatorId,
+        'test-versao-original-key',
+      ]);
+
+      // Nova versão do mesmo cliente, apontando para o original (que está ABERTO).
+      const versao = await db.query(
+        `INSERT INTO orcamento(id_cliente,id_operador,id_orcamento_origem,condicao_pagamento,modalidade_frete)
+         VALUES ($1,$2,$3,'ADIANTADO_100','FOB') RETURNING id_orcamento`,
+        [fixture.clientId, fixture.operatorId, fixture.quoteId],
+      );
+      const tier = await db.query('SELECT id_faixa_preco FROM faixa_preco WHERE id_variacao=$1', [
+        fixture.variationId,
+      ]);
+      await db.query(
+        `INSERT INTO item_orcamento
+           (id_orcamento,id_variacao,granularidade,id_faixa_preco,quantidade_avulsa,preco_unitario_aplicado,valor_imposto,valor_total_item)
+         VALUES ($1,$2,'AVULSO',$3,3,1.00,0.54,3.54)`,
+        [versao.rows[0].id_orcamento, fixture.variationId, tier.rows[0].id_faixa_preco],
+      );
+
+      // Antes da migration 20261124000000, aqui falhava com: column reference "id_orcamento" is ambiguous.
+      const emitida = await db.query('SELECT * FROM public.proxy_orcamento_emitir($1,$2,$3)', [
+        versao.rows[0].id_orcamento,
+        fixture.operatorId,
+        'test-versao-nova-key',
+      ]);
+      assert.equal(emitida.rows[0].id_orcamento, versao.rows[0].id_orcamento);
+
+      const quotes = await db.query(
+        'SELECT id_orcamento,status,numero_orcamento FROM orcamento WHERE id_orcamento = ANY($1) ORDER BY id_orcamento',
+        [[fixture.quoteId, versao.rows[0].id_orcamento]],
+      );
+      assert.equal(quotes.rows[0].status, 'SUBSTITUIDO');
+      assert.equal(quotes.rows[1].status, 'ABERTO');
+      assert.ok(Number(quotes.rows[1].numero_orcamento) > Number(quotes.rows[0].numero_orcamento));
+
+      const reservas = await db.query(
+        `SELECT i.id_orcamento,r.status FROM reserva_estoque r JOIN item_orcamento i USING (id_item)
+          WHERE i.id_orcamento = ANY($1) ORDER BY i.id_orcamento`,
+        [[fixture.quoteId, versao.rows[0].id_orcamento]],
+      );
+      assert.deepEqual(
+        reservas.rows.map((reserva) => reserva.status),
+        ['LIBERADA', 'CONFIRMADA'],
+      );
+
+      const historico = await db.query(
+        `SELECT status_novo FROM historico_orcamento WHERE id_orcamento=$1 AND tipo_evento='MUDANCA_STATUS'`,
+        [fixture.quoteId],
+      );
+      assert.ok(historico.rows.some((linha) => linha.status_novo === 'SUBSTITUIDO'));
+    });
+  },
+);
+
+test(
   'id_operador_ultima_edicao: grava em rascunho, recusa FK inválida e não muda orçamento emitido (UC14)',
   { skip: !enabled },
   async () => {
