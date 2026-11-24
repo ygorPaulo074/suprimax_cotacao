@@ -5,6 +5,15 @@ import { produtosApi, type Produto, type ProdutoSalvar } from '@/api';
 import { useAuth } from '@/auth/AuthContext';
 import { formatarBRL, reaisParaCentavos } from '@/lib/dinheiro';
 import { ehOperadorChefe } from '@/lib/perfis';
+import { camposRecusados, semCaminho, type CamposRecusados } from '@/lib/errosDeCampo';
+import {
+  caminhoDaFaixa,
+  caminhoDaVariacao,
+  caminhoDoFardo,
+  caminhoDoProduto,
+  descreverCampo,
+  resumoDosCampos,
+} from '@/lib/errosDoProduto';
 import { DataState } from '@/components/DataState';
 import { AvisoNaoSalvoModal } from '@/components/AvisoNaoSalvoModal';
 import { textoNormalizado, useAvisoNaoSalvo } from '@/lib/useAvisoNaoSalvo';
@@ -31,6 +40,9 @@ interface FormVariacao {
   faixas: { quantidadeMinima: string; preco: string }[];
   fardos: { quantidadeUnidades: string; preco: string }[];
 }
+
+/** Maior inteiro das colunas INTEGER do banco; acima disso o backend recusa a quantidade. */
+const MAIOR_INTEIRO_DO_BANCO = 2_147_483_647;
 
 const paraTexto = (centavos: number) => (centavos / 100).toFixed(2).replace('.', ',');
 
@@ -102,6 +114,8 @@ function FormularioProduto({
   const [base] = useState(() => formularioComparavel(formularioDe(produto)));
   const { bloqueio } = useAvisoNaoSalvo(formularioComparavel(f) !== base);
   const [erroPreco, setErroPreco] = useState<string | null>(null);
+  // Campos que o backend recusou (detalhes.campos): ficam marcados até a pessoa editar cada um.
+  const [recusa, setRecusa] = useState<CamposRecusados | null>(null);
 
   const salvar = useMutation({
     mutationFn: (dados: ProdutoSalvar) =>
@@ -110,16 +124,31 @@ function FormularioProduto({
       void queryClient.invalidateQueries({ queryKey: ['produtos'] });
       aoFechar();
     },
+    onError: (erro) => setRecusa(camposRecusados(erro)),
   });
 
-  const alterarVariacao = (i: number, parcial: Partial<FormVariacao>) =>
+  /** Dica do campo se o backend o recusou; `null` caso contrário. */
+  const erroDe = (caminho: string): string | null =>
+    recusa?.caminhos.has(caminho) ? descreverCampo(caminho, recusa.codigo).dica : null;
+  const editou = (caminho: string) => setRecusa((a) => semCaminho(a, caminho));
+
+  /** `editado` é o campo alterado: ele deixa de aparecer como inválido. */
+  const alterarVariacao = (i: number, parcial: Partial<FormVariacao>, editado?: string) => {
     setF((a) => ({
       ...a,
       variacoes: a.variacoes.map((v, idx) => (idx === i ? { ...v, ...parcial } : v)),
     }));
+    if (editado) editou(editado);
+  };
+  // Remover linha ou variação muda as posições: os caminhos recusados deixariam de valer.
+  const removerVariacao = (i: number, parcial: Partial<FormVariacao>) => {
+    setRecusa(null);
+    alterarVariacao(i, parcial);
+  };
 
   const enviar = (e: FormEvent) => {
     e.preventDefault();
+    setRecusa(null);
     let invalido = false;
     const variacoes: ProdutoSalvar['variacoes'] = f.variacoes.map((v) => {
       const faixasPreco = v.faixas.map((x) => {
@@ -158,6 +187,16 @@ function FormularioProduto({
     });
   };
 
+  // Com campos recusados, o alerta diz quais corrigir (e some quando todos foram editados); sem eles,
+  // vale a mensagem do backend.
+  const resumoDoErro = recusa
+    ? recusa.caminhos.size > 0
+      ? resumoDosCampos(recusa.caminhos, recusa.codigo)
+      : null
+    : salvar.isError
+      ? mensagemDeErro(salvar.error)
+      : null;
+
   return (
     <form onSubmit={enviar} className="mb-6 flex flex-col gap-4">
       <Cartao className="grid grid-cols-1 gap-3 md:grid-cols-3">
@@ -165,33 +204,53 @@ function FormularioProduto({
           rotulo="Código interno"
           required
           value={f.codigoInterno}
-          onChange={(e) => setF({ ...f, codigoInterno: e.target.value })}
+          erro={erroDe(caminhoDoProduto('codigoInterno'))}
+          onChange={(e) => {
+            setF({ ...f, codigoInterno: e.target.value });
+            editou(caminhoDoProduto('codigoInterno'));
+          }}
         />
         <div className="md:col-span-2">
           <Campo
             rotulo="Descrição"
             required
             value={f.descricao}
-            onChange={(e) => setF({ ...f, descricao: e.target.value })}
+            erro={erroDe(caminhoDoProduto('descricao'))}
+            onChange={(e) => {
+              setF({ ...f, descricao: e.target.value });
+              editou(caminhoDoProduto('descricao'));
+            }}
           />
         </div>
         <Campo
           rotulo="NCM"
           opcional
           value={f.ncm}
-          onChange={(e) => setF({ ...f, ncm: e.target.value })}
+          erro={erroDe(caminhoDoProduto('ncm'))}
+          onChange={(e) => {
+            setF({ ...f, ncm: e.target.value });
+            editou(caminhoDoProduto('ncm'));
+          }}
         />
         <Campo
           rotulo="EAN"
           opcional
           value={f.ean}
-          onChange={(e) => setF({ ...f, ean: e.target.value })}
+          erro={erroDe(caminhoDoProduto('ean'))}
+          onChange={(e) => {
+            setF({ ...f, ean: e.target.value });
+            editou(caminhoDoProduto('ean'));
+          }}
         />
         <Campo
           rotulo="Categoria"
           opcional
           value={f.categoria}
-          onChange={(e) => setF({ ...f, categoria: e.target.value })}
+          erro={erroDe(caminhoDoProduto('categoria'))}
+          onChange={(e) => {
+            setF({ ...f, categoria: e.target.value });
+            editou(caminhoDoProduto('categoria'));
+          }}
         />
         <label className="flex items-center gap-2 text-sm font-semibold">
           <input
@@ -217,21 +276,39 @@ function FormularioProduto({
                   rotulo="Marca"
                   required
                   value={v.marca}
-                  onChange={(e) => alterarVariacao(i, { marca: e.target.value })}
+                  erro={erroDe(caminhoDaVariacao(i, 'marca'))}
+                  onChange={(e) =>
+                    alterarVariacao(i, { marca: e.target.value }, caminhoDaVariacao(i, 'marca'))
+                  }
                 />
                 <Campo
                   rotulo="Tamanho/embalagem"
                   required
                   value={v.tamanhoEmbalagem}
-                  onChange={(e) => alterarVariacao(i, { tamanhoEmbalagem: e.target.value })}
+                  erro={erroDe(caminhoDaVariacao(i, 'tamanhoEmbalagem'))}
+                  onChange={(e) =>
+                    alterarVariacao(
+                      i,
+                      { tamanhoEmbalagem: e.target.value },
+                      caminhoDaVariacao(i, 'tamanhoEmbalagem'),
+                    )
+                  }
                 />
                 <Campo
                   rotulo="Quantidade em estoque"
                   type="number"
                   min={0}
+                  max={MAIOR_INTEIRO_DO_BANCO}
                   disabled={!!v.idVariacao}
                   value={v.quantidadeEstoque}
-                  onChange={(e) => alterarVariacao(i, { quantidadeEstoque: e.target.value })}
+                  erro={erroDe(caminhoDaVariacao(i, 'quantidadeEstoque'))}
+                  onChange={(e) =>
+                    alterarVariacao(
+                      i,
+                      { quantidadeEstoque: e.target.value },
+                      caminhoDaVariacao(i, 'quantidadeEstoque'),
+                    )
+                  }
                 />
               </div>
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -243,30 +320,41 @@ function FormularioProduto({
                         rotulo="Qtd. mínima"
                         type="number"
                         min={1}
+                        max={MAIOR_INTEIRO_DO_BANCO}
                         value={x.quantidadeMinima}
+                        erro={erroDe(caminhoDaFaixa(i, j, 'quantidadeMinima'))}
                         onChange={(e) =>
-                          alterarVariacao(i, {
-                            faixas: v.faixas.map((y, k) =>
-                              k === j ? { ...y, quantidadeMinima: e.target.value } : y,
-                            ),
-                          })
+                          alterarVariacao(
+                            i,
+                            {
+                              faixas: v.faixas.map((y, k) =>
+                                k === j ? { ...y, quantidadeMinima: e.target.value } : y,
+                              ),
+                            },
+                            caminhoDaFaixa(i, j, 'quantidadeMinima'),
+                          )
                         }
                       />
                       <Campo
                         rotulo="Preço unitário (R$)"
                         inputMode="decimal"
                         value={x.preco}
+                        erro={erroDe(caminhoDaFaixa(i, j, 'precoUnitario'))}
                         onChange={(e) =>
-                          alterarVariacao(i, {
-                            faixas: v.faixas.map((y, k) =>
-                              k === j ? { ...y, preco: e.target.value } : y,
-                            ),
-                          })
+                          alterarVariacao(
+                            i,
+                            {
+                              faixas: v.faixas.map((y, k) =>
+                                k === j ? { ...y, preco: e.target.value } : y,
+                              ),
+                            },
+                            caminhoDaFaixa(i, j, 'precoUnitario'),
+                          )
                         }
                       />
                       <BotaoSecundario
                         onClick={() =>
-                          alterarVariacao(i, { faixas: v.faixas.filter((_, k) => k !== j) })
+                          removerVariacao(i, { faixas: v.faixas.filter((_, k) => k !== j) })
                         }
                       >
                         ✕
@@ -293,30 +381,41 @@ function FormularioProduto({
                         rotulo="Unidades"
                         type="number"
                         min={1}
+                        max={MAIOR_INTEIRO_DO_BANCO}
                         value={x.quantidadeUnidades}
+                        erro={erroDe(caminhoDoFardo(i, j, 'quantidadeUnidades'))}
                         onChange={(e) =>
-                          alterarVariacao(i, {
-                            fardos: v.fardos.map((y, k) =>
-                              k === j ? { ...y, quantidadeUnidades: e.target.value } : y,
-                            ),
-                          })
+                          alterarVariacao(
+                            i,
+                            {
+                              fardos: v.fardos.map((y, k) =>
+                                k === j ? { ...y, quantidadeUnidades: e.target.value } : y,
+                              ),
+                            },
+                            caminhoDoFardo(i, j, 'quantidadeUnidades'),
+                          )
                         }
                       />
                       <Campo
                         rotulo="Preço fixo (R$)"
                         inputMode="decimal"
                         value={x.preco}
+                        erro={erroDe(caminhoDoFardo(i, j, 'precoFixo'))}
                         onChange={(e) =>
-                          alterarVariacao(i, {
-                            fardos: v.fardos.map((y, k) =>
-                              k === j ? { ...y, preco: e.target.value } : y,
-                            ),
-                          })
+                          alterarVariacao(
+                            i,
+                            {
+                              fardos: v.fardos.map((y, k) =>
+                                k === j ? { ...y, preco: e.target.value } : y,
+                              ),
+                            },
+                            caminhoDoFardo(i, j, 'precoFixo'),
+                          )
                         }
                       />
                       <BotaoSecundario
                         onClick={() =>
-                          alterarVariacao(i, { fardos: v.fardos.filter((_, k) => k !== j) })
+                          removerVariacao(i, { fardos: v.fardos.filter((_, k) => k !== j) })
                         }
                       >
                         ✕
@@ -339,7 +438,10 @@ function FormularioProduto({
               {!v.idVariacao && (
                 <div>
                   <BotaoSecundario
-                    onClick={() => setF({ ...f, variacoes: f.variacoes.filter((_, k) => k !== i) })}
+                    onClick={() => {
+                      setRecusa(null);
+                      setF({ ...f, variacoes: f.variacoes.filter((_, k) => k !== i) });
+                    }}
                   >
                     Remover variação
                   </BotaoSecundario>
@@ -372,7 +474,7 @@ function FormularioProduto({
       </Secao>
 
       {erroPreco && <Alerta>{erroPreco}</Alerta>}
-      {salvar.isError && <Alerta>{mensagemDeErro(salvar.error)}</Alerta>}
+      {resumoDoErro && <Alerta>{resumoDoErro}</Alerta>}
       <div className="flex gap-3">
         <BotaoPrimario type="submit" disabled={salvar.isPending || f.variacoes.length === 0}>
           Salvar produto
