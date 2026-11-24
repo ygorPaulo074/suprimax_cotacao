@@ -97,15 +97,80 @@ describe('ServicoDeAutenticacao.entrar', () => {
     expect(operador.linha.tentativasLoginInvalidas).toBe(1);
   });
 
-  it('se a gravação da tentativa falhar, a senha errada ainda responde credenciais inválidas', async () => {
+  it('se a gravação da tentativa falhar uma vez, repete e a tentativa conta no banco', async () => {
+    const { entrar, proxy, operador, linhasDeLog } = montar();
+    proxy.responderUmaVez('dados.atualizar', new ErroDeServicoIndisponivel());
+
+    await expect(entrar(SENHA_ERRADA)).rejects.toBeInstanceOf(ErroDeCredenciaisInvalidas);
+
+    expect(proxy.chamadasDe('dados.atualizar')).toHaveLength(2);
+    expect(operador.linha.tentativasLoginInvalidas).toBe(1);
+    expect(linhasDeLog.join('\n')).not.toContain('tentativa_contada_em_memoria');
+  });
+
+  it('se a gravação falhar sempre, a senha errada ainda responde credenciais inválidas e vai ao log', async () => {
     const { entrar, proxy, operador, linhasDeLog } = montar();
     proxy.responder('dados.atualizar', new ErroDeServicoIndisponivel());
 
     await expect(entrar(SENHA_ERRADA)).rejects.toBeInstanceOf(ErroDeCredenciaisInvalidas);
 
     expect(operador.linha.tentativasLoginInvalidas).toBe(0);
-    expect(linhasDeLog.join('\n')).toContain('tentativa_nao_contada');
+    expect(linhasDeLog.join('\n')).toContain('tentativa_contada_em_memoria');
     expect(linhasDeLog.join('\n')).toContain('senha_incorreta');
+  });
+
+  it('com a gravação fora do ar, o contador de reserva bloqueia na terceira senha errada', async () => {
+    const { entrar, proxy } = montar();
+    proxy.responder('dados.atualizar', new ErroDeServicoIndisponivel());
+
+    await expect(entrar(SENHA_ERRADA)).rejects.toBeInstanceOf(ErroDeCredenciaisInvalidas);
+    await expect(entrar(SENHA_ERRADA)).rejects.toBeInstanceOf(ErroDeCredenciaisInvalidas);
+    const erro = await entrar(SENHA_ERRADA).catch((e: unknown) => e);
+
+    expect(erro).toBeInstanceOf(ErroDeContaBloqueada);
+    expect((erro as ErroDeContaBloqueada).detalhes).toEqual({
+      bloqueadoAte: new Date(INICIO.getTime() + DURACAO_DO_BLOQUEIO_SIMULADO_MS).toISOString(),
+    });
+    // Bloqueada pela reserva: até a senha certa é recusada, sem nova gravação.
+    const gravacoes = proxy.chamadasDe('dados.atualizar').length;
+    await expect(entrar(SENHA)).rejects.toBeInstanceOf(ErroDeContaBloqueada);
+    expect(proxy.chamadasDe('dados.atualizar')).toHaveLength(gravacoes);
+  });
+
+  it('o contador de reserva soma ao que o banco já tinha', async () => {
+    const { entrar, proxy } = montar({ tentativasLoginInvalidas: 2 });
+    proxy.responder('dados.atualizar', new ErroDeServicoIndisponivel());
+
+    await expect(entrar(SENHA_ERRADA)).rejects.toBeInstanceOf(ErroDeContaBloqueada);
+  });
+
+  it('o bloqueio da reserva vence depois de 15 minutos e a senha certa entra', async () => {
+    const { entrar, proxy, avancar } = montar({ tentativasLoginInvalidas: 2 });
+    proxy.responder('dados.atualizar', new ErroDeServicoIndisponivel());
+    await entrar(SENHA_ERRADA).catch(() => undefined);
+
+    avancar(DURACAO_DO_BLOQUEIO_SIMULADO_MS);
+
+    expect((await entrar(SENHA)).usuario.idOperador).toBe(7);
+  });
+
+  it('a senha certa entra mesmo se zerar o contador falhar, e o log registra', async () => {
+    const { entrar, proxy, linhasDeLog } = montar({ tentativasLoginInvalidas: 1 });
+    proxy.responder('dados.atualizar', new ErroDeServicoIndisponivel());
+
+    expect((await entrar(SENHA)).usuario.idOperador).toBe(7);
+    expect(linhasDeLog.join('\n')).toContain('contador_nao_zerado');
+  });
+
+  it('o login certo apaga as tentativas que só estavam na reserva', async () => {
+    const { entrar, proxy } = montar();
+    proxy.responder('dados.atualizar', new ErroDeServicoIndisponivel());
+    await entrar(SENHA_ERRADA).catch(() => undefined);
+    await entrar(SENHA_ERRADA).catch(() => undefined);
+    await entrar(SENHA);
+
+    await expect(entrar(SENHA_ERRADA)).rejects.toBeInstanceOf(ErroDeCredenciaisInvalidas);
+    await expect(entrar(SENHA_ERRADA)).rejects.toBeInstanceOf(ErroDeCredenciaisInvalidas);
   });
 
   it('a gravação da tentativa usa um prazo maior que o padrão do proxy', async () => {
