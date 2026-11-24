@@ -150,7 +150,14 @@ export interface ClienteDeProxy {
     operacao: string,
     payload: Readonly<Record<string, unknown>>,
     operationId: string,
+    opcoes?: OpcoesDaOperacao,
   ): Promise<T>;
+}
+
+/** Ajustes de uma única chamada ao proxy. */
+export interface OpcoesDaOperacao {
+  /** Prazo desta chamada; sem ele vale o prazo padrão do cliente. */
+  readonly tempoLimiteMs?: number;
 }
 
 /** Endereço e credencial do integrante Sistema 2 no proxy. */
@@ -190,6 +197,7 @@ interface Requisicao {
   readonly operacao: string;
   readonly payload: Readonly<Record<string, unknown>>;
   readonly operationId: string;
+  readonly tempoLimiteMs?: number;
 }
 
 function esperarComTemporizador(ms: number): Promise<void> {
@@ -277,8 +285,14 @@ export class ClienteProxy implements ClienteDeProxy {
     operacao: string,
     payload: Readonly<Record<string, unknown>>,
     operationId: string,
+    opcoes: OpcoesDaOperacao = {},
   ): Promise<T> {
-    const requisicao: Requisicao = { operacao, payload, operationId };
+    const requisicao: Requisicao = {
+      operacao,
+      payload,
+      operationId,
+      tempoLimiteMs: opcoes.tempoLimiteMs,
+    };
     const maximoDeTentativas = OPERACOES_DE_LEITURA.has(operacao)
       ? this.maximoDeTentativasDeLeitura
       : 1;
@@ -312,7 +326,12 @@ export class ClienteProxy implements ClienteDeProxy {
   }
 
   /** Faz uma tentativa: envia, lê o corpo dentro do prazo e separa sucesso de erro. */
-  private async enviar({ operacao, payload, operationId }: Requisicao): Promise<unknown> {
+  private async enviar({
+    operacao,
+    payload,
+    operationId,
+    tempoLimiteMs,
+  }: Requisicao): Promise<unknown> {
     let resposta: Response;
     let texto: string;
     try {
@@ -320,7 +339,7 @@ export class ClienteProxy implements ClienteDeProxy {
         method: 'POST',
         headers: this.montarCabecalhos(operationId),
         body: JSON.stringify({ operacao, payload }),
-        signal: AbortSignal.timeout(this.tempoLimiteMs),
+        signal: AbortSignal.timeout(tempoLimiteMs ?? this.tempoLimiteMs),
       });
       texto = await resposta.text();
     } catch (erro) {
