@@ -39,11 +39,13 @@ Os Sistemas 1 e 3 **não** precisam estar no ar: eles só gravam e leem no mesmo
    primeiro para saber a URL, preencha o `CORS_ORIGENS` e só então faça o deploy final.
 6. **Dados de demonstração** (roda da sua máquina, grava direto no Supabase):
    ```
-   node scripts/seed-demo.cjs --simular    # valida sem gravar
-   node scripts/seed-demo.cjs --gravar     # grava de verdade
+   node scripts/seed-demo.cjs --simular                  # valida sem gravar
+   node scripts/seed-demo.cjs --gravar --apagar-tudo     # APAGA tudo e grava de verdade
    ```
-   Precisa de `npm ci` em `proxy/` e `backend/` na sua máquina. É seguro repetir: o que já existe
-   não é duplicado nem alterado.
+   Precisa de `npm ci` em `proxy/` e `backend/` na sua máquina. **Atenção:** o script apaga todos os
+   dados das tabelas (exceto `integrantes_proxy`, que guarda as credenciais do backend no proxy) e
+   popula todas com exemplos de demonstração; todos os usuários são desconectados. Repetir é seguro:
+   o resultado é sempre o mesmo conjunto de dados.
 
 A nuvem só publica o que está na `main`. Código que não foi mesclado não aparece na apresentação.
 

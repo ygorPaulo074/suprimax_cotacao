@@ -10,7 +10,7 @@ Os scripts são Node puro (>= 20, `fetch` nativo, sem dependências novas) em ve
 2. `npm ci` em `proxy/`, `backend/` e `backend/database/`.
 3. `export DIRECT_URL=postgresql://postgres:<senha>@127.0.0.1:55432/suprimax` e `(cd backend/database && npx prisma migrate deploy --schema schema.prisma)`.
 4. `node scripts/gerar-env.cjs --codename tnf --database-url $DIRECT_URL --direct-url $DIRECT_URL --supabase-url http://127.0.0.1:1 --supabase-service-role-key local` (gera segredos novos em `scripts/tnf_*`, ignorado pelo git). Copie `proxy.env` para `proxy/.env` e `backend.env` para `backend/.env` (apague o valor `PREENCHER` de `RESEND_API_KEY`); em `proxy/.env` aponte `DATABASE_URL` para o Postgres local. Rode `integrantes.sql` no banco.
-5. `node scripts/seed-demo.cjs --gravar` (usuários chefe, operador, vendedor1/2, fiscal, financeiro, gestor; senha `Suprimax@2026`).
+5. `node scripts/seed-demo.cjs --gravar --apagar-tudo` (apaga os dados do banco local e popula todas as tabelas; usuários chefe, operador, vendedor1/2, fiscal, financeiro, gestor; senha `Suprimax@2026`).
 6. `tests-nfr/subir-ambiente.sh` (proxy :3001, backend :3000; `tests-nfr/subir-ambiente.sh parar` encerra).
 7. Para as medições de desempenho/concorrência, ponha `RATE_LIMIT_INTEGRANTE_MAXIMO=1000000` e `RATE_LIMIT_IP_MAXIMO=1000000` em `proxy/.env` (os padrões de 1200/min por integrante e 6000/min por IP podem derrubar a carga). Para o teste 15, troque por `RATE_LIMIT_INTEGRANTE_MAXIMO=60` (e remova a de IP) e reinicie.
 
