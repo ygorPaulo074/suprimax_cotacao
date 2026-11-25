@@ -33,6 +33,7 @@ import { rotaNaoEncontrada } from './middlewares/rotaNaoEncontrada';
 import { semCache } from './middlewares/semCache';
 import { tratamentoDeErros } from './middlewares/tratamentoDeErros';
 import { criarRotasDeSaude } from './rotas/saude';
+import { criarVerificadorDeSaude, type VerificadorDeSaude } from './saudeCompleta';
 
 /** Tamanho máximo do corpo JSON de uma requisição. */
 export const LIMITE_DO_CORPO_JSON = '100kb';
@@ -65,6 +66,8 @@ export interface DependenciasDoApp {
   readonly notificadorDeRecuperacao?: NotificadorDeRecuperacaoDeSenha;
   /** Envio de e-mail com anexo (UC08). Sem ele, o envio do orçamento só registra em log. */
   readonly enviadorDeEmail?: EnviadorDeEmail;
+  /** Verificação de `GET /saude/completa`; por padrão, a que usa o proxy e as sessões deste app. */
+  readonly verificadorDeSaude?: VerificadorDeSaude;
 }
 
 /** Chave de `app.locals` onde `createApp` deixa o `AgendadorDeJobs` para o `index.ts` ligar. */
@@ -87,6 +90,7 @@ export function createApp({
   notificador,
   notificadorDeRecuperacao,
   enviadorDeEmail,
+  verificadorDeSaude,
 }: DependenciasDoApp): Express {
   const app = express();
   // Define de onde vem o IP do cliente (req.ip), usado no limite de tentativas de login.
@@ -106,7 +110,11 @@ export function createApp({
   );
   app.use(express.json({ limit: LIMITE_DO_CORPO_JSON }));
 
-  app.use(criarRotasDeSaude());
+  app.use(
+    criarRotasDeSaude(
+      verificadorDeSaude ?? criarVerificadorDeSaude({ proxyUrl: config.proxyUrl, proxy, sessoes }),
+    ),
+  );
   const comuns = { proxy, sessoes, logger };
   const { senhas, agora } = auth ?? {};
   app.use(criarModuloDeAuth({ ...comuns, ...auth, notificador: notificadorDeRecuperacao }).rotas);
