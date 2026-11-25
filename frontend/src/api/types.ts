@@ -581,3 +581,23 @@ export interface PaginaDeClientes {
   tamanho: number;
   temMais: boolean;
 }
+
+// ---- Saúde dos serviços: página de aguardo (GET /saude/completa) ----
+export type NomeDaVerificacao =
+  'backend' | 'proxy' | 'banco_leitura' | 'banco_gravacao' | 'sessoes';
+
+/** Resultado de uma etapa. `erro` é só um código curto (ex.: `PROXY_INDISPONIVEL`, `SERVICO_INDISPONIVEL`). */
+export interface VerificacaoDeSaude {
+  nome: NomeDaVerificacao;
+  rotulo: string;
+  ok: boolean;
+  duracaoMs: number;
+  erro?: string;
+}
+
+/** `ok` só é verdadeiro quando todas as etapas passam; a resposta é sempre 200. */
+export interface RespostaDeSaudeCompleta {
+  ok: boolean;
+  verificacoes: VerificacaoDeSaude[];
+  verificadoEm: string;
+}

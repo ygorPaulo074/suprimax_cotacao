@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { createBrowserRouter, RouterProvider } from 'react-router-dom';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from '@/auth/AuthContext';
+import { GateServicos } from '@/components/GateServicos';
 import App from './App';
 import { criarQueryClient } from './lib/queryClient';
 import './index.css';
@@ -11,10 +12,14 @@ import './index.css';
 const roteador = createBrowserRouter([
   {
     path: '*',
+    // Página de aguardo: o sistema só abre quando todos os serviços respondem (só em produção; em
+    // desenvolvimento abre direto). Fica fora do AuthProvider para nada chamar a API antes disso.
     element: (
-      <AuthProvider>
-        <App />
-      </AuthProvider>
+      <GateServicos ativo={import.meta.env.PROD}>
+        <AuthProvider>
+          <App />
+        </AuthProvider>
+      </GateServicos>
     ),
   },
 ]);
