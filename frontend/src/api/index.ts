@@ -2,6 +2,7 @@ export * from './types';
 export { api, ApiError, definirToken, obterToken, aoReceberNaoAutorizado } from './client';
 export { assinarLentidao, haLeituraLenta } from './lentidao';
 export { authApi } from './auth';
+export { saudeApi } from './saude';
 export { pedidosApi } from './pedidos';
 export { clientesApi } from './clientes';
 export { orcamentosApi } from './orcamentos';
