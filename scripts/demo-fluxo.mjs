@@ -48,9 +48,12 @@ const SENHA = process.env.DEMO_SENHA;
 // Itens do roteiro (códigos do seed-demo.cjs). Arroz 5 kg x 30 passa do mínimo de R$ 500 (inclusivo).
 const ITEM_OK = { codigo: "DEMO-ARROZ-5", quantidade: 30 };
 const ITEM_SEM_ESTOQUE = { codigo: "DEMO-CAFE-500", quantidade: 1 }; // sem estoque de propósito
+// Frete FOB pela SupriMax precisa do valor cotado (em centavos): sem ele o frete fica provisório e o
+// banco recusa a emissão (FRETE_PROVISORIO_NAO_EMITIVEL).
 const CONDICOES = {
   condicaoPagamento: "ADIANTADO_100",
   origemTransportadora: "SUPRIMAX",
+  valorFrete: 5000,
 };
 
 const estado = { token: null, cliente: null, idOrcamento: null, produtos: {} };
@@ -255,7 +258,7 @@ async function main() {
       });
       exigir(r, [200, 201], "adicionar item");
       console.log(
-        `    ok: total dos itens ${formatar(r.corpo.valorTotalItens ?? 0)} (imposto de 18% calculado pelo backend)`,
+        `    ok: total dos itens ${formatar(r.corpo.condicoes?.valorTotalItens ?? r.corpo.valorTotalItens ?? 0)} (imposto de 18% calculado pelo backend)`,
       );
     },
   );
